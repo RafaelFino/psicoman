@@ -1,0 +1,14 @@
+# Override para desenvolvimento local.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Ou simplesmente: make run  (o Makefile já compõe os dois arquivos)
+services:
+  psicoman:
+    environment:
+      - DEV_MODE=true
+      - DEV_SECRET=dev-local
+      - JWT_SECRET=dev-jwt-secret
+      - DEFAULT_TENANT_ID=dev
+      - GOOGLE_CLIENT_ID=
+      - GOOGLE_CLIENT_SECRET=
+    # Em dev não precisamos de restart automático
+    restart: "no"

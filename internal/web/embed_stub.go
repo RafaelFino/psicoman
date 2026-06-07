@@ -2,8 +2,8 @@
 
 package web
 
-import "net/http"
+import "io/fs"
 
-func frontendFS() http.FileSystem {
+func frontendFS() fs.FS {
 	return nil
 }
