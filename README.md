@@ -58,11 +58,10 @@ Cada instância serve **um psicólogo**. O header `X-User-Id` define qual `data/
 
 ## Pré-requisitos
 
-- Go 1.23+
-- Node.js 20+
-- Docker + Docker Compose (para produção)
-- Conta Google Cloud com projeto configurado (para Calendar e OAuth)
-- Proxy Pangolin configurado na cloud (para autenticação do psicólogo)
+- Docker + Docker Compose
+- Go 1.23+ e Node.js 20+ (apenas para desenvolvimento local sem Docker)
+- Conta Google Cloud com projeto configurado (opcional — integração Calendar/Meet)
+- Proxy Pangolin configurado na cloud (apenas para produção)
 
 ---
 
@@ -197,9 +196,50 @@ DATA_DIR=/app/data
 
 ---
 
-### 4. Rodando com Docker Compose (produção)
+### 4. Rodar localmente com `make run` (modo dev — sem Google, sem Pangolin)
 
-#### 4.1 Criar pastas de dados no host
+Este é o fluxo para testar tudo localmente com um único comando, sem configurar nada além do Docker.
+
+```bash
+make run
+```
+
+O que acontece:
+1. Cria `data/db`, `data/ged` e `data/logs` no host (se não existirem)
+2. Faz o build completo da imagem Docker (Go + React embutido)
+3. Sobe o container com `DEV_MODE=true` — sem Google OAuth, sem Pangolin
+
+Acesse:
+```
+Psicólogo: http://localhost:8080/psych
+Paciente:  http://localhost:8080/patient/login
+```
+
+**Área do psicólogo** — acesso direto, sem autenticação adicional. O servidor usa o `DEFAULT_TENANT_ID=dev` automaticamente.
+
+**Área do paciente** — na tela de login, clique no botão **🛠 Dev** que aparece automaticamente quando `DEV_MODE` está ativo. Preencha nome e email fictícios e clique em "Entrar sem Google". Um paciente é criado/reutilizado e você entra diretamente.
+
+Para parar:
+```bash
+make stop
+# ou Ctrl+C se estiver em foreground
+```
+
+Para subir em background:
+```bash
+make run-bg
+docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f
+```
+
+> **O `DEV_MODE` está ativado apenas no `docker-compose.dev.yml`**, que só é carregado pelos targets `make run` e `make run-bg`. O `docker-compose.yml` padrão não tem `DEV_MODE`, então ele nunca vai para produção acidentalmente.
+
+---
+
+### 5. Rodar em produção com Docker Compose
+
+### 5. Rodar em produção com Docker Compose
+
+#### 5.1 Criar pastas de dados no host
 
 ```bash
 mkdir -p data/db data/ged data/logs
@@ -207,19 +247,19 @@ mkdir -p data/db data/ged data/logs
 
 Essas pastas ficam **fora** do container e persistem mesmo que o container seja destruído.
 
-#### 4.2 Build e start
+#### 5.2 Build e start
 
 ```bash
 docker compose up -d --build
 ```
 
-#### 4.3 Verificar logs
+#### 5.3 Verificar logs
 
 ```bash
 docker compose logs -f psicoman
 ```
 
-#### 4.4 Parar
+#### 5.4 Parar
 
 ```bash
 docker compose down
