@@ -1,0 +1,22 @@
+services:
+  psicoman:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/db:/app/data/db
+      - ./data/ged:/app/data/ged
+      - ./data/logs:/app/data/logs
+    environment:
+      - ADDR=:8080
+      - DATA_DIR=/app/data
+      - JWT_SECRET=${JWT_SECRET:-change-me}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL:-http://localhost:8080/api/auth/patient/callback}
+      - GOOGLE_CALENDAR_ID=${GOOGLE_CALENDAR_ID:-primary}
+      - PANGOLIN_USER_HEADER=${PANGOLIN_USER_HEADER:-X-User-Id}
+      - PANGOLIN_EMAIL_HEADER=${PANGOLIN_EMAIL_HEADER:-X-User-Email}
+      - PANGOLIN_ROLE_HEADER=${PANGOLIN_ROLE_HEADER:-X-User-Role}
+      - DEFAULT_TENANT_ID=${DEFAULT_TENANT_ID:-default}
+    restart: unless-stopped
