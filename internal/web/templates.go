@@ -123,6 +123,19 @@ func (r *TemplateRenderer) loadTemplates() {
 		template.Must(t.Parse(string(content)))
 		r.templates["patient/"+page] = t
 	}
+
+	// Load partials for htmx fragment responses
+	partials := []string{"calendar_grid"}
+	for _, partial := range partials {
+		path := fmt.Sprintf("templates/psych/partials/%s.html", partial)
+		content, err := fs.ReadFile(templatesFS, path)
+		if err != nil {
+			continue // Partial not yet created
+		}
+		t := template.New(partial).Funcs(r.funcMap)
+		template.Must(t.Parse(string(content)))
+		r.templates["partial/"+partial] = t
+	}
 }
 
 // Render executes the named template with the "psych" or "patient" layout.
@@ -144,6 +157,20 @@ func (r *TemplateRenderer) RenderPage(c *gin.Context, status int, name string, d
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Status(status)
 	if err := r.Render(c.Writer, name, data); err != nil {
+		c.String(http.StatusInternalServerError, "template error: %v", err)
+	}
+}
+
+// RenderPartial renders a partial template without layout (for htmx fragment responses).
+func (r *TemplateRenderer) RenderPartial(c *gin.Context, status int, name string, data any) {
+	t, ok := r.templates["partial/"+name]
+	if !ok {
+		c.String(http.StatusInternalServerError, "partial %q not found", name)
+		return
+	}
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.Status(status)
+	if err := t.Execute(c.Writer, data); err != nil {
 		c.String(http.StatusInternalServerError, "template error: %v", err)
 	}
 }

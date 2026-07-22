@@ -25,6 +25,10 @@ func (a *App) registerDevRoutes(r *gin.RouterGroup) {
 	// Body: {"name": "...", "email": "..."}
 	// Requires X-Dev-Auth header.
 	r.POST("/create-patient", a.devCreatePatient)
+
+	// DELETE /api/dev/test-data — deletes all test data from the database.
+	// Requires X-Dev-Auth header.
+	r.DELETE("/test-data", a.devDeleteTestData)
 }
 
 func (a *App) requireDevSecret(c *gin.Context) bool {
@@ -111,4 +115,21 @@ func (a *App) devCreatePatient(c *gin.Context) {
 		"patient": patient,
 		"token":   token,
 	})
+}
+
+func (a *App) devDeleteTestData(c *gin.Context) {
+	if !a.requireDevSecret(c) {
+		return
+	}
+	db, err := a.dbForTenant(a.Config.DefaultTenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error: " + err.Error()})
+		return
+	}
+	counts, err := db.DeleteTestData()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, counts)
 }

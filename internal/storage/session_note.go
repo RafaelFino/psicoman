@@ -82,6 +82,20 @@ func (db *DB) UpdateSessionNote(sn domain.SessionNote) error {
 	return err
 }
 
+func (db *DB) SessionNoteHoursForPatientMonth(patientID string, month, year int) (patientMin, analysisMin, adminMin int, err error) {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
+	row := db.QueryRow(
+		`SELECT COALESCE(SUM(duration_patient_min), 0),
+			COALESCE(SUM(duration_analysis_min), 0),
+			COALESCE(SUM(duration_admin_min), 0)
+		FROM session_notes WHERE patient_id = ? AND created_at >= ? AND created_at < ?`,
+		patientID, formatTime(start), formatTime(end),
+	)
+	err = row.Scan(&patientMin, &analysisMin, &adminMin)
+	return
+}
+
 func (db *DB) SessionNoteHoursForMonth(month, year int) (patientMin, analysisMin, adminMin int, err error) {
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)

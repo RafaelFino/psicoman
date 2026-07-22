@@ -2,8 +2,16 @@
 {{define "page-title"}}{{.Patient.Name}}{{end}}
 
 {{define "content"}}
-<div x-data="{ tab: 'overview' }">
-  <!-- Patient header -->
+<div x-data="{
+  tab: 'calendar',
+  modal: null,
+  selectedDate: '',
+  selectedAppointment: null,
+  error: '',
+  loading: false
+}" @keydown.escape.window="modal = null; error = ''">
+
+  <!-- Patient header card -->
   <div class="card mb-2">
     <div class="flex-between">
       <div>
@@ -15,106 +23,100 @@
     </div>
   </div>
 
-  <!-- Tabs -->
-  <div class="tabs">
-    <button class="tab" :class="tab === 'overview' && 'active'" @click="tab = 'overview'">Visao geral</button>
-    <button class="tab" :class="tab === 'appointments' && 'active'" @click="tab = 'appointments'">Consultas</button>
-    <button class="tab" :class="tab === 'notes' && 'active'" @click="tab = 'notes'">Evoluções</button>
-    <button class="tab" :class="tab === 'documents' && 'active'" @click="tab = 'documents'">Documentos</button>
-    <button class="tab" :class="tab === 'contracts' && 'active'" @click="tab = 'contracts'">Contratos</button>
-    <button class="tab" :class="tab === 'payments' && 'active'" @click="tab = 'payments'">Pagamentos</button>
+  <!-- Tab Navigation -->
+  <div class="tabs" role="tablist">
+    <button class="tab" :class="tab === 'calendar' && 'active'" @click="tab = 'calendar'"
+            role="tab" :aria-selected="tab === 'calendar'" @keydown.enter="tab = 'calendar'" @keydown.space.prevent="tab = 'calendar'">Calendário</button>
+    <button class="tab" :class="tab === 'notes' && 'active'" @click="tab = 'notes'"
+            role="tab" :aria-selected="tab === 'notes'" @keydown.enter="tab = 'notes'" @keydown.space.prevent="tab = 'notes'">Evoluções</button>
+    <button class="tab" :class="tab === 'documents' && 'active'" @click="tab = 'documents'"
+            role="tab" :aria-selected="tab === 'documents'" @keydown.enter="tab = 'documents'" @keydown.space.prevent="tab = 'documents'">Documentos</button>
+    <button class="tab" :class="tab === 'contracts' && 'active'" @click="tab = 'contracts'"
+            role="tab" :aria-selected="tab === 'contracts'" @keydown.enter="tab = 'contracts'" @keydown.space.prevent="tab = 'contracts'">Contratos</button>
+    <button class="tab" :class="tab === 'payments' && 'active'" @click="tab = 'payments'"
+            role="tab" :aria-selected="tab === 'payments'" @keydown.enter="tab = 'payments'" @keydown.space.prevent="tab = 'payments'">Financeiro</button>
   </div>
 
-  <!-- Overview -->
-  <div x-show="tab === 'overview'">
-    <div class="grid grid-3 mb-2">
-      <div class="stat-card">
-        <div class="label">Consultas totais</div>
-        <div class="value">{{len .Appointments}}</div>
+  <!-- ═══ Calendar Tab ═══ -->
+  <div x-show="tab === 'calendar'" role="tabpanel">
+    <!-- Metrics Panel -->
+    <div class="metrics-panel mb-2">
+      <div class="metric-card">
+        <div class="metric-label">Horas com paciente</div>
+        <div class="metric-value">{{.Metrics.PatientMinutes}}min</div>
+        <div class="progress-bar"><div class="progress-bar-fill" style="width: {{.Metrics.PatientPct}}%"></div></div>
       </div>
-      <div class="stat-card">
-        <div class="label">Documentos</div>
-        <div class="value">{{len .Documents}}</div>
+      <div class="metric-card">
+        <div class="metric-label">Análise</div>
+        <div class="metric-value">{{.Metrics.AnalysisMinutes}}min</div>
+        <div class="progress-bar"><div class="progress-bar-fill" style="width: {{.Metrics.AnalysisPct}}%"></div></div>
       </div>
-      <div class="stat-card">
-        <div class="label">Contratos</div>
-        <div class="value">{{len .Contracts}}</div>
+      <div class="metric-card">
+        <div class="metric-label">Admin</div>
+        <div class="metric-value">{{.Metrics.AdminMinutes}}min</div>
+        <div class="progress-bar"><div class="progress-bar-fill" style="width: {{.Metrics.AdminPct}}%"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Pagamentos</div>
+        <div class="metric-value">{{formatBRL .Metrics.ReceivedCents}}</div>
+        <div class="text-muted text-sm">Pendente: {{formatBRL .Metrics.PendingCents}}</div>
       </div>
     </div>
 
-    {{if .Patient.Anamnesis}}
-    <div class="card">
-      <h3>Anamnese (texto livre)</h3>
-      <p style="white-space: pre-wrap">{{.Patient.Anamnesis}}</p>
+    <!-- Calendar loaded via htmx -->
+    <div id="calendar-container"
+         hx-get="/psych/patients/{{.Patient.ID}}/calendar"
+         hx-trigger="load, calendarRefresh from:body"
+         hx-swap="outerHTML">
+      <div class="htmx-indicator">Carregando calendário...</div>
     </div>
-    {{end}}
-
-    {{if .AnamnesisResponses}}
-    <div class="card mt-2">
-      <h3>Respostas de anamnese estruturada</h3>
-      {{range .AnamnesisResponses}}
-      <div style="border-bottom:1px solid var(--border); padding:0.75rem 0">
-        <strong>{{.TemplateName}}</strong>
-        <span class="text-muted text-sm">— {{if .CompletedAt}}{{formatDate (derefTime .CompletedAt)}}{{end}}</span>
-      </div>
-      {{end}}
-    </div>
-    {{end}}
   </div>
 
-  <!-- Appointments -->
-  <div x-show="tab === 'appointments'">
+  <!-- ═══ Evoluções Tab ═══ -->
+  <div x-show="tab === 'notes'" role="tabpanel">
     <div class="card">
-      <table>
-        <thead><tr><th>Data</th><th>Tipo</th><th>Status</th><th>Duração</th></tr></thead>
-        <tbody>
-          {{range .Appointments}}
+      <table class="table">
+        <thead>
           <tr>
-            <td>{{formatDateTime .ScheduledAt}}</td>
-            <td><span class="badge badge-{{.Type}}">{{if eq .Type "online"}}Online{{else}}Presencial{{end}}</span></td>
-            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
-            <td>{{.DurationMinutes}}min</td>
+            <th>Data</th>
+            <th>Conteúdo</th>
+            <th>Tempo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .SessionNotes}}
+          <tr>
+            <td class="text-sm">{{formatDate .CreatedAt}}</td>
+            <td>{{.ContentHTML}}</td>
+            <td class="text-sm text-muted">{{.DurationPatientMin}}min paciente, {{.DurationAnalysisMin}}min análise, {{.DurationAdminMin}}min admin</td>
           </tr>
           {{else}}
-          <tr><td colspan="4" class="text-muted">Nenhuma consulta.</td></tr>
+          <tr><td colspan="3" class="text-muted">Nenhuma evolução registrada.</td></tr>
           {{end}}
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Session Notes -->
-  <div x-show="tab === 'notes'">
-    {{range .SessionNotes}}
-    <div class="card mb-1">
-      <div class="flex-between">
-        <span class="text-sm text-muted">{{formatDate .CreatedAt}}</span>
-        <span class="text-xs text-muted">Paciente: {{.DurationPatientMin}}min · Análise: {{.DurationAnalysisMin}}min · Admin: {{.DurationAdminMin}}min</span>
-      </div>
-      <div style="white-space:pre-wrap; margin-top:0.5rem">{{.ContentHTML}}</div>
-      {{if .PrivateNotes}}
-      <div class="mt-1" style="background: var(--warning-light); padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.85rem">
-        <strong>Notas privadas:</strong> {{.PrivateNotes}}
-      </div>
-      {{end}}
-    </div>
-    {{else}}
-    <div class="empty-state"><p>Nenhuma evolução registrada.</p></div>
-    {{end}}
-  </div>
-
-  <!-- Documents -->
-  <div x-show="tab === 'documents'">
+  <!-- ═══ Documentos Tab ═══ -->
+  <div x-show="tab === 'documents'" role="tabpanel">
     <div class="card">
-      <table>
-        <thead><tr><th>Arquivo</th><th>Tipo</th><th>Data</th><th></th></tr></thead>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Arquivo</th>
+            <th>Tipo</th>
+            <th>Data</th>
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
           {{range .Documents}}
           <tr>
             <td>{{.Filename}}</td>
             <td><span class="badge">{{.DocType}}</span></td>
             <td class="text-sm">{{formatDate .CreatedAt}}</td>
-            <td><a href="/api/psych/documents/{{.ID}}/download" class="btn btn-ghost btn-sm">Baixar</a></td>
+            <td><a href="/api/psych/documents/{{.ID}}/download" class="btn btn-primary btn-sm">Baixar</a></td>
           </tr>
           {{else}}
           <tr><td colspan="4" class="text-muted">Nenhum documento.</td></tr>
@@ -124,11 +126,17 @@
     </div>
   </div>
 
-  <!-- Contracts -->
-  <div x-show="tab === 'contracts'">
+  <!-- ═══ Contratos Tab ═══ -->
+  <div x-show="tab === 'contracts'" role="tabpanel">
     <div class="card">
-      <table>
-        <thead><tr><th>Template</th><th>Status</th><th>Data</th></tr></thead>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Template</th>
+            <th>Status</th>
+            <th>Data</th>
+          </tr>
+        </thead>
         <tbody>
           {{range .Contracts}}
           <tr>
@@ -144,11 +152,18 @@
     </div>
   </div>
 
-  <!-- Payments -->
-  <div x-show="tab === 'payments'">
+  <!-- ═══ Financeiro Tab ═══ -->
+  <div x-show="tab === 'payments'" role="tabpanel">
     <div class="card">
-      <table>
-        <thead><tr><th>Valor</th><th>Status</th><th>Vencimento</th><th>Recebido</th></tr></thead>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Valor</th>
+            <th>Status</th>
+            <th>Vencimento</th>
+            <th>Recebido</th>
+          </tr>
+        </thead>
         <tbody>
           {{range .Payments}}
           <tr>
@@ -164,5 +179,116 @@
       </table>
     </div>
   </div>
+
+  <!-- ═══ Appointment Edit Modal ═══ -->
+  <div class="modal-overlay" x-show="modal === 'edit'" x-cloak @click.self="modal = null; error = ''">
+    <div class="modal-content" @click.stop>
+      <div class="modal-title">
+        <h3>Editar Consulta</h3>
+        <button class="modal-close" @click="modal = null; error = ''" aria-label="Fechar">&times;</button>
+      </div>
+
+      <div x-show="error" class="alert alert-error mb-1" x-text="error"></div>
+
+      <form @submit.prevent="
+        loading = true;
+        error = '';
+        fetch('/api/psych/appointments/' + selectedAppointment + '/notes', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json', 'X-Dev-Auth': 'dev-local'},
+          body: JSON.stringify({
+            notes: $refs.editNotes.value,
+            scheduled_at: $refs.editScheduledAt.value ? new Date($refs.editScheduledAt.value).toISOString() : undefined,
+            type: $refs.editType.value,
+            duration_minutes: parseInt($refs.editDuration.value) || 50
+          })
+        })
+        .then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'Erro ao salvar') }); return r.json(); })
+        .then(() => { modal = null; error = ''; loading = false; document.body.dispatchEvent(new Event('calendarRefresh')); })
+        .catch(e => { error = e.message; loading = false; })
+      ">
+        <div class="form-group">
+          <label class="form-label">Data/Hora</label>
+          <input type="datetime-local" class="form-input" x-ref="editScheduledAt">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tipo</label>
+          <select class="form-select" x-ref="editType">
+            <option value="in_person">Presencial</option>
+            <option value="online">Online</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Duração (min)</label>
+          <input type="number" class="form-input" x-ref="editDuration" value="50" min="15" max="180">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notas</label>
+          <textarea class="form-textarea" x-ref="editNotes" rows="4"></textarea>
+        </div>
+        <div class="flex-between">
+          <button type="button" class="btn btn-secondary" @click="modal = null; error = ''">Cancelar</button>
+          <button type="submit" class="btn btn-primary" :disabled="loading">
+            <span x-show="!loading">Salvar</span>
+            <span x-show="loading">Salvando...</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ Appointment Create Modal ═══ -->
+  <div class="modal-overlay" x-show="modal === 'create'" x-cloak @click.self="modal = null; error = ''">
+    <div class="modal-content" @click.stop>
+      <div class="modal-title">
+        <h3>Nova Consulta</h3>
+        <button class="modal-close" @click="modal = null; error = ''" aria-label="Fechar">&times;</button>
+      </div>
+
+      <div x-show="error" class="alert alert-error mb-1" x-text="error"></div>
+
+      <form @submit.prevent="
+        loading = true;
+        error = '';
+        fetch('/api/psych/appointments', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-Dev-Auth': 'dev-local'},
+          body: JSON.stringify({
+            patient_id: '{{.Patient.ID}}',
+            type: $refs.createType.value,
+            scheduled_at: new Date($refs.createScheduledAt.value).toISOString(),
+            duration_minutes: parseInt($refs.createDuration.value) || 50
+          })
+        })
+        .then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'Erro ao criar') }); return r.json(); })
+        .then(() => { modal = null; error = ''; loading = false; document.body.dispatchEvent(new Event('calendarRefresh')); })
+        .catch(e => { error = e.message; loading = false; })
+      ">
+        <div class="form-group">
+          <label class="form-label">Tipo</label>
+          <select class="form-select" x-ref="createType">
+            <option value="in_person">Presencial</option>
+            <option value="online">Online</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data/Hora</label>
+          <input type="datetime-local" class="form-input" x-ref="createScheduledAt" :value="selectedDate ? selectedDate + 'T09:00' : ''" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Duração (min)</label>
+          <input type="number" class="form-input" x-ref="createDuration" value="50" min="15" max="180">
+        </div>
+        <div class="flex-between">
+          <button type="button" class="btn btn-secondary" @click="modal = null; error = ''">Cancelar</button>
+          <button type="submit" class="btn btn-primary" :disabled="loading">
+            <span x-show="!loading">Criar</span>
+            <span x-show="loading">Criando...</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
 </div>
 {{end}}

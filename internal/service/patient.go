@@ -10,11 +10,11 @@ import (
 type PatientService struct{}
 
 type RegisterPatientInput struct {
-	Email     string
-	Name      string
-	Phone     string
-	Anamnesis string
-	GoogleSub string
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	Phone     string `json:"phone"`
+	Anamnesis string `json:"anamnesis"`
+	GoogleSub string `json:"google_sub"`
 }
 
 func (s *PatientService) List(db *storage.DB) ([]domain.Patient, error) {

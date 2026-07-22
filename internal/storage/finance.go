@@ -80,6 +80,31 @@ func (db *DB) CreateCost(c domain.Cost) (*domain.Cost, error) {
 	return &c, nil
 }
 
+func (db *DB) PatientPaymentSummary(patientID string) (pendingCents, receivedCents int64, err error) {
+	rows, err := db.Query(
+		`SELECT status, COALESCE(SUM(amount_cents), 0) FROM payments WHERE patient_id = ? GROUP BY status`,
+		patientID,
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var total int64
+		if err := rows.Scan(&status, &total); err != nil {
+			return 0, 0, err
+		}
+		switch domain.PaymentStatus(status) {
+		case domain.PaymentPending:
+			pendingCents = total
+		case domain.PaymentReceived:
+			receivedCents = total
+		}
+	}
+	return pendingCents, receivedCents, rows.Err()
+}
+
 func scanPayments(rows *sql.Rows) ([]domain.Payment, error) {
 	var list []domain.Payment
 	for rows.Next() {

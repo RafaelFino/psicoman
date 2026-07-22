@@ -13,7 +13,7 @@ Toda struct que será serializada como resposta HTTP (via `c.JSON()` do Gin) **d
 
 - Usar **snake_case** nas json tags: `json:"field_name"`
 - Campos opcionais que podem ser vazios: `json:"field_name,omitempty"`
-- O frontend React espera todos os campos em snake_case
+- Os templates Go e htmx esperam todos os campos em snake_case
 
 ### Exemplo correto
 

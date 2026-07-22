@@ -2,7 +2,6 @@ package storage
 
 import (
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/fino/psicoman/internal/domain"
@@ -167,6 +166,3 @@ func parseTimePtr(ns sql.NullString) *time.Time {
 	return &t
 }
 
-func monthYearKey(month, year int) string {
-	return fmt.Sprintf("%04d-%02d", year, month)
-}

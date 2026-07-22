@@ -63,6 +63,8 @@ type Patient struct {
 	Phone     string     `json:"phone"`
 	BirthDate *time.Time `json:"birth_date"`
 	GoogleSub string     `json:"google_sub,omitempty"`
+	// Deprecated: Anamnesis is the legacy free-text field, replaced by structured AnamnesisResponse.
+	// Retained for DB backward compatibility; use AnamnesisResponse for new patient intake data.
 	Anamnesis string     `json:"anamnesis"`
 	CreatedAt time.Time  `json:"created_at"`
 }
@@ -78,6 +80,8 @@ type Appointment struct {
 	GoogleEventID      string            `json:"google_event_id,omitempty"`
 	MeetLink           string            `json:"meet_link"`
 	Notes              string            `json:"notes"`
+	// Deprecated: ReportHTML is legacy from before SessionNotes existed.
+	// Retained for DB backward compatibility; prefer SessionNote.ContentHTML for new data.
 	ReportHTML         string            `json:"report_html"`
 	CancellationReason string            `json:"cancellation_reason,omitempty"`
 	CreatedAt          time.Time         `json:"created_at"`

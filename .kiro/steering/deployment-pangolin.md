@@ -21,7 +21,7 @@ inclusion: manual
 │  ┌─────────────────────▼─────────────────────────────────────┐   │
 │  │  Docker: psicoman :8080                                    │   │
 │  │  - API Go (Gin)                                            │   │
-│  │  - Frontend React (embed)                                  │   │
+│  │  - Interface HTML (Go templates + htmx + Alpine.js)        │   │
 │  │  - SQLite em ./data/db/                                    │   │
 │  │  - Documentos em ./data/ged/                               │   │
 │  └───────────────────────────────────────────────────────────┘   │

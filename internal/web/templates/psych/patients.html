@@ -2,28 +2,58 @@
 {{define "page-title"}}Pacientes{{end}}
 
 {{define "content"}}
-<div class="section" x-data="{ showForm: false }">
+<div class="section" x-data="{
+  showForm: false,
+  patients: [],
+  form: { name: '', email: '', phone: '' },
+  error: '',
+  loading: true,
+  headers: {'Content-Type':'application/json','X-Dev-Auth':'dev-local'},
+  load() {
+    fetch('/api/psych/patients', {headers: this.headers})
+      .then(r => r.json())
+      .then(d => { this.patients = d || []; this.loading = false; })
+      .catch(e => { this.error = e.message; this.loading = false; })
+  },
+  submit() {
+    this.error = '';
+    fetch('/api/psych/patients', {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(this.form)
+    })
+    .then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error) }); return r.json(); })
+    .then(() => {
+      this.form = { name: '', email: '', phone: '' };
+      this.showForm = false;
+      this.load();
+    })
+    .catch(e => this.error = e.message)
+  }
+}" x-init="load()">
   <div class="section-header">
-    <h2>{{len .Patients}} pacientes</h2>
+    <h2><span x-text="patients.length"></span> pacientes</h2>
     <button class="btn btn-primary btn-sm" @click="showForm = !showForm">+ Novo paciente</button>
   </div>
 
+  <p x-show="error" class="form-error" x-text="error"></p>
+
   <!-- Form novo paciente -->
   <div class="card mb-2" x-show="showForm" x-cloak>
-    <form hx-post="/api/psych/patients" hx-target="#patient-list" hx-swap="innerHTML" hx-on::after-request="this.reset()">
+    <form @submit.prevent="submit()">
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Nome <span class="required">*</span></label>
-          <input name="name" class="form-input" required placeholder="Nome completo">
+          <input x-model="form.name" class="form-input" required placeholder="Nome completo">
         </div>
         <div class="form-group">
           <label class="form-label">Email <span class="required">*</span></label>
-          <input name="email" type="email" class="form-input" required placeholder="email@exemplo.com">
+          <input x-model="form.email" type="email" class="form-input" required placeholder="email@exemplo.com">
         </div>
       </div>
       <div class="form-group">
         <label class="form-label">Telefone</label>
-        <input name="phone" class="form-input" placeholder="(11) 99999-9999">
+        <input x-model="form.phone" class="form-input" placeholder="(11) 99999-9999">
       </div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Cadastrar</button>
@@ -45,18 +75,19 @@
             <th></th>
           </tr>
         </thead>
-        <tbody id="patient-list">
-          {{range .Patients}}
-          <tr>
-            <td><a href="/psych/patients/{{.ID}}"><strong>{{.Name}}</strong></a></td>
-            <td class="text-muted">{{.Email}}</td>
-            <td>{{.Phone}}</td>
-            <td class="text-sm text-muted">{{formatDate .CreatedAt}}</td>
-            <td><a href="/psych/patients/{{.ID}}" class="btn btn-ghost btn-sm">Ver</a></td>
+        <tbody>
+          <template x-for="p in patients" :key="p.id">
+            <tr>
+              <td><a :href="'/psych/patients/'+p.id"><strong x-text="p.name"></strong></a></td>
+              <td class="text-muted" x-text="p.email"></td>
+              <td x-text="p.phone"></td>
+              <td class="text-sm text-muted" x-text="p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : ''"></td>
+              <td><a :href="'/psych/patients/'+p.id" class="btn btn-ghost btn-sm">Ver</a></td>
+            </tr>
+          </template>
+          <tr x-show="!loading && patients.length === 0">
+            <td colspan="5" class="text-muted" style="text-align:center">Nenhum paciente cadastrado.</td>
           </tr>
-          {{else}}
-          <tr><td colspan="5" class="text-muted" style="text-align:center">Nenhum paciente cadastrado.</td></tr>
-          {{end}}
         </tbody>
       </table>
     </div>

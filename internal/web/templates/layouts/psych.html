@@ -52,4 +52,11 @@
 
 <!-- Toast container -->
 <div id="toast-container"></div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.querySelector('.header-right .btn-ghost');
+    if (btn && document.documentElement.getAttribute('data-theme') === 'dark') btn.textContent = '☀️';
+  });
+</script>
 {{end}}

@@ -1,7 +1,9 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/fino/psicoman/internal/domain"
@@ -13,6 +15,7 @@ func (a *App) registerPsychPages(r *gin.RouterGroup) {
 	r.GET("", a.pagePsychDashboard)
 	r.GET("/patients", a.pagePsychPatients)
 	r.GET("/patients/:id", a.pagePsychPatientDetail)
+	r.GET("/patients/:id/calendar", a.pagePsychPatientCalendar)
 	r.GET("/appointments", a.pagePsychAppointments)
 	r.GET("/session-notes", a.pagePsychSessionNotes)
 	r.GET("/anamnesis", a.pagePsychAnamnesis)
@@ -31,6 +34,98 @@ type WeekDay struct {
 	DayNumber    int
 	IsToday      bool
 	Appointments []domain.Appointment
+}
+
+// CalendarDay represents one cell in the monthly calendar grid.
+type CalendarDay struct {
+	Day          int                  // 0 = padding cell (outside month)
+	Date         string               // "2026-07-22" format
+	IsToday      bool
+	Appointments []domain.Appointment
+}
+
+// CalendarMonth holds the full month grid data for rendering.
+type CalendarMonth struct {
+	Year      int
+	Month     int
+	MonthName string
+	Days      []CalendarDay
+	PrevMonth string // "?year=2026&month=6" format for URL
+	NextMonth string // "?year=2026&month=8" format for URL
+	PatientID string
+}
+
+// buildCalendarMonth produces the calendar data for a given month/year and patient's appointments.
+func buildCalendarMonth(year, month int, patientID string, appointments []domain.Appointment) CalendarMonth {
+	// Portuguese month names
+	monthNames := []string{"", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+		"Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"}
+
+	firstDay := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	lastDay := firstDay.AddDate(0, 1, -1).Day()
+	weekdayOffset := int(firstDay.Weekday()) // Sunday=0
+
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+
+	// Total cells = padding + days in month, rounded up to complete weeks
+	totalCells := weekdayOffset + lastDay
+	if totalCells%7 != 0 {
+		totalCells += 7 - (totalCells % 7)
+	}
+
+	days := make([]CalendarDay, totalCells)
+
+	// Fill padding cells (Day=0)
+	for i := 0; i < weekdayOffset; i++ {
+		days[i] = CalendarDay{Day: 0}
+	}
+
+	// Fill actual days
+	for d := 1; d <= lastDay; d++ {
+		idx := weekdayOffset + d - 1
+		date := time.Date(year, time.Month(month), d, 0, 0, 0, 0, time.UTC)
+		cd := CalendarDay{
+			Day:     d,
+			Date:    date.Format("2006-01-02"),
+			IsToday: date.Equal(today),
+		}
+		// Attach appointments for this day
+		for _, appt := range appointments {
+			apptDate := time.Date(appt.ScheduledAt.Year(), appt.ScheduledAt.Month(), appt.ScheduledAt.Day(), 0, 0, 0, 0, time.UTC)
+			if apptDate.Equal(date) {
+				cd.Appointments = append(cd.Appointments, appt)
+			}
+		}
+		days[idx] = cd
+	}
+
+	// Trailing padding cells
+	for i := weekdayOffset + lastDay; i < totalCells; i++ {
+		days[i] = CalendarDay{Day: 0}
+	}
+
+	// Compute prev/next month navigation
+	prevYear, prevMonth := year, month-1
+	if prevMonth < 1 {
+		prevMonth = 12
+		prevYear--
+	}
+	nextYear, nextMonth := year, month+1
+	if nextMonth > 12 {
+		nextMonth = 1
+		nextYear++
+	}
+
+	return CalendarMonth{
+		Year:      year,
+		Month:     month,
+		MonthName: fmt.Sprintf("%s %d", monthNames[month], year),
+		Days:      days,
+		PrevMonth: fmt.Sprintf("?year=%d&month=%d", prevYear, prevMonth),
+		NextMonth: fmt.Sprintf("?year=%d&month=%d", nextYear, nextMonth),
+		PatientID: patientID,
+	}
 }
 
 type dashboardData struct {
@@ -120,9 +215,24 @@ func (a *App) pagePsychPatients(c *gin.Context) {
 
 // ─── Patient Detail (360°) ───────────────────────────────────────────────────
 
+// PatientMetrics holds computed metrics for the patient detail page.
+type PatientMetrics struct {
+	PatientMinutes  int
+	AnalysisMinutes int
+	AdminMinutes    int
+	TotalMinutes    int
+	PatientPct      int
+	AnalysisPct     int
+	AdminPct        int
+	PendingCents    int64
+	ReceivedCents   int64
+}
+
 type patientDetailData struct {
 	PageData
 	Patient            *domain.Patient
+	Calendar           CalendarMonth
+	Metrics            PatientMetrics
 	Appointments       []domain.Appointment
 	SessionNotes       []domain.SessionNote
 	Documents          []domain.Document
@@ -141,9 +251,11 @@ func (a *App) pagePsychPatientDetail(c *gin.Context) {
 		return
 	}
 
-	// Load all related data
+	now := time.Now().UTC()
+
+	// Load all related data (full history for lists)
 	from := patient.CreatedAt
-	to := time.Now().UTC().AddDate(1, 0, 0)
+	to := now.AddDate(1, 0, 0)
 	appts, _ := db.ListAppointments(from, to, id)
 	notes, _ := db.ListSessionNotes(id)
 	docs, _ := db.ListDocuments(id)
@@ -151,8 +263,6 @@ func (a *App) pagePsychPatientDetail(c *gin.Context) {
 	responses, _ := db.ListAnamnesisResponses(id)
 
 	// Load payments for this patient (all months)
-	// We'll get the current year's payments as an approximation
-	now := time.Now().UTC()
 	var payments []domain.Payment
 	for m := 1; m <= 12; m++ {
 		monthly, _ := db.ListPayments(m, now.Year())
@@ -163,9 +273,41 @@ func (a *App) pagePsychPatientDetail(c *gin.Context) {
 		}
 	}
 
+	// Current month appointments for calendar
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+	monthAppts, _ := db.ListAppointments(monthStart, monthEnd, id)
+
+	// Build calendar
+	calendar := buildCalendarMonth(now.Year(), int(now.Month()), id, monthAppts)
+
+	// Metrics
+	patientMin, analysisMin, adminMin, _ := db.SessionNoteHoursForPatientMonth(id, int(now.Month()), now.Year())
+	pendingCents, receivedCents, _ := db.PatientPaymentSummary(id)
+	totalMin := patientMin + analysisMin + adminMin
+	var patientPct, analysisPct, adminPct int
+	if totalMin > 0 {
+		patientPct = patientMin * 100 / totalMin
+		analysisPct = analysisMin * 100 / totalMin
+		adminPct = adminMin * 100 / totalMin
+	}
+	metrics := PatientMetrics{
+		PatientMinutes:  patientMin,
+		AnalysisMinutes: analysisMin,
+		AdminMinutes:    adminMin,
+		TotalMinutes:    totalMin,
+		PatientPct:      patientPct,
+		AnalysisPct:     analysisPct,
+		AdminPct:        adminPct,
+		PendingCents:    pendingCents,
+		ReceivedCents:   receivedCents,
+	}
+
 	data := patientDetailData{
 		PageData:           basePsychData("patients"),
 		Patient:            patient,
+		Calendar:           calendar,
+		Metrics:            metrics,
 		Appointments:       appts,
 		SessionNotes:       notes,
 		Documents:          docs,
@@ -174,6 +316,46 @@ func (a *App) pagePsychPatientDetail(c *gin.Context) {
 		AnamnesisResponses: responses,
 	}
 	a.Tmpl.RenderPage(c, http.StatusOK, "psych/patient_detail", data)
+}
+
+// ─── Patient Calendar Fragment (htmx) ────────────────────────────────────────
+
+// pagePsychPatientCalendar returns only the calendar grid HTML for htmx month navigation.
+func (a *App) pagePsychPatientCalendar(c *gin.Context) {
+	db := getDB(c)
+	id := c.Param("id")
+	now := time.Now().UTC()
+
+	year := now.Year()
+	month := int(now.Month())
+
+	if y := c.Query("year"); y != "" {
+		if v, err := strconv.Atoi(y); err == nil {
+			year = v
+		}
+	}
+	if m := c.Query("month"); m != "" {
+		if v, err := strconv.Atoi(m); err == nil {
+			month = v
+		}
+	}
+
+	// Normalize month overflow (e.g. month=0 or month=13)
+	if month < 1 {
+		month = 12
+		year--
+	} else if month > 12 {
+		month = 1
+		year++
+	}
+
+	// Fetch appointments for the requested month
+	monthStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+	appts, _ := db.ListAppointments(monthStart, monthEnd, id)
+
+	calendar := buildCalendarMonth(year, month, id, appts)
+	a.Tmpl.RenderPartial(c, http.StatusOK, "calendar_grid", calendar)
 }
 
 // ─── Appointments ────────────────────────────────────────────────────────────

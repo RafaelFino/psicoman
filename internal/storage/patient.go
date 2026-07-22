@@ -87,3 +87,96 @@ func scanPatients(rows *sql.Rows) ([]domain.Patient, error) {
 	}
 	return list, rows.Err()
 }
+
+// DeleteTestData removes all patients whose name starts with "TEST " OR email ends with "@test.com",
+// plus all associated data (appointments, session_notes, documents, contracts, payments, anamnesis_responses).
+// Returns a map of entity type → count deleted. Wrapped in a transaction for atomicity.
+func (db *DB) DeleteTestData() (map[string]int, error) {
+	counts := map[string]int{
+		"patients":            0,
+		"appointments":       0,
+		"session_notes":      0,
+		"documents":          0,
+		"contracts":          0,
+		"payments":           0,
+		"anamnesis_responses": 0,
+	}
+
+	// 1. Find patient IDs matching test criteria
+	rows, err := db.Query(`SELECT id FROM patients WHERE name LIKE 'TEST %' OR email LIKE '%@test.com'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var patientIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		patientIDs = append(patientIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 2. If no patients found, return empty counts
+	if len(patientIDs) == 0 {
+		return counts, nil
+	}
+
+	// 3. Build placeholder string for IN clause
+	placeholders := ""
+	args := make([]interface{}, len(patientIDs))
+	for i, id := range patientIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args[i] = id
+	}
+
+	// 4. Execute deletions within a transaction
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	childTables := []struct {
+		table string
+		key   string
+	}{
+		{"session_notes", "session_notes"},
+		{"documents", "documents"},
+		{"contracts", "contracts"},
+		{"payments", "payments"},
+		{"appointments", "appointments"},
+		{"anamnesis_responses", "anamnesis_responses"},
+	}
+
+	for _, ct := range childTables {
+		res, err := tx.Exec("DELETE FROM "+ct.table+" WHERE patient_id IN ("+placeholders+")", args...)
+		if err != nil {
+			return nil, err
+		}
+		n, _ := res.RowsAffected()
+		counts[ct.key] = int(n)
+	}
+
+	// 5. Delete the patients themselves
+	res, err := tx.Exec("DELETE FROM patients WHERE id IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	counts["patients"] = int(n)
+
+	// 6. Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return counts, nil
+}

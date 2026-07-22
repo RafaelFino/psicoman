@@ -32,13 +32,14 @@ fileMatchPattern: "internal/web/**"
 - Validações de negócio no service layer (não no handler)
 - Erros nunca expõem stack traces — apenas mensagens user-friendly em português
 
-## Headers de segurança (a implementar)
+## Headers de segurança ✅
 
-Adicionar no middleware:
+Implementado no middleware `SecurityHeaders()` em `router.go`:
 ```go
 c.Header("X-Content-Type-Options", "nosniff")
 c.Header("X-Frame-Options", "DENY")
 c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+c.Header("X-XSS-Protection", "1; mode=block")
 ```
 
 ## Secrets e variáveis de ambiente
@@ -57,7 +58,7 @@ Endpoints públicos devem ter rate limiting:
 ## CORS
 
 - Em produção: Pangolin serve tudo no mesmo domínio → sem CORS issues
-- Em dev: Vite proxy em :5173 redireciona `/api/*` para :8080 → sem CORS issues
+- Em dev: tudo servido pelo Go na mesma porta :8080 → sem CORS issues
 - Não é necessário configurar CORS headers no Go
 
 ## Upload de arquivos
