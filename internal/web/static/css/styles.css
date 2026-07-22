@@ -854,32 +854,62 @@ td a { font-weight: 500; }
   font-size: 0.7rem;
 }
 
-.calendar-dot {
-  display: block;
-  padding: 0.15rem 0.3rem;
-  margin-bottom: 0.15rem;
-  border-radius: 3px;
-  font-size: 0.65rem;
+.calendar-appt {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.4rem;
+  margin-bottom: 0.2rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-decoration: none;
+  cursor: pointer;
   background: var(--primary-light);
   color: var(--primary);
-  border-left: 2px solid var(--primary);
+  border-left: 3px solid var(--primary);
+  transition: all 0.15s;
+  min-height: 24px;
 }
 
-.calendar-dot.completed {
+.calendar-appt:hover {
+  background: var(--primary);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.calendar-appt.completed {
   background: var(--success-light);
   color: var(--success);
   border-left-color: var(--success);
 }
 
-.calendar-dot.cancelled {
+.calendar-appt.completed:hover {
+  background: var(--success);
+  color: white;
+}
+
+.calendar-appt.cancelled {
   background: var(--danger-light);
   color: var(--danger);
   border-left-color: var(--danger);
   text-decoration: line-through;
+}
+
+.calendar-appt.cancelled:hover {
+  background: var(--danger);
+  color: white;
+  text-decoration: none;
+}
+
+.calendar-appt-time {
+  font-weight: 700;
+  font-size: 0.7rem;
+}
+
+.calendar-appt-type {
+  font-size: 0.65rem;
 }
 
 /* ─── Metrics Panel ─── */

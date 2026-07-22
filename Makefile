@@ -1,4 +1,4 @@
-.PHONY: build run run-api test docker clean
+.PHONY: build run run-api seed-and-run test docker clean
 
 # Build: único binário Go com templates e assets embutidos
 build:
@@ -26,6 +26,24 @@ stop:
 run-api: build
 	@echo ">>> DEV MODE — rotas /api/dev/* ativas"
 	env $$(grep -v '^#' .env.dev | grep -v '^$$' | xargs) ./bin/psicoman
+
+# ─────────────────────────────────────────────────────────────────
+# make seed-and-run → limpa banco, sobe servidor e carrega dados de teste.
+# Idempotente: pode rodar várias vezes sem duplicar dados.
+# ─────────────────────────────────────────────────────────────────
+seed-and-run: build
+	@rm -f data/db/dev.sqlite*
+	@mkdir -p data/db data/ged data/logs
+	@echo ">>> Iniciando servidor em background..."
+	@env $$(grep -v '^#' .env.dev | grep -v '^$$' | xargs) ./bin/psicoman & \
+		SERVER_PID=$$!; \
+		sleep 2; \
+		echo ">>> Carregando dados de teste..."; \
+		bash scripts/seed-test-data.sh; \
+		echo ""; \
+		echo ">>> Servidor rodando em http://localhost:8080 (PID: $$SERVER_PID)"; \
+		echo ">>> Para parar: kill $$SERVER_PID"; \
+		wait $$SERVER_PID
 
 # Testes
 test:

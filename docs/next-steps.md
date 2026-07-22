@@ -20,6 +20,8 @@ Funcionalidades e melhorias planejadas para as próximas versões.
 | Vinculação espaço → consulta | Ao criar consulta presencial, selecionar espaço disponível | 4h |
 | Notificações por email | Lembrete de consulta, contrato pendente, anamnese não preenchida | 8h |
 | Backup automatizado | Script de rsync/cron para data/ | 2h |
+| Google Calendar no celular | Configurar push notifications para que o terapeuta receba alertas de consultas no Android/iOS via Google Calendar | 4h |
+| Backup SQLite no Google Drive | Upload automático do arquivo .sqlite para Google Drive do terapeuta (usando mesma autenticação OAuth já existente) | 6h |
 
 ## Prioridade Baixa — Polish
 

@@ -21,6 +21,10 @@ profile.cov
 # vendor/
 data/
 
+
+#binary files
+bin/
+
 # Go workspace file
 go.work
 go.work.sum

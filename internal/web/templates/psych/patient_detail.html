@@ -182,13 +182,30 @@
 
   <!-- ═══ Appointment Edit Modal ═══ -->
   <div class="modal-overlay" x-show="modal === 'edit'" x-cloak @click.self="modal = null; error = ''">
-    <div class="modal-content" @click.stop>
+    <div class="modal-content" @click.stop x-data="{ apptData: null, loadingAppt: false }"
+         x-effect="if (modal === 'edit' && selectedAppointment) {
+           loadingAppt = true;
+           fetch('/api/psych/appointments?from=2020-01-01T00:00:00Z&to=2030-01-01T00:00:00Z&patient_id={{.Patient.ID}}', {headers:{'X-Dev-Auth':'dev-local'}})
+             .then(r => r.json())
+             .then(list => {
+               apptData = (list || []).find(a => a.id === selectedAppointment);
+               if (apptData) {
+                 $refs.editScheduledAt.value = apptData.scheduled_at ? apptData.scheduled_at.slice(0,16) : '';
+                 $refs.editType.value = apptData.type || 'online';
+                 $refs.editDuration.value = apptData.duration_minutes || 50;
+                 $refs.editNotes.value = apptData.notes || '';
+               }
+               loadingAppt = false;
+             })
+             .catch(() => { loadingAppt = false; })
+         }">
       <div class="modal-title">
         <h3>Editar Consulta</h3>
         <button class="modal-close" @click="modal = null; error = ''" aria-label="Fechar">&times;</button>
       </div>
 
-      <div x-show="error" class="alert alert-error mb-1" x-text="error"></div>
+      <div x-show="loadingAppt" class="text-muted text-sm mb-1">Carregando dados...</div>
+      <div x-show="error" class="form-error mb-1" x-text="error"></div>
 
       <form @submit.prevent="
         loading = true;
@@ -198,9 +215,7 @@
           headers: {'Content-Type': 'application/json', 'X-Dev-Auth': 'dev-local'},
           body: JSON.stringify({
             notes: $refs.editNotes.value,
-            scheduled_at: $refs.editScheduledAt.value ? new Date($refs.editScheduledAt.value).toISOString() : undefined,
-            type: $refs.editType.value,
-            duration_minutes: parseInt($refs.editDuration.value) || 50
+            report_html: ''
           })
         })
         .then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'Erro ao salvar') }); return r.json(); })
@@ -209,27 +224,34 @@
       ">
         <div class="form-group">
           <label class="form-label">Data/Hora</label>
-          <input type="datetime-local" class="form-input" x-ref="editScheduledAt">
+          <input type="datetime-local" class="form-input" x-ref="editScheduledAt" disabled>
+          <span class="text-muted text-xs">Para alterar horário, use reagendamento</span>
         </div>
         <div class="form-group">
           <label class="form-label">Tipo</label>
-          <select class="form-select" x-ref="editType">
+          <select class="form-select" x-ref="editType" disabled>
             <option value="in_person">Presencial</option>
             <option value="online">Online</option>
           </select>
         </div>
         <div class="form-group">
           <label class="form-label">Duração (min)</label>
-          <input type="number" class="form-input" x-ref="editDuration" value="50" min="15" max="180">
+          <input type="number" class="form-input" x-ref="editDuration" disabled>
         </div>
         <div class="form-group">
           <label class="form-label">Notas</label>
-          <textarea class="form-textarea" x-ref="editNotes" rows="4"></textarea>
+          <textarea class="form-textarea" x-ref="editNotes" rows="4" placeholder="Anotações sobre a consulta..."></textarea>
+        </div>
+        <div class="form-group" x-show="apptData">
+          <span class="text-sm text-muted">Status: </span>
+          <span class="badge" :class="'badge-' + (apptData?.status || '')" x-text="apptData?.status"></span>
+          <span class="text-sm text-muted" x-show="apptData?.meet_link"> · </span>
+          <a x-show="apptData?.meet_link" :href="apptData?.meet_link" target="_blank" class="text-sm">Abrir Meet</a>
         </div>
         <div class="flex-between">
-          <button type="button" class="btn btn-secondary" @click="modal = null; error = ''">Cancelar</button>
+          <button type="button" class="btn btn-secondary" @click="modal = null; error = ''">Fechar</button>
           <button type="submit" class="btn btn-primary" :disabled="loading">
-            <span x-show="!loading">Salvar</span>
+            <span x-show="!loading">Salvar notas</span>
             <span x-show="loading">Salvando...</span>
           </button>
         </div>
@@ -239,41 +261,44 @@
 
   <!-- ═══ Appointment Create Modal ═══ -->
   <div class="modal-overlay" x-show="modal === 'create'" x-cloak @click.self="modal = null; error = ''">
-    <div class="modal-content" @click.stop>
+    <div class="modal-content" @click.stop
+         x-effect="if (modal === 'create' && selectedDate && $refs.createScheduledAt) { $refs.createScheduledAt.value = selectedDate + 'T09:00'; }">
       <div class="modal-title">
         <h3>Nova Consulta</h3>
         <button class="modal-close" @click="modal = null; error = ''" aria-label="Fechar">&times;</button>
       </div>
 
-      <div x-show="error" class="alert alert-error mb-1" x-text="error"></div>
+      <div x-show="error" class="form-error mb-1" x-text="error"></div>
 
       <form @submit.prevent="
         loading = true;
         error = '';
+        var dt = $refs.createScheduledAt.value;
+        if (!dt) { error = 'Data é obrigatória'; loading = false; return; }
         fetch('/api/psych/appointments', {
           method: 'POST',
           headers: {'Content-Type': 'application/json', 'X-Dev-Auth': 'dev-local'},
           body: JSON.stringify({
             patient_id: '{{.Patient.ID}}',
             type: $refs.createType.value,
-            scheduled_at: new Date($refs.createScheduledAt.value).toISOString(),
+            scheduled_at: new Date(dt).toISOString(),
             duration_minutes: parseInt($refs.createDuration.value) || 50
           })
         })
         .then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'Erro ao criar') }); return r.json(); })
-        .then(() => { modal = null; error = ''; loading = false; document.body.dispatchEvent(new Event('calendarRefresh')); })
+        .then(() => { modal = null; error = ''; loading = false; selectedDate = ''; document.body.dispatchEvent(new Event('calendarRefresh')); })
         .catch(e => { error = e.message; loading = false; })
       ">
         <div class="form-group">
-          <label class="form-label">Tipo</label>
-          <select class="form-select" x-ref="createType">
-            <option value="in_person">Presencial</option>
-            <option value="online">Online</option>
-          </select>
+          <label class="form-label">Data/Hora <span class="required">*</span></label>
+          <input type="datetime-local" class="form-input" x-ref="createScheduledAt" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Data/Hora</label>
-          <input type="datetime-local" class="form-input" x-ref="createScheduledAt" :value="selectedDate ? selectedDate + 'T09:00' : ''" required>
+          <label class="form-label">Tipo</label>
+          <select class="form-select" x-ref="createType">
+            <option value="online">Online</option>
+            <option value="in_person">Presencial</option>
+          </select>
         </div>
         <div class="form-group">
           <label class="form-label">Duração (min)</label>
@@ -282,7 +307,7 @@
         <div class="flex-between">
           <button type="button" class="btn btn-secondary" @click="modal = null; error = ''">Cancelar</button>
           <button type="submit" class="btn btn-primary" :disabled="loading">
-            <span x-show="!loading">Criar</span>
+            <span x-show="!loading">Criar consulta</span>
             <span x-show="loading">Criando...</span>
           </button>
         </div>
