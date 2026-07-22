@@ -1,0 +1,20 @@
+{{define "patient"}}{{template "base" .}}{{end}}
+
+{{define "body"}}
+<div class="layout-patient">
+  <header class="patient-header">
+    <h1>Psicoman</h1>
+    <nav class="patient-nav">
+      <a href="/patient" {{if eq .ActiveNav "dashboard"}}class="active"{{end}}>Atendimentos</a>
+      <a href="/patient/book" {{if eq .ActiveNav "book"}}class="active"{{end}}>Agendar</a>
+      <a href="/patient/anamnesis" {{if eq .ActiveNav "anamnesis"}}class="active"{{end}}>Anamnese</a>
+      <a href="/patient/contracts" {{if eq .ActiveNav "contracts"}}class="active"{{end}}>Contratos</a>
+      <a href="/patient/documents" {{if eq .ActiveNav "documents"}}class="active"{{end}}>Documentos</a>
+      <a href="/patient/logout" class="text-muted">Sair</a>
+    </nav>
+  </header>
+  <main class="patient-main">
+    {{block "content" .}}{{end}}
+  </main>
+</div>
+{{end}}

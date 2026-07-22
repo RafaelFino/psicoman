@@ -1,0 +1,52 @@
+{{define "title"}}Contratos — Psicoman{{end}}
+
+{{define "content"}}
+<h2 class="page-title">Meus contratos</h2>
+
+<div x-data="{
+  contracts: [], viewing: null, loading: true, signing: false, error: '',
+  token() { return document.cookie.split(';').find(c=>c.trim().startsWith('patient_token='))?.split('=')[1] || '' },
+  headers() { return {'Authorization':'Bearer '+this.token(),'Content-Type':'application/json'} },
+  load() {
+    fetch('/api/patient/contracts',{headers:this.headers()}).then(r=>r.json()).then(d=>{this.contracts=d||[];this.loading=false})
+  },
+  sign(id) {
+    if(!confirm('Ao assinar, você declara que leu e concorda com os termos. Deseja continuar?')) return;
+    this.signing=true;
+    fetch('/api/patient/contracts/'+id+'/sign',{method:'POST',headers:this.headers()})
+      .then(r=>{if(!r.ok)return r.json().then(d=>{throw new Error(d.error)});this.viewing=null;this.load()})
+      .catch(e=>this.error=e.message).finally(()=>this.signing=false)
+  }
+}" x-init="load()">
+  <p x-show="error" class="form-error" x-text="error"></p>
+
+  <!-- Viewing contract -->
+  <div x-show="viewing">
+    <button class="btn btn-secondary btn-sm mb-2" @click="viewing=null">← Voltar</button>
+    <div class="card mb-2" x-html="viewing?.generated_html" style="line-height:1.7"></div>
+    <div x-show="viewing?.status==='pending'" class="card" style="background:var(--success-light)">
+      <h3>Assinatura digital</h3>
+      <p>Ao clicar, você declara que leu e compreendeu os termos acima.</p>
+      <button class="btn btn-primary" @click="sign(viewing.id)" :disabled="signing" x-text="signing?'Assinando...':'Assinar contrato'"></button>
+    </div>
+  </div>
+
+  <!-- List -->
+  <div x-show="!viewing">
+    <div x-show="!loading && contracts.length===0" class="empty-state">
+      <div class="icon">📄</div>
+      <p>Nenhum contrato disponível.</p>
+    </div>
+    <div class="grid">
+      <template x-for="c in contracts" :key="c.id">
+        <div class="card">
+          <strong x-text="c.template_name"></strong>
+          <p><span class="badge" :class="'badge-'+c.status" x-text="c.status"></span></p>
+          <p class="text-sm text-muted" x-text="new Date(c.created_at).toLocaleDateString('pt-BR')"></p>
+          <button class="btn btn-primary btn-sm" @click="viewing=c" x-text="c.status==='pending'?'Ler e assinar':'Visualizar'"></button>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+{{end}}

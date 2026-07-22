@@ -39,6 +39,36 @@ func (a *App) registerPsychRoutes(r *gin.RouterGroup) {
 
 	r.GET("/google/auth", a.googleAuthURL)
 	r.GET("/google/callback", a.googleCallback)
+
+	// Session notes (evoluções)
+	r.GET("/session-notes", a.listSessionNotes)
+	r.GET("/session-notes/:id", a.getSessionNote)
+	r.GET("/session-notes/appointment/:id", a.getSessionNoteByAppointment)
+	r.POST("/session-notes", a.createSessionNote)
+	r.PUT("/session-notes/:id", a.updateSessionNote)
+	r.GET("/session-notes/hours", a.sessionNoteHours)
+
+	// Anamnesis templates & responses
+	r.GET("/anamnesis/templates", a.listAnamnesisTemplates)
+	r.POST("/anamnesis/templates", a.createAnamnesisTemplate)
+	r.PUT("/anamnesis/templates/:id", a.updateAnamnesisTemplate)
+	r.DELETE("/anamnesis/templates/:id", a.deleteAnamnesisTemplate)
+	r.GET("/anamnesis/responses", a.listAnamnesisResponses)
+	r.GET("/anamnesis/responses/:id", a.getAnamnesisResponse)
+
+	// Contracts
+	r.GET("/contracts/templates", a.listContractTemplates)
+	r.POST("/contracts/templates", a.createContractTemplate)
+	r.PUT("/contracts/templates/:id", a.updateContractTemplate)
+	r.GET("/contracts", a.listContracts)
+	r.POST("/contracts", a.createContract)
+	r.PATCH("/contracts/:id/revoke", a.revokeContract)
+
+	// Supervisões
+	a.registerSupervisionRoutes(r)
+
+	// Espaços
+	a.registerSpaceRoutes(r)
 }
 
 func (a *App) psychMe(c *gin.Context) {
@@ -381,3 +411,71 @@ func (a *App) setCalendarDB(c *gin.Context) {
 		cal.DB = getDB(c)
 	}
 }
+
+// ─── Session Notes ───────────────────────────────────────────────────────────
+
+func (a *App) listSessionNotes(c *gin.Context) {
+	list, err := a.SessionNote.List(getDB(c), c.Query("patient_id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+func (a *App) getSessionNote(c *gin.Context) {
+	sn, err := a.SessionNote.Get(getDB(c), c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "evolução não encontrada"})
+		return
+	}
+	c.JSON(http.StatusOK, sn)
+}
+
+func (a *App) getSessionNoteByAppointment(c *gin.Context) {
+	sn, err := a.SessionNote.GetByAppointment(getDB(c), c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "evolução não encontrada para este atendimento"})
+		return
+	}
+	c.JSON(http.StatusOK, sn)
+}
+
+func (a *App) createSessionNote(c *gin.Context) {
+	var in service.CreateSessionNoteInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	sn, err := a.SessionNote.Create(getDB(c), in)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, sn)
+}
+
+func (a *App) updateSessionNote(c *gin.Context) {
+	var in service.UpdateSessionNoteInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	sn, err := a.SessionNote.Update(getDB(c), c.Param("id"), in)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, sn)
+}
+
+func (a *App) sessionNoteHours(c *gin.Context) {
+	month, year := parseMonthYear(c)
+	hours, err := a.SessionNote.MonthlyHours(getDB(c), month, year)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, hours)
+}
+

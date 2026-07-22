@@ -13,14 +13,20 @@ import (
 )
 
 type App struct {
-	Config  Config
-	Log     zerolog.Logger
-	Auth    *service.AuthService
-	Patient *service.PatientService
-	Appt    *service.AppointmentService
-	GED     *service.GEDService
-	Finance *service.FinanceService
-	Google  *service.GoogleCalendar
+	Config      Config
+	Log         zerolog.Logger
+	Auth        *service.AuthService
+	Patient     *service.PatientService
+	Appt        *service.AppointmentService
+	GED         *service.GEDService
+	Finance     *service.FinanceService
+	Google      *service.GoogleCalendar
+	SessionNote *service.SessionNoteService
+	Anamnesis   *service.AnamnesisService
+	Contract    *service.ContractService
+	Supervision *service.SupervisionService
+	Space       *service.SpaceService
+	Tmpl        *TemplateRenderer
 
 	dbPool sync.Map // tenantID -> *storage.DB
 }

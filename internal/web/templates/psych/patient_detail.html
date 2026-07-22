@@ -1,0 +1,168 @@
+{{define "title"}}{{.Patient.Name}} — Psicoman{{end}}
+{{define "page-title"}}{{.Patient.Name}}{{end}}
+
+{{define "content"}}
+<div x-data="{ tab: 'overview' }">
+  <!-- Patient header -->
+  <div class="card mb-2">
+    <div class="flex-between">
+      <div>
+        <h2 style="margin:0">{{.Patient.Name}}</h2>
+        <p class="text-muted text-sm" style="margin:0">{{.Patient.Email}} · {{.Patient.Phone}}</p>
+        {{if .Patient.BirthDate}}<p class="text-muted text-sm" style="margin:0">Nascimento: {{formatDate (derefTime .Patient.BirthDate)}}</p>{{end}}
+      </div>
+      <a href="/psych/patients" class="btn btn-secondary btn-sm">← Voltar</a>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab" :class="tab === 'overview' && 'active'" @click="tab = 'overview'">Visao geral</button>
+    <button class="tab" :class="tab === 'appointments' && 'active'" @click="tab = 'appointments'">Consultas</button>
+    <button class="tab" :class="tab === 'notes' && 'active'" @click="tab = 'notes'">Evoluções</button>
+    <button class="tab" :class="tab === 'documents' && 'active'" @click="tab = 'documents'">Documentos</button>
+    <button class="tab" :class="tab === 'contracts' && 'active'" @click="tab = 'contracts'">Contratos</button>
+    <button class="tab" :class="tab === 'payments' && 'active'" @click="tab = 'payments'">Pagamentos</button>
+  </div>
+
+  <!-- Overview -->
+  <div x-show="tab === 'overview'">
+    <div class="grid grid-3 mb-2">
+      <div class="stat-card">
+        <div class="label">Consultas totais</div>
+        <div class="value">{{len .Appointments}}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Documentos</div>
+        <div class="value">{{len .Documents}}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Contratos</div>
+        <div class="value">{{len .Contracts}}</div>
+      </div>
+    </div>
+
+    {{if .Patient.Anamnesis}}
+    <div class="card">
+      <h3>Anamnese (texto livre)</h3>
+      <p style="white-space: pre-wrap">{{.Patient.Anamnesis}}</p>
+    </div>
+    {{end}}
+
+    {{if .AnamnesisResponses}}
+    <div class="card mt-2">
+      <h3>Respostas de anamnese estruturada</h3>
+      {{range .AnamnesisResponses}}
+      <div style="border-bottom:1px solid var(--border); padding:0.75rem 0">
+        <strong>{{.TemplateName}}</strong>
+        <span class="text-muted text-sm">— {{if .CompletedAt}}{{formatDate (derefTime .CompletedAt)}}{{end}}</span>
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+
+  <!-- Appointments -->
+  <div x-show="tab === 'appointments'">
+    <div class="card">
+      <table>
+        <thead><tr><th>Data</th><th>Tipo</th><th>Status</th><th>Duração</th></tr></thead>
+        <tbody>
+          {{range .Appointments}}
+          <tr>
+            <td>{{formatDateTime .ScheduledAt}}</td>
+            <td><span class="badge badge-{{.Type}}">{{if eq .Type "online"}}Online{{else}}Presencial{{end}}</span></td>
+            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+            <td>{{.DurationMinutes}}min</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="text-muted">Nenhuma consulta.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Session Notes -->
+  <div x-show="tab === 'notes'">
+    {{range .SessionNotes}}
+    <div class="card mb-1">
+      <div class="flex-between">
+        <span class="text-sm text-muted">{{formatDate .CreatedAt}}</span>
+        <span class="text-xs text-muted">Paciente: {{.DurationPatientMin}}min · Análise: {{.DurationAnalysisMin}}min · Admin: {{.DurationAdminMin}}min</span>
+      </div>
+      <div style="white-space:pre-wrap; margin-top:0.5rem">{{.ContentHTML}}</div>
+      {{if .PrivateNotes}}
+      <div class="mt-1" style="background: var(--warning-light); padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.85rem">
+        <strong>Notas privadas:</strong> {{.PrivateNotes}}
+      </div>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="empty-state"><p>Nenhuma evolução registrada.</p></div>
+    {{end}}
+  </div>
+
+  <!-- Documents -->
+  <div x-show="tab === 'documents'">
+    <div class="card">
+      <table>
+        <thead><tr><th>Arquivo</th><th>Tipo</th><th>Data</th><th></th></tr></thead>
+        <tbody>
+          {{range .Documents}}
+          <tr>
+            <td>{{.Filename}}</td>
+            <td><span class="badge">{{.DocType}}</span></td>
+            <td class="text-sm">{{formatDate .CreatedAt}}</td>
+            <td><a href="/api/psych/documents/{{.ID}}/download" class="btn btn-ghost btn-sm">Baixar</a></td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="text-muted">Nenhum documento.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Contracts -->
+  <div x-show="tab === 'contracts'">
+    <div class="card">
+      <table>
+        <thead><tr><th>Template</th><th>Status</th><th>Data</th></tr></thead>
+        <tbody>
+          {{range .Contracts}}
+          <tr>
+            <td>{{.TemplateName}}</td>
+            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+            <td class="text-sm">{{formatDate .CreatedAt}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="3" class="text-muted">Nenhum contrato.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Payments -->
+  <div x-show="tab === 'payments'">
+    <div class="card">
+      <table>
+        <thead><tr><th>Valor</th><th>Status</th><th>Vencimento</th><th>Recebido</th></tr></thead>
+        <tbody>
+          {{range .Payments}}
+          <tr>
+            <td><strong>{{formatBRL .AmountCents}}</strong></td>
+            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+            <td class="text-sm">{{formatDate .DueDate}}</td>
+            <td class="text-sm">{{if .ReceivedAt}}{{formatDate (derefTime .ReceivedAt)}}{{else}}—{{end}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="text-muted">Nenhum pagamento.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{{end}}

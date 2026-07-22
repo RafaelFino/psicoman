@@ -22,14 +22,20 @@ func main() {
 	calendar := &service.DBCalendar{Google: google, Noop: &service.NoopCalendar{}}
 
 	app := &web.App{
-		Config:  cfg,
-		Log:     log,
-		Auth:    &service.AuthService{JWTSecret: cfg.JWTSecret, GoogleClientID: cfg.GoogleClientID, GoogleClientSecret: cfg.GoogleClientSecret, GoogleRedirectURL: cfg.GoogleRedirectURL},
-		Patient: &service.PatientService{},
-		Appt:    &service.AppointmentService{Calendar: calendar},
-		GED:     &service.GEDService{BaseDir: filepath.Join(cfg.DataDir, "ged")},
-		Finance: &service.FinanceService{},
-		Google:  google,
+		Config:      cfg,
+		Log:         log,
+		Auth:        &service.AuthService{JWTSecret: cfg.JWTSecret, GoogleClientID: cfg.GoogleClientID, GoogleClientSecret: cfg.GoogleClientSecret, GoogleRedirectURL: cfg.GoogleRedirectURL},
+		Patient:     &service.PatientService{},
+		Appt:        &service.AppointmentService{Calendar: calendar},
+		GED:         &service.GEDService{BaseDir: filepath.Join(cfg.DataDir, "ged")},
+		Finance:     &service.FinanceService{},
+		Google:      google,
+		SessionNote: &service.SessionNoteService{},
+		Anamnesis:   &service.AnamnesisService{},
+		Contract:    &service.ContractService{},
+		Supervision: &service.SupervisionService{},
+		Space:       &service.SpaceService{},
+		Tmpl:        web.NewTemplateRenderer(),
 	}
 
 	log.Info().Str("addr", cfg.Addr).Msg("starting psicoman")

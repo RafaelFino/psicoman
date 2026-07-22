@@ -1,0 +1,55 @@
+{{define "psych"}}{{template "base" .}}{{end}}
+
+{{define "body"}}
+<div class="layout" x-data="{ sidebarOpen: false }">
+  <!-- Mobile overlay -->
+  <div class="sidebar-overlay" :class="sidebarOpen && 'open'" @click="sidebarOpen = false"></div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" :class="sidebarOpen && 'open'">
+    <div class="sidebar-brand">
+      <h1>Psicoman</h1>
+      <p class="subtitle">Gestao clinica</p>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="/psych" {{if eq .ActiveNav "dashboard"}}class="active"{{end}}><span class="icon">📅</span> Agenda</a></li>
+      <li><a href="/psych/patients" {{if eq .ActiveNav "patients"}}class="active"{{end}}><span class="icon">👥</span> Pacientes</a></li>
+      <li><a href="/psych/appointments" {{if eq .ActiveNav "appointments"}}class="active"{{end}}><span class="icon">🗓️</span> Atendimentos</a></li>
+      <li><a href="/psych/session-notes" {{if eq .ActiveNav "session-notes"}}class="active"{{end}}><span class="icon">📝</span> Evoluções</a></li>
+      <li><a href="/psych/anamnesis" {{if eq .ActiveNav "anamnesis"}}class="active"{{end}}><span class="icon">📋</span> Anamnese</a></li>
+      <li><a href="/psych/contracts" {{if eq .ActiveNav "contracts"}}class="active"{{end}}><span class="icon">📄</span> Contratos</a></li>
+      <li><a href="/psych/supervisions" {{if eq .ActiveNav "supervisions"}}class="active"{{end}}><span class="icon">🎓</span> Supervisões</a></li>
+      <li><a href="/psych/spaces" {{if eq .ActiveNav "spaces"}}class="active"{{end}}><span class="icon">🏠</span> Espaços</a></li>
+      <li><a href="/psych/finance" {{if eq .ActiveNav "finance"}}class="active"{{end}}><span class="icon">💰</span> Financeiro</a></li>
+      <li><a href="/psych/settings" {{if eq .ActiveNav "settings"}}class="active"{{end}}><span class="icon">⚙️</span> Configurações</a></li>
+    </ul>
+  </aside>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <button class="menu-toggle" @click="sidebarOpen = !sidebarOpen">☰</button>
+      <span class="header-title">{{block "page-title" .}}{{end}}</span>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-ghost btn-sm" onclick="
+        var html = document.documentElement;
+        var current = html.getAttribute('data-theme');
+        var next = current === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        this.textContent = next === 'dark' ? '☀️' : '🌙';
+      " title="Alternar tema">🌙</button>
+      <span>{{.Today}}</span>
+    </div>
+  </header>
+
+  <!-- Main content -->
+  <main class="main">
+    {{block "content" .}}{{end}}
+  </main>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+{{end}}

@@ -1,0 +1,77 @@
+{{define "title"}}Anamnese — Psicoman{{end}}
+
+{{define "content"}}
+<h2 class="page-title">Anamnese</h2>
+<p class="text-muted mb-2">Preencha as informações solicitadas para ajudar no seu atendimento.</p>
+
+<div x-data="{
+  templates: [], responses: [], freeText: '', selectedTemplate: null, formData: {},
+  loading: true, saved: false, error: '',
+  token() { return document.cookie.split(';').find(c=>c.trim().startsWith('patient_token='))?.split('=')[1] || '' },
+  headers() { return {'Authorization':'Bearer '+this.token(),'Content-Type':'application/json'} },
+  load() {
+    Promise.all([
+      fetch('/api/patient/anamnesis/templates',{headers:this.headers()}).then(r=>r.json()).catch(()=>[]),
+      fetch('/api/patient/anamnesis/responses',{headers:this.headers()}).then(r=>r.json()).catch(()=>[]),
+      fetch('/api/patient/me',{headers:this.headers()}).then(r=>r.json()).catch(()=>({})),
+    ]).then(([t,r,me])=>{this.templates=t||[];this.responses=r||[];this.freeText=me.anamnesis||'';this.loading=false})
+  },
+  submit() {
+    this.error='';
+    fetch('/api/patient/anamnesis/submit',{method:'POST',headers:this.headers(),body:JSON.stringify({template_id:this.selectedTemplate.id,responses:this.formData})})
+      .then(r=>{if(!r.ok)return r.json().then(d=>{throw new Error(d.error)});return r.json()})
+      .then(()=>{this.saved=true;this.selectedTemplate=null;this.formData={};setTimeout(()=>this.saved=false,3000);this.load()})
+      .catch(e=>this.error=e.message)
+  },
+  saveFreeText() {
+    fetch('/api/patient/anamnesis',{method:'PUT',headers:this.headers(),body:JSON.stringify({anamnesis:this.freeText})})
+      .then(()=>{this.saved=true;setTimeout(()=>this.saved=false,2000)})
+      .catch(e=>this.error=e.message)
+  }
+}" x-init="load()">
+  <p x-show="error" class="form-error" x-text="error"></p>
+  <p x-show="saved" style="color:var(--success)">Enviado com sucesso!</p>
+
+  <!-- Templates disponíveis -->
+  <div x-show="templates.length > 0 && !selectedTemplate" class="card mb-2">
+    <h3>Formulários disponíveis</h3>
+    <div class="grid grid-2">
+      <template x-for="t in templates" :key="t.id">
+        <div class="card" style="cursor:pointer" @click="selectedTemplate=t;formData={}">
+          <strong x-text="t.name"></strong>
+          <p class="text-sm text-muted" x-text="(t.fields||[]).length+' campos'"></p>
+          <button class="btn btn-primary btn-sm">Preencher</button>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Formulário dinâmico -->
+  <div x-show="selectedTemplate" class="card mb-2">
+    <div class="flex-between mb-1">
+      <h3 x-text="selectedTemplate?.name"></h3>
+      <button class="btn btn-secondary btn-sm" @click="selectedTemplate=null">Voltar</button>
+    </div>
+    <form @submit.prevent="submit()">
+      <template x-for="field in (selectedTemplate?.fields||[])" :key="field.key">
+        <div class="form-group">
+          <label class="form-label" x-text="field.label"></label>
+          <input x-show="field.type==='text'" type="text" class="form-input" :required="field.required" x-model="formData[field.key]">
+          <textarea x-show="field.type==='textarea'" class="form-textarea" rows="3" :required="field.required" x-model="formData[field.key]"></textarea>
+          <input x-show="field.type==='date'" type="date" class="form-input" :required="field.required" x-model="formData[field.key]">
+          <input x-show="field.type==='number'" type="number" class="form-input" :required="field.required" x-model="formData[field.key]">
+        </div>
+      </template>
+      <button type="submit" class="btn btn-primary">Enviar respostas</button>
+    </form>
+  </div>
+
+  <!-- Free text -->
+  <div class="card">
+    <h3>Anamnese livre</h3>
+    <p class="text-muted text-sm">Informações adicionais que você queira compartilhar.</p>
+    <textarea x-model="freeText" class="form-textarea" rows="6" placeholder="Descreva seu histórico..."></textarea>
+    <div class="form-actions"><button class="btn btn-primary" @click="saveFreeText()">Salvar</button></div>
+  </div>
+</div>
+{{end}}

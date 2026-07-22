@@ -1,0 +1,123 @@
+{{define "title"}}Agenda — Psicoman{{end}}
+{{define "page-title"}}Agenda{{end}}
+
+{{define "content"}}
+<div x-data="{ view: 'today' }">
+  <!-- Stats -->
+  <div class="section">
+    <div class="grid grid-4">
+      <div class="stat-card">
+        <div class="label">Hoje</div>
+        <div class="value">{{len .TodayAppts}}</div>
+        <div class="detail">atendimentos</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Semana</div>
+        <div class="value">{{len .WeekAppts}}</div>
+        <div class="detail">agendados</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Pacientes</div>
+        <div class="value">{{.PatientCount}}</div>
+        <div class="detail">ativos</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Horas/mês</div>
+        <div class="value">{{.MonthHours}}</div>
+        <div class="detail">total</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- View toggle -->
+  <div class="section">
+    <div class="section-header">
+      <div class="tabs" style="margin-bottom:0; border:none">
+        <button class="tab" :class="view === 'today' && 'active'" @click="view = 'today'">Hoje</button>
+        <button class="tab" :class="view === 'week' && 'active'" @click="view = 'week'">Semana</button>
+      </div>
+      <a href="/psych/appointments" class="btn btn-primary btn-sm">+ Nova consulta</a>
+    </div>
+
+    <!-- Today view -->
+    <div x-show="view === 'today'">
+      {{if .TodayAppts}}
+      <div class="grid">
+        {{range .TodayAppts}}
+        <div class="agenda-item">
+          <div class="agenda-time">{{formatTime .ScheduledAt}}</div>
+          <div class="agenda-content">
+            <div class="name"><a href="/psych/patients/{{.PatientID}}">{{.PatientName}}</a></div>
+            <div class="meta">
+              <span class="badge badge-{{.Type}}">{{if eq .Type "online"}}Online{{else}}Presencial{{end}}</span>
+              {{.DurationMinutes}}min
+              {{if .MeetLink}}· <a href="{{.MeetLink}}" target="_blank">Google Meet</a>{{end}}
+            </div>
+          </div>
+          <div class="agenda-actions">
+            {{if eq .Status "scheduled"}}
+            <form hx-patch="/api/psych/appointments/{{.ID}}/complete" hx-swap="none" hx-on::after-request="location.reload()">
+              <button class="btn btn-success btn-sm" type="submit">Concluir</button>
+            </form>
+            {{end}}
+            <span class="badge badge-{{.Status}}">{{.Status}}</span>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="empty-state">
+        <div class="icon">📅</div>
+        <p>Nenhum atendimento agendado para hoje.</p>
+      </div>
+      {{end}}
+
+      {{if .UpcomingAppts}}
+      <h3 class="mt-2 mb-1">Próximos dias</h3>
+      <div class="grid">
+        {{range .UpcomingAppts}}
+        <div class="agenda-item">
+          <div class="agenda-time">{{formatDate .ScheduledAt}}<br>{{formatTime .ScheduledAt}}</div>
+          <div class="agenda-content">
+            <div class="name"><a href="/psych/patients/{{.PatientID}}">{{.PatientName}}</a></div>
+            <div class="meta">
+              <span class="badge badge-{{.Type}}">{{if eq .Type "online"}}Online{{else}}Presencial{{end}}</span>
+              {{.DurationMinutes}}min
+            </div>
+          </div>
+          <div class="agenda-actions">
+            <span class="badge badge-{{.Status}}">{{.Status}}</span>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+
+    <!-- Week view -->
+    <div x-show="view === 'week'">
+      <div class="week-grid">
+        {{range .WeekDays}}
+        <div class="week-day {{if .IsToday}}week-day-today{{end}}">
+          <div class="week-day-header">
+            <span class="week-day-name">{{.DayName}}</span>
+            <span class="week-day-number">{{.DayNumber}}</span>
+          </div>
+          <div class="week-day-body">
+            {{range .Appointments}}
+            <div class="week-appt badge-{{.Status}}">
+              <span class="week-appt-time">{{formatTime .ScheduledAt}}</span>
+              <a href="/psych/patients/{{.PatientID}}" class="week-appt-name">{{.PatientName}}</a>
+              <span class="week-appt-meta">{{.DurationMinutes}}min · {{if eq .Type "online"}}Online{{else}}Presencial{{end}}</span>
+            </div>
+            {{else}}
+            <div class="week-day-empty">—</div>
+            {{end}}
+          </div>
+        </div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

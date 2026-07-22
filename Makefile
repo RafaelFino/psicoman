@@ -1,21 +1,12 @@
-.PHONY: frontend build run run-api run-dev test docker clean
+.PHONY: build run run-api test docker clean
 
-# Build do frontend (React → dist → internal/web/static)
-frontend:
-	cd frontend && npm install && npm run build
-	rm -rf internal/web/static && cp -r frontend/dist internal/web/static
-
-# Build completo: frontend embutido no binário Go
-build: frontend
-	go build -tags embedfrontend -o bin/psicoman ./cmd/server
-
-# Build só da API (sem frontend embutido — para dev com vite separado)
-build-api:
+# Build: único binário Go com templates e assets embutidos
+build:
 	go build -o bin/psicoman ./cmd/server
 
 # ─────────────────────────────────────────────────────────────────
 # make run → sobe o ambiente dev completo via Docker Compose.
-# Inclui DEV_MODE=true, frontend embutido, volumes locais mapeados.
+# Inclui DEV_MODE=true, volumes locais mapeados.
 # Acesse: http://localhost:8080
 # ─────────────────────────────────────────────────────────────────
 run:
@@ -32,7 +23,7 @@ stop:
 	docker compose -f docker-compose.yml -f docker-compose.dev.yml down
 
 # API Go diretamente (sem compose), com DEV_MODE via .env.dev
-run-api: build-api
+run-api: build
 	@echo ">>> DEV MODE — rotas /api/dev/* ativas"
 	env $$(grep -v '^#' .env.dev | grep -v '^$$' | xargs) ./bin/psicoman
 
@@ -45,4 +36,4 @@ docker:
 	docker compose build
 
 clean:
-	rm -rf bin frontend/dist frontend/node_modules data
+	rm -rf bin data

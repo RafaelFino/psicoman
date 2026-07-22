@@ -1,0 +1,110 @@
+{{define "title"}}Evoluções — Psicoman{{end}}
+{{define "page-title"}}Evoluções de sessão{{end}}
+
+{{define "content"}}
+<div class="section" x-data="{
+  notes: [], patients: [], appts: [], filterPatient: '', editing: null,
+  form: {appointment_id:'', content_html:'', private_notes:'', duration_patient_min:50, duration_analysis_min:0, duration_admin_min:0},
+  loading: true, saved: false, error: '',
+  headers: {'Content-Type':'application/json','X-Dev-Auth':'dev-local'},
+  load() {
+    Promise.all([
+      fetch('/api/psych/session-notes?patient_id='+this.filterPatient, {headers:this.headers}).then(r=>r.json()),
+      fetch('/api/psych/patients', {headers:this.headers}).then(r=>r.json()),
+      fetch('/api/psych/appointments', {headers:this.headers}).then(r=>r.json()),
+    ]).then(([n,p,a])=>{this.notes=n||[];this.patients=p||[];this.appts=a||[];this.loading=false})
+  },
+  submit() {
+    this.error='';
+    const url = this.editing ? '/api/psych/session-notes/'+this.editing : '/api/psych/session-notes';
+    const method = this.editing ? 'PUT' : 'POST';
+    const body = {...this.form, duration_patient_min:+this.form.duration_patient_min, duration_analysis_min:+this.form.duration_analysis_min, duration_admin_min:+this.form.duration_admin_min};
+    fetch(url, {method, headers:this.headers, body:JSON.stringify(body)})
+      .then(r=>{if(!r.ok) return r.json().then(d=>{throw new Error(d.error)}); return r.json()})
+      .then(()=>{this.saved=true;this.editing=null;this.form={appointment_id:'',content_html:'',private_notes:'',duration_patient_min:50,duration_analysis_min:0,duration_admin_min:0};this.load();setTimeout(()=>this.saved=false,2000)})
+      .catch(e=>this.error=e.message)
+  },
+  edit(sn) {
+    this.editing=sn.id;
+    this.form={appointment_id:sn.appointment_id,content_html:sn.content_html,private_notes:sn.private_notes,duration_patient_min:sn.duration_patient_min,duration_analysis_min:sn.duration_analysis_min,duration_admin_min:sn.duration_admin_min};
+  }
+}" x-init="load()" @filter-change.window="load()">
+
+  <p x-show="error" class="form-error" x-text="error"></p>
+  <p x-show="saved" style="color:var(--success)">Salvo!</p>
+
+  <!-- Form -->
+  <div class="card mb-2">
+    <h3 x-text="editing ? 'Editar evolução' : 'Nova evolução'"></h3>
+    <form @submit.prevent="submit()">
+      <div class="form-group" x-show="!editing">
+        <label class="form-label">Atendimento <span class="required">*</span></label>
+        <select x-model="form.appointment_id" class="form-select" :required="!editing">
+          <option value="">Selecione um atendimento</option>
+          <template x-for="a in appts.filter(a=>(a.status==='completed'||a.status==='scheduled')&&!notes.some(n=>n.appointment_id===a.id))" :key="a.id">
+            <option :value="a.id" x-text="a.patient_name+' — '+new Date(a.scheduled_at).toLocaleString('pt-BR')"></option>
+          </template>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Evolução clínica</label>
+        <textarea x-model="form.content_html" class="form-textarea" rows="5" placeholder="Descreva a evolução da sessão..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notas privadas</label>
+        <textarea x-model="form.private_notes" class="form-textarea" rows="3" placeholder="Hipóteses, lembretes..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Tempo com paciente (min)</label>
+          <input type="number" x-model="form.duration_patient_min" class="form-input" min="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tempo de análise (min)</label>
+          <input type="number" x-model="form.duration_analysis_min" class="form-input" min="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tempo admin (min)</label>
+          <input type="number" x-model="form.duration_admin_min" class="form-input" min="0">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" x-text="editing ? 'Atualizar' : 'Salvar evolução'"></button>
+        <button x-show="editing" type="button" class="btn btn-secondary" @click="editing=null;form={appointment_id:'',content_html:'',private_notes:'',duration_patient_min:50,duration_analysis_min:0,duration_admin_min:0}">Cancelar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- List -->
+  <div class="card">
+    <div class="flex-between mb-1">
+      <h3>Histórico</h3>
+      <select x-model="filterPatient" @change="load()" class="form-select" style="width:auto;min-width:200px">
+        <option value="">Todos os pacientes</option>
+        <template x-for="p in patients" :key="p.id">
+          <option :value="p.id" x-text="p.name"></option>
+        </template>
+      </select>
+    </div>
+
+    <template x-for="sn in notes" :key="sn.id">
+      <div style="border-bottom:1px solid var(--border); padding:1rem 0">
+        <div class="flex-between">
+          <div>
+            <a :href="'/psych/patients/'+sn.patient_id" x-text="sn.patient_name" class="font-medium"></a>
+            <span class="text-muted text-sm" x-text="' — '+new Date(sn.created_at).toLocaleDateString('pt-BR')"></span>
+          </div>
+          <button class="btn btn-ghost btn-sm" @click="edit(sn)">Editar</button>
+        </div>
+        <p style="white-space:pre-wrap; margin:0.5rem 0" x-text="sn.content_html"></p>
+        <div class="text-muted text-xs">
+          Paciente: <span x-text="sn.duration_patient_min"></span>min ·
+          Análise: <span x-text="sn.duration_analysis_min"></span>min ·
+          Admin: <span x-text="sn.duration_admin_min"></span>min
+        </div>
+      </div>
+    </template>
+    <div x-show="!loading && notes.length===0" class="empty-state"><p>Nenhuma evolução registrada.</p></div>
+  </div>
+</div>
+{{end}}

@@ -28,11 +28,17 @@ func testApp(t *testing.T) *App {
 	calendar := &service.DBCalendar{Noop: &service.NoopCalendar{}}
 	return &App{
 		Config: cfg, Log: NewLogger(dir),
-		Auth: &service.AuthService{JWTSecret: cfg.JWTSecret},
-		Patient: &service.PatientService{},
-		Appt: &service.AppointmentService{Calendar: calendar},
-		GED: &service.GEDService{BaseDir: filepath.Join(dir, "ged")},
-		Finance: &service.FinanceService{},
+		Auth:        &service.AuthService{JWTSecret: cfg.JWTSecret},
+		Patient:     &service.PatientService{},
+		Appt:        &service.AppointmentService{Calendar: calendar},
+		GED:         &service.GEDService{BaseDir: filepath.Join(dir, "ged")},
+		Finance:     &service.FinanceService{},
+		SessionNote: &service.SessionNoteService{},
+		Anamnesis:   &service.AnamnesisService{},
+		Contract:    &service.ContractService{},
+		Supervision: &service.SupervisionService{},
+		Space:       &service.SpaceService{},
+		Tmpl:        NewTemplateRenderer(),
 	}
 }
 
@@ -78,7 +84,7 @@ func TestPatientJWTAuth(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code) // patient not in db
 }
 
-func TestHealthWithoutFrontend(t *testing.T) {
+func TestRootRedirectsToPsych(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	app := testApp(t)
 	r := app.Router()
@@ -86,5 +92,6 @@ func TestHealthWithoutFrontend(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "/psych", w.Header().Get("Location"))
 }

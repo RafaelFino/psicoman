@@ -1,0 +1,92 @@
+{{define "title"}}Atendimentos — Psicoman{{end}}
+{{define "page-title"}}Atendimentos{{end}}
+
+{{define "content"}}
+<div class="section" x-data="{ showForm: false }">
+  <div class="section-header">
+    <h2>Atendimentos</h2>
+    <button class="btn btn-primary btn-sm" @click="showForm = !showForm">+ Novo atendimento</button>
+  </div>
+
+  <div class="card mb-2" x-show="showForm" x-cloak>
+    <form id="appt-form" x-data="{ patients: [], loading: true }" x-init="
+      fetch('/api/psych/patients', {headers:{'X-Dev-Auth':'dev-local'}})
+        .then(r=>r.json()).then(d=>{patients=d||[];loading=false})
+    ">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Paciente <span class="required">*</span></label>
+          <select name="patient_id" class="form-select" required>
+            <option value="">Selecione</option>
+            <template x-for="p in patients" :key="p.id">
+              <option :value="p.id" x-text="p.name"></option>
+            </template>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tipo</label>
+          <select name="type" class="form-select">
+            <option value="online">Online</option>
+            <option value="in_person">Presencial</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Data e hora <span class="required">*</span></label>
+          <input type="datetime-local" name="scheduled_at" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Duração (min)</label>
+          <input type="number" name="duration_minutes" class="form-input" value="50" min="10" max="180">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" @click.prevent="
+          const form = document.getElementById('appt-form');
+          const data = {
+            patient_id: form.patient_id.value,
+            type: form.type.value,
+            scheduled_at: new Date(form.scheduled_at.value).toISOString(),
+            duration_minutes: parseInt(form.duration_minutes.value) || 50
+          };
+          fetch('/api/psych/appointments', {
+            method:'POST', headers:{'Content-Type':'application/json','X-Dev-Auth':'dev-local'},
+            body: JSON.stringify(data)
+          }).then(r=>{if(r.ok)location.reload(); else r.json().then(d=>alert(d.error))})
+        ">Agendar</button>
+        <button type="button" class="btn btn-secondary" @click="showForm = false">Cancelar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" x-data="{ appts: [], loading: true }" x-init="
+    fetch('/api/psych/appointments', {headers:{'X-Dev-Auth':'dev-local'}})
+      .then(r=>r.json()).then(d=>{appts=d||[];loading=false})
+  ">
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Paciente</th><th>Data</th><th>Tipo</th><th>Status</th><th>Meet</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="a in appts" :key="a.id">
+            <tr>
+              <td><a :href="'/psych/patients/'+a.patient_id" x-text="a.patient_name"></a></td>
+              <td x-text="new Date(a.scheduled_at).toLocaleString('pt-BR')"></td>
+              <td><span class="badge" :class="'badge-'+a.type" x-text="a.type === 'online' ? 'Online' : 'Presencial'"></span></td>
+              <td><span class="badge" :class="'badge-'+a.status" x-text="a.status"></span></td>
+              <td><a x-show="a.meet_link" :href="a.meet_link" target="_blank">Abrir</a><span x-show="!a.meet_link">—</span></td>
+              <td>
+                <button x-show="a.status==='scheduled'" class="btn btn-success btn-sm" @click="
+                  fetch('/api/psych/appointments/'+a.id+'/complete',{method:'PATCH',headers:{'X-Dev-Auth':'dev-local'}})
+                    .then(()=>location.reload())
+                ">Concluir</button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="!loading && appts.length === 0"><td colspan="6" class="text-muted" style="text-align:center">Nenhum atendimento no período.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{{end}}

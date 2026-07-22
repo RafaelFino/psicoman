@@ -1,0 +1,38 @@
+{{define "title"}}Agendar — Psicoman{{end}}
+
+{{define "content"}}
+<h2 class="page-title">Agendar consulta</h2>
+
+<div x-data="{
+  slots: [], loading: true, error: '', ok: false,
+  token() { return document.cookie.split(';').find(c=>c.trim().startsWith('patient_token='))?.split('=')[1] || '' },
+  headers() { return {'Authorization':'Bearer '+this.token(),'Content-Type':'application/json'} },
+  load() {
+    fetch('/api/patient/slots',{headers:this.headers()})
+      .then(r=>r.json()).then(d=>{this.slots=d||[];this.loading=false})
+      .catch(e=>{this.error=e.message;this.loading=false})
+  },
+  book(slot) {
+    fetch('/api/patient/appointments',{method:'POST',headers:this.headers(),body:JSON.stringify({type:'online',scheduled_at:slot.start,duration_minutes:slot.duration_minutes})})
+      .then(r=>{if(r.ok){this.ok=true;this.load()}else r.json().then(d=>this.error=d.error)})
+  }
+}" x-init="load()">
+  <p x-show="error" class="form-error" x-text="error"></p>
+  <p x-show="ok" style="color:var(--success)">Consulta agendada com sucesso!</p>
+
+  <div x-show="!loading && slots.length===0" class="empty-state">
+    <div class="icon">📅</div>
+    <p>Nenhum horário disponível no momento.</p>
+  </div>
+
+  <div class="grid grid-2">
+    <template x-for="(slot, i) in slots.slice(0, 20)" :key="i">
+      <div class="card">
+        <p class="font-medium" x-text="new Date(slot.start).toLocaleString('pt-BR')"></p>
+        <p class="text-sm text-muted" x-text="slot.duration_minutes + ' minutos'"></p>
+        <button class="btn btn-primary btn-sm" @click="book(slot)">Reservar</button>
+      </div>
+    </template>
+  </div>
+</div>
+{{end}}

@@ -4,6 +4,7 @@ const links = [
   ['/patient', 'Meus atendimentos'],
   ['/patient/book', 'Agendar'],
   ['/patient/anamnesis', 'Anamnese'],
+  ['/patient/contracts', 'Contratos'],
   ['/patient/documents', 'Documentos'],
 ]
 
@@ -16,7 +17,7 @@ export default function PatientLayout() {
     <>
       <header className="header">
         <div className="container">
-          <h1>Psicoman — Paciente</h1>
+          <h1>Psicoman</h1>
           <nav className="nav">
             {links.map(([to, label]) => (
               <NavLink key={to} to={to} end={to === '/patient'}>{label}</NavLink>

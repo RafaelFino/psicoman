@@ -1,0 +1,81 @@
+{{define "title"}}Contratos — Psicoman{{end}}
+{{define "page-title"}}Contratos Terapêuticos{{end}}
+
+{{define "content"}}
+<div class="section" x-data="{ tab: 'contracts' }">
+  <div class="tabs">
+    <button class="tab" :class="tab==='contracts'&&'active'" @click="tab='contracts'">Contratos</button>
+    <button class="tab" :class="tab==='templates'&&'active'" @click="tab='templates'">Templates</button>
+  </div>
+
+  <div x-show="tab==='contracts'" x-data="{
+    contracts: [], patients: [], templates: [], loading: true,
+    headers: {'Content-Type':'application/json','X-Dev-Auth':'dev-local'},
+    init() {
+      Promise.all([
+        fetch('/api/psych/contracts',{headers:this.headers}).then(r=>r.json()),
+        fetch('/api/psych/patients',{headers:this.headers}).then(r=>r.json()),
+        fetch('/api/psych/contracts/templates',{headers:this.headers}).then(r=>r.json()),
+      ]).then(([c,p,t])=>{this.contracts=c||[];this.patients=p||[];this.templates=t||[];this.loading=false})
+    },
+    send(form) {
+      fetch('/api/psych/contracts',{method:'POST',headers:this.headers,body:JSON.stringify({patient_id:form.patient_id.value,template_id:form.template_id.value})})
+        .then(r=>{if(r.ok)location.reload();else r.json().then(d=>alert(d.error))})
+    }
+  }" x-init="init()">
+    <div class="card mb-2">
+      <h3>Enviar contrato</h3>
+      <form @submit.prevent="send($el)" class="form-row">
+        <div class="form-group">
+          <label class="form-label">Paciente</label>
+          <select name="patient_id" class="form-select" required>
+            <option value="">Selecione</option>
+            <template x-for="p in patients" :key="p.id"><option :value="p.id" x-text="p.name"></option></template>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Template</label>
+          <select name="template_id" class="form-select" required>
+            <option value="">Selecione</option>
+            <template x-for="t in templates" :key="t.id"><option :value="t.id" x-text="t.name"></option></template>
+          </select>
+        </div>
+        <div class="form-group" style="align-self:end"><button type="submit" class="btn btn-primary">Enviar</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Paciente</th><th>Template</th><th>Status</th><th>Data</th></tr></thead>
+        <tbody>
+          <template x-for="c in contracts" :key="c.id">
+            <tr>
+              <td><a :href="'/psych/patients/'+c.patient_id" x-text="c.patient_name"></a></td>
+              <td x-text="c.template_name"></td>
+              <td><span class="badge" :class="'badge-'+c.status" x-text="c.status"></span></td>
+              <td class="text-sm" x-text="new Date(c.created_at).toLocaleDateString('pt-BR')"></td>
+            </tr>
+          </template>
+          <tr x-show="!loading&&contracts.length===0"><td colspan="4" class="text-muted">Nenhum contrato.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div x-show="tab==='templates'" x-data="{
+    templates: [], headers: {'Content-Type':'application/json','X-Dev-Auth':'dev-local'},
+    init() { fetch('/api/psych/contracts/templates',{headers:this.headers}).then(r=>r.json()).then(d=>this.templates=d||[]) }
+  }" x-init="init()">
+    <div class="card">
+      <h3>Templates de contrato</h3>
+      <table>
+        <thead><tr><th>Nome</th><th>Criado em</th></tr></thead>
+        <tbody>
+          <template x-for="t in templates" :key="t.id">
+            <tr><td x-text="t.name" class="font-medium"></td><td class="text-sm" x-text="new Date(t.created_at).toLocaleDateString('pt-BR')"></td></tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{{end}}

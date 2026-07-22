@@ -22,6 +22,15 @@ func (a *App) registerPatientRoutes(r *gin.RouterGroup) {
 	r.GET("/documents", a.patientDocuments)
 	r.POST("/documents", a.patientUploadDocument)
 	r.GET("/documents/:id/download", a.downloadDocument)
+
+	// Structured anamnesis
+	r.GET("/anamnesis/templates", a.patientListAnamnesisTemplates)
+	r.POST("/anamnesis/submit", a.patientSubmitAnamnesis)
+	r.GET("/anamnesis/responses", a.patientListAnamnesisResponses)
+
+	// Contracts
+	r.GET("/contracts", a.patientListContracts)
+	r.POST("/contracts/:id/sign", a.patientSignContract)
 }
 
 func (a *App) registerPublicRoutes(r *gin.RouterGroup) {

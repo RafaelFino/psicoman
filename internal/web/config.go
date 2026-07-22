@@ -42,7 +42,7 @@ func LoadConfig() Config {
 		PangolinRoleHeader:  env("PANGOLIN_ROLE_HEADER", "X-User-Role"),
 		DefaultTenantID:     env("DEFAULT_TENANT_ID", "default"),
 		DevMode:             env("DEV_MODE", "") == "true",
-		DevSecret:           env("DEV_SECRET", "dev-secret-local"),
+		DevSecret:           env("DEV_SECRET", "dev-local"),
 	}
 }
 

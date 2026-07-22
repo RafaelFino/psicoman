@@ -1,11 +1,14 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 const links = [
-  ['/psych', 'Início'],
+  ['/psych', 'Agenda'],
   ['/psych/patients', 'Pacientes'],
   ['/psych/appointments', 'Atendimentos'],
+  ['/psych/session-notes', 'Evoluções'],
+  ['/psych/anamnesis', 'Anamnese'],
+  ['/psych/contracts', 'Contratos'],
   ['/psych/finance', 'Financeiro'],
-  ['/psych/settings', 'Configurações'],
+  ['/psych/settings', 'Config'],
 ]
 
 export default function PsychLayout() {
@@ -13,7 +16,7 @@ export default function PsychLayout() {
     <>
       <header className="header">
         <div className="container">
-          <h1>Psicoman — Psicólogo</h1>
+          <h1>Psicoman</h1>
           <nav className="nav">
             {links.map(([to, label]) => (
               <NavLink key={to} to={to} end={to === '/psych'}>{label}</NavLink>

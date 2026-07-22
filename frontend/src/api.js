@@ -71,6 +71,30 @@ export const psychApi = {
   receivePayment:     (id)     => request(`/psych/finance/payments/${id}/receive`, { method: 'POST', psych: true }),
   addCost:            (data)   => request('/psych/finance/costs',               { method: 'POST', body: data, psych: true }),
   patientReport:      (id)     => request(`/psych/patients/${id}/report`,      { psych: true }),
+
+  // Session notes
+  sessionNotes:       (pid)    => request(`/psych/session-notes?patient_id=${pid || ''}`, { psych: true }),
+  getSessionNote:     (id)     => request(`/psych/session-notes/${id}`,        { psych: true }),
+  sessionNoteByAppt:  (id)     => request(`/psych/session-notes/appointment/${id}`, { psych: true }),
+  createSessionNote:  (data)   => request('/psych/session-notes',              { method: 'POST', body: data, psych: true }),
+  updateSessionNote:  (id, d)  => request(`/psych/session-notes/${id}`,        { method: 'PUT', body: d, psych: true }),
+  sessionNoteHours:   (m, y)   => request(`/psych/session-notes/hours?month=${m}&year=${y}`, { psych: true }),
+
+  // Anamnesis templates
+  anamnesisTemplates:       ()     => request('/psych/anamnesis/templates',         { psych: true }),
+  createAnamnesisTemplate:  (data) => request('/psych/anamnesis/templates',         { method: 'POST', body: data, psych: true }),
+  updateAnamnesisTemplate:  (id, d) => request(`/psych/anamnesis/templates/${id}`, { method: 'PUT', body: d, psych: true }),
+  deleteAnamnesisTemplate:  (id)   => request(`/psych/anamnesis/templates/${id}`, { method: 'DELETE', psych: true }),
+  anamnesisResponses:       (pid)  => request(`/psych/anamnesis/responses?patient_id=${pid || ''}`, { psych: true }),
+  getAnamnesisResponse:     (id)   => request(`/psych/anamnesis/responses/${id}`, { psych: true }),
+
+  // Contracts
+  contractTemplates:       ()     => request('/psych/contracts/templates',         { psych: true }),
+  createContractTemplate:  (data) => request('/psych/contracts/templates',         { method: 'POST', body: data, psych: true }),
+  updateContractTemplate:  (id, d) => request(`/psych/contracts/templates/${id}`, { method: 'PUT', body: d, psych: true }),
+  contracts:               (pid)  => request(`/psych/contracts?patient_id=${pid || ''}`, { psych: true }),
+  createContract:          (data) => request('/psych/contracts',                   { method: 'POST', body: data, psych: true }),
+  revokeContract:          (id)   => request(`/psych/contracts/${id}/revoke`,     { method: 'PATCH', psych: true }),
 }
 
 // ─── Patient API ──────────────────────────────────────────────────────────────
@@ -85,6 +109,15 @@ export const patientApi = {
   documents:    ()     => request('/patient/documents',    { patient: true }),
   authUrl:      ()     => request('/auth/patient/url'),
   register:     (data) => request('/auth/patient/register', { method: 'POST', body: data }),
+
+  // Structured anamnesis
+  anamnesisTemplates: ()     => request('/patient/anamnesis/templates', { patient: true }),
+  submitAnamnesis:    (data) => request('/patient/anamnesis/submit',    { method: 'POST', body: data, patient: true }),
+  anamnesisResponses: ()     => request('/patient/anamnesis/responses', { patient: true }),
+
+  // Contracts
+  contracts:    ()     => request('/patient/contracts',    { patient: true }),
+  signContract: (id)   => request(`/patient/contracts/${id}/sign`, { method: 'POST', patient: true }),
 }
 
 // ─── Dev API ──────────────────────────────────────────────────────────────────

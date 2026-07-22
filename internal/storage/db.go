@@ -42,12 +42,22 @@ func Open(dataDir, tenantID string) (*DB, error) {
 }
 
 func (db *DB) migrate() error {
-	data, err := migrationsFS.ReadFile("migrations/001_init.sql")
-	if err != nil {
-		return fmt.Errorf("read migration: %w", err)
+	migrations := []string{
+		"migrations/001_init.sql",
+		"migrations/002_session_notes.sql",
+		"migrations/003_anamnesis.sql",
+		"migrations/004_contracts.sql",
+		"migrations/005_supervisions.sql",
+		"migrations/006_spaces.sql",
 	}
-	if _, err := db.Exec(string(data)); err != nil {
-		return fmt.Errorf("run migration: %w", err)
+	for _, name := range migrations {
+		data, err := migrationsFS.ReadFile(name)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", name, err)
+		}
+		if _, err := db.Exec(string(data)); err != nil {
+			return fmt.Errorf("run migration %s: %w", name, err)
+		}
 	}
 	return nil
 }
