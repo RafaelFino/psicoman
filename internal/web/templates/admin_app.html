@@ -1,0 +1,49 @@
+{{define "admin_app.html"}}
+{{template "head" .}}
+<main class="admin-layout">
+  <nav class="side" aria-label="Navegação principal">
+    <ul>
+      <li><a href="#pacientes">Pacientes</a></li>
+      <li><a href="#agenda">Agenda</a></li>
+      <li><a href="#pendencias">Pendências</a></li>
+      <li><a href="#financeiro">Financeiro</a></li>
+      <li><a href="#custos">Custos e ROI</a></li>
+      <li><a href="#perfil">Meu perfil</a></li>
+    </ul>
+  </nav>
+
+  <div>
+    <section class="card" id="pacientes" x-data="{}">
+      <h2>Pacientes</h2>
+      <p class="muted">Cadastre e acompanhe seus pacientes.</p>
+      <form hx-post="/v1/admin/patients" hx-swap="none">
+        <label for="p-nome">Nome</label>
+        <input id="p-nome" name="name" required autocomplete="name"/>
+        <label for="p-tel">Telefone</label>
+        <input id="p-tel" name="phone" required inputmode="tel" autocomplete="tel"/>
+        <label for="p-email">Email</label>
+        <input id="p-email" name="email" type="email" required autocomplete="email"/>
+        <label for="p-cpf">CPF (opcional — necessário para recibo)</label>
+        <input id="p-cpf" name="cpf" inputmode="numeric"/>
+        <p><button class="btn" type="submit">Cadastrar paciente</button></p>
+      </form>
+    </section>
+
+    <section class="card" id="pendencias">
+      <h2>Pedidos de agendamento</h2>
+      <p class="muted">Pedidos feitos pelos pacientes aguardando sua confirmação.</p>
+      <button class="btn secondary" hx-get="/v1/admin/appointment-requests" hx-target="#lista-pendencias">
+        Atualizar pendências
+      </button>
+      <div id="lista-pendencias" role="region" aria-live="polite"></div>
+    </section>
+
+    <section class="card" id="financeiro">
+      <h2>Financeiro</h2>
+      <p class="muted">Débitos, cobranças e relatórios.</p>
+      <a class="btn secondary" href="/v1/admin/reports/financial">Relatório financeiro</a>
+    </section>
+  </div>
+</main>
+{{template "foot" .}}
+{{end}}

@@ -23,6 +23,7 @@ type Authenticator struct {
 	cfg   config.AdminAuthConfig
 	audit *service.AuditService
 	log   *logger.Logger
+	dev   bool
 }
 
 // NewAuthenticator cria o middleware de autenticação admin.
@@ -30,9 +31,27 @@ func NewAuthenticator(cfg config.AdminAuthConfig, audit *service.AuditService, l
 	return &Authenticator{cfg: cfg, audit: audit, log: log}
 }
 
+// EnableDev desliga a autenticação (modo de desenvolvimento local). Nunca deve
+// ser usado em produção.
+func (a *Authenticator) EnableDev() *Authenticator {
+	a.dev = true
+	return a
+}
+
 // Middleware devolve o middleware que protege as rotas administrativas.
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Modo dev: injeta o ator sem validar credenciais.
+		if a.dev {
+			actor := a.cfg.Email
+			if actor == "" {
+				actor = "dev@local"
+			}
+			ctx := httpx.WithActor(r.Context(), actor)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
 		email := r.Header.Get(a.cfg.EmailHeader)
 		secret := r.Header.Get(a.cfg.SecretHeader)
 

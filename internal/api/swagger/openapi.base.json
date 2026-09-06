@@ -3,7 +3,7 @@
   "info": {
     "title": "__TITLE__",
     "version": "1.0.0",
-    "description": "Plataforma de gestão de atendimentos para psicologia. Toda resposta usa o envelope padrão { message, elapsed_ms, data, error, request_id }."
+    "description": "Plataforma de gestão de atendimentos para psicologia. Toda resposta usa o envelope padrão { message, elapsed_ms, data, error, request_id }. Namespaces: /v1/admin (terapeuta, autenticado) e /v1/portal (paciente, sessão social)."
   },
   "servers": [
     { "url": "/", "description": "Instância local (TLS terminado no Pangolin)" }
@@ -15,7 +15,7 @@
         "properties": {
           "message": { "type": "string", "description": "Mensagem em PT-BR." },
           "elapsed_ms": { "type": "integer", "description": "Tempo de processamento em ms." },
-          "data": { "type": "object", "nullable": true },
+          "data": { "nullable": true },
           "error": { "type": "object", "nullable": true },
           "request_id": { "type": "string" }
         },
@@ -23,39 +23,96 @@
       }
     },
     "securitySchemes": {
-      "pangolinEmail": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Pangolin-Email"
-      },
-      "pangolinSecret": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Pangolin-Secret"
-      }
+      "pangolinEmail": { "type": "apiKey", "in": "header", "name": "X-Pangolin-Email" },
+      "pangolinSecret": { "type": "apiKey", "in": "header", "name": "X-Pangolin-Secret" },
+      "portalSession": { "type": "apiKey", "in": "cookie", "name": "psicoman_portal" }
     }
   },
   "paths": {
-    "/healthz": {
-      "get": {
-        "summary": "Health check",
-        "responses": { "200": { "description": "Serviço no ar" } }
-      }
+    "/healthz": { "get": { "summary": "Health check", "responses": { "200": { "description": "No ar" } } } },
+    "/readyz": { "get": { "summary": "Readiness check", "responses": { "200": { "description": "Pronto" }, "503": { "description": "Degradado" } } } },
+    "/livez": { "get": { "summary": "Liveness check", "responses": { "200": { "description": "Vivo" } } } },
+    "/metrics": { "get": { "summary": "Métricas (Prometheus text)", "responses": { "200": { "description": "OK" } } } },
+
+    "/v1/admin/me": { "get": { "tags": ["admin"], "summary": "Terapeuta autenticado", "security": [{ "pangolinEmail": [], "pangolinSecret": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Não autenticado" } } } },
+    "/v1/admin/audit-log": { "get": { "tags": ["admin"], "summary": "Registro de auditoria", "security": [{ "pangolinEmail": [], "pangolinSecret": [] }], "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/profile": {
+      "get": { "tags": ["admin"], "summary": "Perfil do terapeuta", "responses": { "200": { "description": "OK" }, "404": { "description": "Não configurado" } } },
+      "put": { "tags": ["admin"], "summary": "Salvar perfil do terapeuta", "responses": { "200": { "description": "OK" } } }
     },
-    "/readyz": {
-      "get": {
-        "summary": "Readiness check",
-        "responses": {
-          "200": { "description": "Pronto" },
-          "503": { "description": "Degradado (dependência indisponível)" }
-        }
-      }
+    "/v1/admin/patients": {
+      "get": { "tags": ["admin"], "summary": "Listar pacientes", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["admin"], "summary": "Cadastrar paciente", "responses": { "201": { "description": "Criado" }, "409": { "description": "Email/CPF duplicado" }, "422": { "description": "Validação" } } }
     },
-    "/livez": {
-      "get": {
-        "summary": "Liveness check",
-        "responses": { "200": { "description": "Vivo" } }
-      }
-    }
+    "/v1/admin/patients/{id}": {
+      "get": { "tags": ["admin"], "summary": "Obter paciente", "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" } } },
+      "put": { "tags": ["admin"], "summary": "Atualizar paciente", "responses": { "200": { "description": "OK" } } },
+      "delete": { "tags": ["admin"], "summary": "Remover paciente", "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/admin/patients/{id}/files": {
+      "get": { "tags": ["admin"], "summary": "Arquivos do paciente (GED)", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["admin"], "summary": "Anexar arquivo (multipart)", "responses": { "201": { "description": "Criado" } } }
+    },
+    "/v1/admin/patients/{id}/anamnesis": {
+      "get": { "tags": ["admin"], "summary": "Anamnese do paciente", "responses": { "200": { "description": "OK" } } },
+      "put": { "tags": ["admin"], "summary": "Salvar anamnese", "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/admin/patients/{id}/notes": {
+      "get": { "tags": ["admin"], "summary": "Notas do paciente", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["admin"], "summary": "Adicionar nota", "responses": { "201": { "description": "Criado" } } }
+    },
+    "/v1/admin/locations": {
+      "get": { "tags": ["admin"], "summary": "Listar locais", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["admin"], "summary": "Criar local", "responses": { "201": { "description": "Criado" } } }
+    },
+    "/v1/admin/plans": {
+      "get": { "tags": ["admin"], "summary": "Planos do paciente (?patient_id)", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["admin"], "summary": "Criar plano", "responses": { "201": { "description": "Criado" } } }
+    },
+    "/v1/admin/sessions": {
+      "get": { "tags": ["admin"], "summary": "Listar sessões (?patient_id)", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["admin"], "summary": "Criar sessão (checa conflito de agenda)", "responses": { "201": { "description": "Criado" }, "409": { "description": "Conflito de agenda" } } }
+    },
+    "/v1/admin/sessions/{id}/finish": { "post": { "tags": ["admin"], "summary": "Finalizar sessão (flags bill/consider_cost)", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/sessions/{id}/schedule": { "post": { "tags": ["admin"], "summary": "Confirmar/agendar sessão", "responses": { "200": { "description": "OK" }, "409": { "description": "Conflito" } } } },
+    "/v1/admin/appointment-requests": { "get": { "tags": ["admin"], "summary": "Pedidos pendentes", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/appointment-requests/{id}/confirm": { "post": { "tags": ["admin"], "summary": "Confirmar pedido (cria evento)", "responses": { "201": { "description": "Criado" }, "409": { "description": "Conflito" } } } },
+    "/v1/admin/debts": { "get": { "tags": ["admin"], "summary": "Listar débitos (?patient_id)", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/debts/{id}/pdf": {
+      "get": { "tags": ["admin"], "summary": "PDF de cobrança", "responses": { "200": { "description": "application/pdf" } } },
+      "post": { "tags": ["admin"], "summary": "Gerar PDF de cobrança", "responses": { "201": { "description": "Criado" } } }
+    },
+    "/v1/admin/debts/{id}/pay": { "post": { "tags": ["admin"], "summary": "Quitar débito", "responses": { "201": { "description": "Registrado" } } } },
+    "/v1/admin/debts/{id}/send-email": { "post": { "tags": ["admin"], "summary": "Enviar cobrança por email", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/costs/items": {
+      "get": { "tags": ["admin"], "summary": "Itens de custo", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["admin"], "summary": "Criar item de custo", "responses": { "201": { "description": "Criado" } } }
+    },
+    "/v1/admin/reports/financial": { "get": { "tags": ["admin"], "summary": "Relatório financeiro (?from&to)", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/reports/costs": { "get": { "tags": ["admin"], "summary": "Relatório de custos", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/reports/roi": { "get": { "tags": ["admin"], "summary": "ROI por canal de origem", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/templates": {
+      "get": { "tags": ["admin"], "summary": "Templates Markdown", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["admin"], "summary": "Criar template", "responses": { "201": { "description": "Criado" } } }
+    },
+    "/v1/admin/templates/{id}/send": { "post": { "tags": ["admin"], "summary": "Enviar template (HTML formatado)", "responses": { "201": { "description": "Enviado" } } } },
+    "/v1/admin/google/authorize": { "post": { "tags": ["admin"], "summary": "Iniciar OAuth Google", "responses": { "200": { "description": "URL de autorização" } } } },
+    "/v1/admin/google/callback": { "post": { "tags": ["admin"], "summary": "Callback OAuth (troca code)", "responses": { "200": { "description": "Autorizado" } } } },
+    "/v1/admin/backup": { "post": { "tags": ["admin"], "summary": "Backup cifrado no Drive", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/restore": { "post": { "tags": ["admin"], "summary": "Restaurar do último backup", "responses": { "200": { "description": "OK" }, "422": { "description": "Sem backup" } } } },
+
+    "/v1/portal/login": { "post": { "tags": ["portal"], "summary": "Login social (credencial Google)", "responses": { "200": { "description": "OK" }, "401": { "description": "Falha" } } } },
+    "/v1/portal/register": { "put": { "tags": ["portal"], "summary": "Cadastro básico (upsert por email)", "responses": { "200": { "description": "OK" }, "429": { "description": "Rate limit" } } } },
+    "/v1/portal/me": {
+      "get": { "tags": ["portal"], "summary": "Meu perfil", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Sem sessão" } } },
+      "put": { "tags": ["portal"], "summary": "Atualizar meu perfil", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/portal/availability": { "get": { "tags": ["portal"], "summary": "Agenda aberta", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } } },
+    "/v1/portal/appointment-requests": {
+      "get": { "tags": ["portal"], "summary": "Meus pedidos", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["portal"], "summary": "Solicitar sessão", "security": [{ "portalSession": [] }], "responses": { "201": { "description": "Criado" }, "429": { "description": "Rate limit" } } }
+    },
+    "/v1/portal/sessions": { "get": { "tags": ["portal"], "summary": "Minhas sessões", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } } },
+    "/v1/portal/debts": { "get": { "tags": ["portal"], "summary": "Meus débitos", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } } }
   }
 }

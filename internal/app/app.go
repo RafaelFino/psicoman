@@ -21,6 +21,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/repository/ged"
 	"github.com/RafaelFino/psicoman/internal/repository/sqlite"
 	"github.com/RafaelFino/psicoman/internal/service"
+	"github.com/RafaelFino/psicoman/internal/web"
 )
 
 // Runnable é um servidor montado, pronto para rodar até o contexto ser cancelado.
@@ -127,6 +128,11 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 	srv := api.NewServer(cfg.Admin.Addr(), d.log, d.metrics)
 	d.health.Register(srv.Mux())
 	swagger.Register(srv.Mux(), swagger.Admin)
+	if webSrv, werr := web.New(web.Admin); werr == nil {
+		webSrv.Register(srv.Mux())
+	} else {
+		return nil, fmt.Errorf("web admin: %w", werr)
+	}
 
 	// Serviços compartilhados.
 	auditSvc := service.NewAuditService(sqlite.NewAuditRepo(d.db))
@@ -197,6 +203,10 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 
 	// Autenticação admin (defense in depth sobre o Pangolin).
 	authn := admin.NewAuthenticator(cfg.AdminAuth, auditSvc, d.log)
+	if cfg.Dev {
+		authn.EnableDev()
+		d.log.Warn("MODO DEV ATIVO: autenticação do admin DESLIGADA. Nunca use em produção.")
+	}
 
 	// Router versionado /v1.
 	v1 := api.V1(srv.Mux())
@@ -246,6 +256,11 @@ func buildPortal(_ context.Context, cfg *config.Config, opts Options) (*instance
 	srv := api.NewServer(cfg.Portal.Addr(), d.log, d.metrics)
 	d.health.Register(srv.Mux())
 	swagger.Register(srv.Mux(), swagger.Portal)
+	if webSrv, werr := web.New(web.Portal); werr == nil {
+		webSrv.Register(srv.Mux())
+	} else {
+		return nil, fmt.Errorf("web portal: %w", werr)
+	}
 
 	// Serviços do portal.
 	patientRepo := sqlite.NewPatientRepo(d.db)
@@ -262,7 +277,13 @@ func buildPortal(_ context.Context, cfg *config.Config, opts Options) (*instance
 	// Login social: verificador injetável (fake nos testes, Google userinfo real).
 	var verifier portal.IdentityVerifier = opts.Identity
 	if verifier == nil {
-		verifier = google.NewIdentityVerifier()
+		if cfg.Dev {
+			// Modo dev: aceita a credencial como e-mail, sem chamar o Google.
+			verifier = google.FakeIdentityVerifier{}
+			d.log.Warn("MODO DEV ATIVO: login do portal aceita qualquer e-mail sem verificação. Nunca use em produção.")
+		} else {
+			verifier = google.NewIdentityVerifier()
+		}
 	}
 	limiter := portal.NewRateLimiter(cfg.RateLimit.RequestsPerMinute, cfg.RateLimit.Burst)
 	authn := portal.NewAuthenticator(sessMgr)

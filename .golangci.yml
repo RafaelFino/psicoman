@@ -1,0 +1,25 @@
+# Configuração do golangci-lint para o Psicoman.
+# Conjunto enxuto e pragmático: correção + higiene, sem ruído excessivo.
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck      # erros não verificados
+    - govet         # análise estática
+    - ineffassign   # atribuições inúteis
+    - staticcheck   # bugs e simplificações
+    - unused        # código morto
+    - misspell      # erros de digitação em comentários
+    - gofmt         # formatação
+    - revive        # estilo (substitui golint)
+
+issues:
+  exclude-rules:
+    # Testes podem ignorar erros de Close()/Body em respostas HTTP.
+    - path: _test\.go
+      linters:
+        - errcheck
+  max-issues-per-linter: 0
+  max-same-issues: 0

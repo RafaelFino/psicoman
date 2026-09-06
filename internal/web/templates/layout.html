@@ -1,0 +1,22 @@
+{{define "head"}}
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/app.css"/>
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <span aria-hidden="true">🧠</span>
+  <h1>{{.Title}}</h1>
+</header>
+{{end}}
+
+{{define "foot"}}
+</body>
+</html>
+{{end}}

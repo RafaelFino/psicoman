@@ -45,3 +45,5 @@ go.work.sum
 # Config real da instância (nunca versionar segredos)
 config.yaml
 config.local.yaml
+config.dev.yaml
+data-dev/

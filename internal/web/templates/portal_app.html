@@ -1,0 +1,44 @@
+{{define "portal_app.html"}}
+{{template "head" .}}
+<main>
+  <section class="card">
+    <h2>Meu perfil</h2>
+    <p class="muted">Mantenha seus dados atualizados.</p>
+    <form hx-put="/v1/portal/me" hx-swap="none">
+      <label for="m-nome">Nome</label>
+      <input id="m-nome" name="name" required autocomplete="name"/>
+      <label for="m-tel">Telefone</label>
+      <input id="m-tel" name="phone" inputmode="tel" autocomplete="tel"/>
+      <label for="m-cpf">CPF (opcional)</label>
+      <input id="m-cpf" name="cpf" inputmode="numeric"/>
+      <p><button class="btn" type="submit">Salvar</button></p>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Agenda aberta</h2>
+    <p class="muted">Veja os horários disponíveis e solicite uma sessão.</p>
+    <button class="btn secondary" hx-get="/v1/portal/availability" hx-target="#agenda-aberta">
+      Ver horários
+    </button>
+    <div id="agenda-aberta" role="region" aria-live="polite"></div>
+  </section>
+
+  <section class="card">
+    <h2>Minhas sessões</h2>
+    <button class="btn secondary" hx-get="/v1/portal/sessions" hx-target="#minhas-sessoes">
+      Atualizar
+    </button>
+    <div id="minhas-sessoes" role="region" aria-live="polite"></div>
+  </section>
+
+  <section class="card">
+    <h2>Meus débitos</h2>
+    <button class="btn secondary" hx-get="/v1/portal/debts" hx-target="#meus-debitos">
+      Atualizar
+    </button>
+    <div id="meus-debitos" role="region" aria-live="polite"></div>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

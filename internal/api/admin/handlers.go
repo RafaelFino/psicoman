@@ -23,6 +23,27 @@ func NewHandlers(cfg *config.Config, audit *service.AuditService) *Handlers {
 // Register instala as rotas administrativas no grupo /v1/admin (já autenticado).
 func (h *Handlers) Register(g *api.Group) {
 	g.Handle("GET", "/me", h.me)
+	g.Handle("GET", "/audit-log", h.auditLog)
+}
+
+// auditLog devolve as entradas de auditoria mais recentes (operações sensíveis).
+func (h *Handlers) auditLog(w http.ResponseWriter, r *http.Request) {
+	entries, err := h.audit.List(r.Context(), 200)
+	if err != nil {
+		httpx.RespondError(w, r, httpx.ErrInternal(err))
+		return
+	}
+	views := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		views = append(views, map[string]any{
+			"actor":      e.Actor,
+			"action":     e.Action,
+			"entity":     e.Entity,
+			"entity_id":  e.EntityID,
+			"created_at": e.CreatedAt,
+		})
+	}
+	httpx.Respond(w, r, http.StatusOK, "Registro de auditoria.", views)
 }
 
 // me devolve o terapeuta autenticado (docs/architecture.md §5.1).

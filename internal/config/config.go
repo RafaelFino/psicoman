@@ -40,6 +40,11 @@ type Config struct {
 
 	// RateLimit das rotas públicas do portal.
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
+
+	// Dev liga o modo de desenvolvimento local: DESLIGA a autenticação (admin e
+	// portal) para facilitar a validação local. NUNCA usar em produção — o boot
+	// emite um aviso enquanto estiver ativo.
+	Dev bool `yaml:"dev_mode"`
 }
 
 // ServerConfig descreve o bind HTTP de um binário.
@@ -127,13 +132,13 @@ func Load(path string) (*Config, error) {
 // applyDefaults preenche valores default para campos não informados.
 func (c *Config) applyDefaults() {
 	if c.Admin.Host == "" {
-		c.Admin.Host = "127.0.0.1"
+		c.Admin.Host = "0.0.0.0"
 	}
 	if c.Admin.Port == 0 {
 		c.Admin.Port = 8080
 	}
 	if c.Portal.Host == "" {
-		c.Portal.Host = "127.0.0.1"
+		c.Portal.Host = "0.0.0.0"
 	}
 	if c.Portal.Port == 0 {
 		c.Portal.Port = 8081
@@ -178,11 +183,15 @@ func (c *Config) Validate() error {
 	if c.Paths.GEDRoot == "" {
 		errs = append(errs, errors.New("paths.ged_root é obrigatório"))
 	}
-	if c.AdminAuth.Email == "" {
-		errs = append(errs, errors.New("admin_auth.email é obrigatório"))
-	}
-	if c.AdminAuth.Secret == "" {
-		errs = append(errs, errors.New("admin_auth.secret é obrigatório"))
+	// Em modo dev a autenticação é desligada, então as credenciais do admin
+	// não são obrigatórias (facilita rodar localmente).
+	if !c.Dev {
+		if c.AdminAuth.Email == "" {
+			errs = append(errs, errors.New("admin_auth.email é obrigatório"))
+		}
+		if c.AdminAuth.Secret == "" {
+			errs = append(errs, errors.New("admin_auth.secret é obrigatório"))
+		}
 	}
 	for _, m := range c.Reminders.MinutesBefore {
 		if m < 0 {

@@ -118,13 +118,18 @@ psicoman/
 # compilar os dois binários
 make build
 
-# testes
-make test        # unit
-make e2e         # end-to-end
+# rodar localmente em modo dev (auth desligada), gera config.dev.yaml
+make run-local   # admin em :8080, portal em :8081
+
+# testes e qualidade
+make test        # unit + e2e
+make check       # gate completo: fmt + vet + build + testes (+ lint advisory)
 
 # aplicar migrations
 make migrate
 ```
+
+> `make run-local` sobe a aplicação com `dev_mode: true` (autenticação desligada) para validação local. **Nunca** use esse modo em produção.
 
 Configuração por instância via `config.yaml` (baseado em `config.example.yaml`): paths de SQLite/GED/logs, email e secret do admin, credenciais OAuth Google, chave de cifragem, intervalos de lembrete e portas.
 
@@ -160,6 +165,16 @@ A spec passou por uma revisão de coerência antes do início da implementação
 
 Não foram encontrados outros bloqueadores. A spec está consistente entre `requirements.md`, `architecture.md` e `tasks.md`, e pronta para o início da implementação.
 
+## Deploy
+
+Instalação e atualização em um servidor (uma VM por terapeuta, atrás do Pangolin):
+
+- **Guia passo a passo:** [`DEPLOY.md`](./DEPLOY.md) — provisão da VM, credenciais Google (Calendar/Meet, Gmail, Drive), configuração do Pangolin, primeiro uso e operação.
+- **Instalação interativa:** `make deploy` (ou `sudo ./scripts/deploy.sh`) — pergunta tudo, gera o `config.yaml` com chave de cifragem, compila os binários e cria os serviços systemd.
+- **Atualização segura:** `make update` (ou `sudo ./scripts/update-server.sh`) — backup completo, `git` da versão alvo, rebuild, migrations no boot, validação por `/readyz` e rollback automático em caso de falha.
+
 ## Status
 
-Especificação auditada e consolidada. Próximo passo: iniciar a implementação pela Fase 0 (fundação e esqueleto dos dois binários), conforme [`.kiro/specs/mvp/tasks.md`](./.kiro/specs/mvp/tasks.md).
+MVP implementado e verde: as 21 tasks das 7 fases em [`.kiro/specs/mvp/tasks.md`](./.kiro/specs/mvp/tasks.md) estão concluídas, com testes unitários e suíte E2E cobrindo os fluxos de negócio (cadastro → sessão → débito → cobrança → quitação; pedido do portal → confirmação → evento no Calendar; backup → restore; isolamento e rate limiting do portal). `make build`, `make test` e `make e2e` passam; `go vet` limpo.
+
+Os dois binários (`psicoman-admin`, `psicoman-portal`) sobem, aplicam as migrations no boot, servem a API versionada (`/v1`), o Swagger (`/v1/swagger`) e a interface web embutida, e expõem health/readiness/liveness/metrics.

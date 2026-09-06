@@ -1,0 +1,128 @@
+/* Psicoman — estilos base, mobile-first, WCAG AA.
+   Paleta suave/acolhedora; contraste >= 4.5:1 para texto normal. */
+
+:root {
+  --bg: #f7f9fb;
+  --surface: #ffffff;
+  --text: #1f2933;         /* sobre --bg: contraste ~13:1 */
+  --muted: #52606d;        /* sobre --surface: contraste ~7:1 */
+  --primary: #2f6f5e;      /* verde acolhedor; branco sobre ele ~5:1 */
+  --primary-contrast: #ffffff;
+  --accent: #3a5a78;
+  --attention: #8a5a00;    /* tom âmbar p/ atenção (evita vermelho puro) */
+  --border: #d9e2ec;
+  --radius: 10px;
+  --space: 1rem;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 16px; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* Foco visível sempre (WCAG 2.4.7) */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+header.topbar {
+  background: var(--primary);
+  color: var(--primary-contrast);
+  padding: var(--space);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+header.topbar h1 { font-size: 1.15rem; margin: 0; }
+
+main {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: var(--space);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+  margin-bottom: var(--space);
+}
+
+.card h2 { margin-top: 0; font-size: 1.05rem; }
+
+p.muted { color: var(--muted); }
+
+.btn {
+  display: inline-block;
+  background: var(--primary);
+  color: var(--primary-contrast);
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.7rem 1.1rem;
+  font-size: 1rem;
+  cursor: pointer;
+  text-decoration: none;
+  min-height: 44px; /* alvo de toque confortável */
+}
+
+.btn.secondary {
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  margin: 0.75rem 0 0.25rem;
+}
+
+input, select, textarea {
+  width: 100%;
+  padding: 0.65rem;
+  font-size: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.feedback { margin-top: var(--space); padding: 0.75rem; border-radius: var(--radius); }
+.feedback.ok { background: #e3f1ec; color: #1c4b3e; }
+.feedback.attention { background: #fdf3e2; color: var(--attention); }
+
+nav.side ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
+nav.side a {
+  display: block;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius);
+  color: var(--accent);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* Desktop: admin ganha layout com navegação lateral. */
+@media (min-width: 900px) {
+  main.admin-layout {
+    max-width: 1100px;
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: var(--space);
+    align-items: start;
+  }
+}

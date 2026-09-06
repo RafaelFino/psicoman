@@ -149,19 +149,19 @@ Convenções:
 
 ## Fase 6 — Operação e fechamento
 
-- [ ] **19. Backup/restore cifrado no Drive** (dep: 2, 7, 15)
+- [x] **19. Backup/restore cifrado no Drive** (dep: 2, 7, 15)
   - Backup diário do SQLite (cifrado + compactado) no Drive; GED incremental por hash; restore.
   - **Aceite:** gerar backup e restaurar a base (round-trip).
   - **Testes:** E2E round-trip com Drive mockado.
   - **Refs:** requirements §3.8 · architecture §4.4.
 
-- [ ] **20. Interface web (admin e portal) responsiva** (dep: 5–18)
+- [x] **20. Interface web (admin e portal) responsiva** (dep: 5–18)
   - Front embutido (`embed.FS`); admin com navegação lateral/dashboards; portal minimalista mobile-first; Pico/Tailwind + htmx/Alpine; WCAG AA.
   - **Aceite:** usar o sistema ponta a ponta pela UI no desktop e no celular.
   - **Testes:** E2E de fluxos-chave pela UI; verificação de contraste/foco.
   - **Refs:** requirements §4.5 · architecture §2, §5.
 
-- [ ] **21. Audit log, Swagger final e hardening E2E** (dep: todas)
+- [x] **21. Audit log, Swagger final e hardening E2E** (dep: todas)
   - Consolidar audit log de operações sensíveis; finalizar Swagger; suíte E2E completa.
   - **Aceite:** Swagger navegável; suíte E2E completa verde.
   - **Testes:** suíte E2E cobrindo todos os fluxos.

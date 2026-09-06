@@ -1,0 +1,26 @@
+{{define "admin_home.html"}}
+{{template "head" .}}
+<main>
+  <section class="card">
+    <h2>Bem-vindo(a) à administração</h2>
+    <p class="muted">
+      Gerencie pacientes, agenda, sessões, prontuário, financeiro e custos em um só lugar.
+      O acesso é protegido pelo gateway e por autenticação própria.
+    </p>
+    <p>
+      <a class="btn" href="/app/">Abrir painel</a>
+      <a class="btn secondary" href="/v1/swagger">Documentação da API</a>
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Saúde do sistema</h2>
+    <p class="muted">Verifique se a instância está pronta para uso.</p>
+    <p>
+      <a class="btn secondary" href="/healthz">Liveness</a>
+      <a class="btn secondary" href="/readyz">Readiness</a>
+    </p>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

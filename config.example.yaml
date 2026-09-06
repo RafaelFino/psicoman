@@ -1,13 +1,19 @@
 # Psicoman — configuração de exemplo de uma instância.
 # Copie para config.yaml e ajuste. NUNCA versione o config.yaml real (segredos).
 
+# Bind de IP e porta de cada binário. Default 0.0.0.0 (todas as interfaces).
+# Em produção atrás do Pangolin, você pode restringir para 127.0.0.1.
 admin:
-  host: "127.0.0.1"
+  host: "0.0.0.0"
   port: 8080
 
 portal:
-  host: "127.0.0.1"
+  host: "0.0.0.0"
   port: 8081
+
+# Modo de desenvolvimento local: DESLIGA a autenticação (admin e portal).
+# NUNCA use true em produção — é apenas para validar a aplicação localmente.
+dev_mode: false
 
 paths:
   sqlite: "./data/psicoman.db"
