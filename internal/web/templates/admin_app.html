@@ -235,7 +235,7 @@
           <li class="item">
             <svg class="icon icon-lg" aria-hidden="true" style="color:var(--primary)"><use :href="s.modality === 'online' ? '#i-video' : '#i-pin'"></use></svg>
             <div class="grow">
-              <div class="title" x-text="Fmt.datetime(s.starts_at)"></div>
+              <div class="title" x-text="Fmt.short(s.starts_at)"></div>
               <div class="sub">
                 <span x-text="s.modality"></span> · <span x-text="s.status"></span>
                 <template x-if="s.bill"><span class="chip info" style="margin-left:6px">cobrar</span></template>
@@ -308,7 +308,7 @@
               </div>
             </div>
             <div class="actions" x-show="confirmingPlanId !== p.id">
-              <button class="btn danger" @click="confirmingPlanId = p.id" :disabled="loading">{{template "icon" "trash"}}</button>
+              <button class="btn danger" @click="confirmingPlanId = p.id" :disabled="loading" aria-label="Remover plano">{{template "icon" "trash"}}</button>
             </div>
             <div class="actions" x-show="confirmingPlanId === p.id" x-cloak>
               <span class="sub">Remover?</span>
@@ -349,7 +349,7 @@
               <div class="sub" style="margin-top:6px" x-text="Fmt.datetime(n.created_at)"></div>
             </div>
             <div class="actions" x-show="confirmingNoteId !== n.id">
-              <button class="btn danger" @click="confirmingNoteId = n.id" :disabled="loading">{{template "icon" "trash"}}</button>
+              <button class="btn danger" @click="confirmingNoteId = n.id" :disabled="loading" aria-label="Remover nota">{{template "icon" "trash"}}</button>
             </div>
             <div class="actions" x-show="confirmingNoteId === n.id" x-cloak>
               <span class="sub">Remover nota?</span>
@@ -375,7 +375,7 @@
               <div class="sub">
                 <span x-text="d.billing_period || '—'"></span> ·
                 <span class="chip" :class="d.status === 'pago' ? 'ok' : (d.status === 'parcial' ? 'warn' : 'info')" x-text="d.status"></span>
-                <template x-if="d.due_date"><span> · vence <span x-text="Fmt.datetime(d.due_date)"></span></span></template>
+                <template x-if="d.due_date"><span> · vence <span x-text="Fmt.short(d.due_date)"></span></span></template>
               </div>
             </div>
             <div class="actions">
@@ -442,7 +442,7 @@
           <li class="item">
             {{template "icon" "chart"}}
             <div class="grow">
-              <div class="title" x-text="Fmt.datetime(s.starts_at)"></div>
+              <div class="title" x-text="Fmt.short(s.starts_at)"></div>
               <div class="sub">
                 <span x-text="s.status"></span>
                 <template x-if="costs[s.id]"><span> · custo <span x-text="Fmt.brl(costs[s.id].amount)"></span> (<span x-text="costs[s.id].method"></span>)</span></template>
@@ -616,7 +616,7 @@
             <div class="actions" x-show="confirmingId !== t.id">
               <button class="btn secondary" @click="editTemplate(t)" :disabled="loading">{{template "icon" "edit"}} Editar</button>
               <button class="btn secondary" @click="toggleSend(t.id)" :disabled="loading">{{template "icon" "check"}} Enviar</button>
-              <button class="btn danger" @click="confirmingId = t.id" :disabled="loading">{{template "icon" "trash"}}</button>
+              <button class="btn danger" @click="confirmingId = t.id" :disabled="loading" aria-label="Excluir template">{{template "icon" "trash"}}</button>
             </div>
             <div class="actions" x-show="confirmingId === t.id" x-cloak>
               <span class="sub">Excluir este template?</span>
@@ -714,7 +714,7 @@
                 <button class="btn secondary" @click="edit(l)" :disabled="loading">{{template "icon" "edit"}} Editar</button>
                 <button class="btn secondary" @click="toggleWindows(l.id)" :disabled="loading">{{template "icon" "calendar"}} Horários</button>
                 <template x-if="confirmingId !== l.id">
-                  <button class="btn danger" @click="confirmingId = l.id" :disabled="loading">{{template "icon" "trash"}}</button>
+                  <button class="btn danger" @click="confirmingId = l.id" :disabled="loading" aria-label="Remover local">{{template "icon" "trash"}}</button>
                 </template>
               </div>
             </div>
@@ -820,7 +820,7 @@
             <div class="grow"><div class="title" x-text="o.name"></div></div>
             <div class="actions" x-show="confirmingId !== o.id">
               <button class="btn secondary" @click="edit(o)" :disabled="loading">{{template "icon" "edit"}} Renomear</button>
-              <button class="btn danger" @click="confirmingId = o.id" :disabled="loading">{{template "icon" "trash"}}</button>
+              <button class="btn danger" @click="confirmingId = o.id" :disabled="loading" aria-label="Remover origem">{{template "icon" "trash"}}</button>
             </div>
             <div class="actions" x-show="confirmingId === o.id" x-cloak>
               <span class="sub">Remover?</span>
@@ -929,7 +929,7 @@
               <div class="sub"><span x-text="Fmt.brl(i.amount)"></span>/<span x-text="i.period"></span></div>
             </div>
             <div class="actions" x-show="confirmingItemId !== i.id">
-              <button class="btn danger" @click="confirmingItemId = i.id" :disabled="loading">{{template "icon" "trash"}}</button>
+              <button class="btn danger" @click="confirmingItemId = i.id" :disabled="loading" aria-label="Remover item de custo">{{template "icon" "trash"}}</button>
             </div>
             <div class="actions" x-show="confirmingItemId === i.id" x-cloak>
               <span class="sub">Remover?</span>
@@ -1089,7 +1089,7 @@
               <div class="sub"><a :href="l.url" target="_blank" rel="noopener" x-text="l.url"></a></div>
             </div>
             <div class="actions" x-show="confirmingLinkId !== l.id">
-              <button class="btn danger" @click="confirmingLinkId = l.id" :disabled="loading">{{template "icon" "trash"}}</button>
+              <button class="btn danger" @click="confirmingLinkId = l.id" :disabled="loading" aria-label="Remover link">{{template "icon" "trash"}}</button>
             </div>
             <div class="actions" x-show="confirmingLinkId === l.id" x-cloak>
               <span class="sub">Remover?</span>
@@ -1284,9 +1284,9 @@
           <li class="item">
             {{template "icon" "calendar"}}
             <div class="grow">
-              <div class="title" x-text="Fmt.datetime(a.slot_start)"></div>
+              <div class="title" x-text="Fmt.short(a.slot_start)"></div>
               <div class="sub">
-                até <span x-text="Fmt.datetime(a.slot_end)"></span>
+                até <span x-text="Fmt.short(a.slot_end)"></span>
                 · <span x-text="a.status"></span>
               </div>
             </div>
