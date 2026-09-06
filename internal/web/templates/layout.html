@@ -36,6 +36,9 @@
       <a class="menu-item" href="#pendencias" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "clock"}} Pedidos de agendamento</a>
       <a class="menu-item" href="#templates" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "note"}} Templates</a>
       <a class="menu-item" href="/">{{template "icon" "activity"}} Início</a>
+      <span class="menu-title">Gestão</span>
+      <a class="menu-item" href="#locais" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "pin"}} Locais</a>
+      <a class="menu-item" href="#origens" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "activity"}} Origens</a>
       <span class="menu-title">Financeiro</span>
       <a class="menu-item" href="#financeiro" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "wallet"}} Financeiro</a>
       {{else}}

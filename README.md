@@ -138,6 +138,7 @@ Configuração por instância via `config.yaml` (baseado em `config.example.yaml
 - Dados de prontuário são dados sensíveis de saúde: infra segregada e permissionada, audit log de operações sensíveis, backup cifrado.
 - Admin com defense in depth (não confia apenas no Pangolin).
 - Portal isolado, sem acesso a dados clínicos; paciente enxerga só os próprios dados. Fica atrás do Pangolin (que garante TLS) mas sem o controle de acesso do gateway, então tem autenticação própria (login social) e rate limiting nas rotas públicas (cadastro, pedido de agendamento).
+- **Gate de aprovação do portal:** paciente que se auto-cadastra fica `pendente` e não acessa nenhum recurso até o terapeuta aprovar (imposto no servidor, HTTP 403); aprovação/rejeição no admin com audit log.
 - Refresh tokens e backups cifrados (AES-GCM).
 
 ## Steering (padrões para o desenvolvimento)
