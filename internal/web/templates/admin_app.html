@@ -833,6 +833,366 @@
     </div>
   </section>
 
+  <!-- ══════════════════════════ CUSTOS E ROI ═════════════════════════════ -->
+  <section class="card" id="custos-gestao" x-data="costsPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "chart"}}<h2>Custos e ROI</h2></header>
+    <p class="muted">Cadastre seus custos (local, CRP, infraestrutura, plataformas) e acompanhe os relatórios por período.</p>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <!-- Categorias -->
+    <div class="stack" style="margin-top:12px">
+      <strong>Categorias de custo</strong>
+      <div class="form-grid">
+        <div class="field">
+          <label for="cat-kind">Tipo</label>
+          <select id="cat-kind" x-model="catForm.kind">
+            <option value="local">Local</option>
+            <option value="crp">CRP</option>
+            <option value="infra">Infraestrutura</option>
+            <option value="plataforma">Plataforma</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="cat-nome">Nome</label>
+          <input id="cat-nome" x-model="catForm.name" placeholder="Ex.: Anuidade CRP"/>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn secondary" @click="createCategory()" :disabled="loading">{{template "icon" "plus"}} Adicionar categoria</button>
+      </div>
+      <ul class="item-list">
+        <template x-for="c in categories" :key="c.id">
+          <li class="item">
+            {{template "icon" "chart"}}
+            <div class="grow"><div class="title" x-text="c.name"></div><div class="sub" x-text="kindLabel(c.kind)"></div></div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Itens de custo -->
+    <div class="stack" style="margin-top:16px">
+      <strong>Itens de custo</strong>
+      <div class="form-grid">
+        <div class="field">
+          <label for="it-cat">Categoria</label>
+          <select id="it-cat" x-model="itemForm.category_id">
+            <option value="">Selecione…</option>
+            <template x-for="c in categories" :key="c.id">
+              <option :value="c.id" x-text="c.name + ' (' + kindLabel(c.kind) + ')'"></option>
+            </template>
+          </select>
+        </div>
+        <div class="field">
+          <label for="it-nome">Nome</label>
+          <input id="it-nome" x-model="itemForm.name" placeholder="Ex.: Assinatura Doctoralia"/>
+        </div>
+        <div class="field">
+          <label for="it-valor">Valor (R$)</label>
+          <input id="it-valor" x-model="itemForm.amount" inputmode="decimal" placeholder="0,00"/>
+        </div>
+        <div class="field">
+          <label for="it-per">Periodicidade</label>
+          <select id="it-per" x-model="itemForm.period">
+            <option value="por_sessao">Por sessão</option>
+            <option value="diario">Diário</option>
+            <option value="mensal">Mensal</option>
+            <option value="anual">Anual</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="it-origem">Origem (plataforma)</label>
+          <select id="it-origem" x-model="itemForm.origin_id">
+            <option value="">— Nenhuma —</option>
+            <template x-for="o in origins" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+          <span class="hint">Ligue à origem para o ROI por canal.</span>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn secondary" @click="createItem()" :disabled="loading">{{template "icon" "plus"}} Adicionar item</button>
+      </div>
+      <ul class="item-list">
+        <template x-for="i in items" :key="i.id">
+          <li class="item">
+            {{template "icon" "wallet"}}
+            <div class="grow">
+              <div class="title" x-text="i.name"></div>
+              <div class="sub"><span x-text="Fmt.brl(i.amount)"></span>/<span x-text="i.period"></span></div>
+            </div>
+            <div class="actions" x-show="confirmingItemId !== i.id">
+              <button class="btn danger" @click="confirmingItemId = i.id" :disabled="loading">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingItemId === i.id" x-cloak>
+              <span class="sub">Remover?</span>
+              <button class="btn danger" @click="removeItem(i.id)" :disabled="loading">Remover</button>
+              <button class="btn ghost" @click="confirmingItemId = null" :disabled="loading">Cancelar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Relatórios -->
+    <div class="stack" style="margin-top:16px">
+      <strong>Relatórios do período</strong>
+      <div class="row">
+        <div class="field">
+          <label for="rep-de">De</label>
+          <input id="rep-de" type="date" x-model="period.from"/>
+        </div>
+        <div class="field">
+          <label for="rep-ate">Até</label>
+          <input id="rep-ate" type="date" x-model="period.to"/>
+        </div>
+        <button class="btn primary" @click="loadReports()" :disabled="loading" style="align-self:flex-end">
+          <template x-if="loading"><span class="spinner"></span></template>
+          {{template "icon" "chart"}} Gerar relatórios
+        </button>
+      </div>
+
+      <div x-show="costReport" style="margin-top:10px">
+        <strong class="sub">Custos por tipo</strong>
+        <ul class="item-list">
+          <template x-for="(v, k) in (costReport ? costReport.by_kind : {})" :key="k">
+            <li class="item">
+              <div class="grow"><div class="title" x-text="kindLabel(k)"></div></div>
+              <span x-text="Fmt.brl(v)"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+
+      <div x-show="roi.length" style="margin-top:10px">
+        <strong class="sub">ROI por canal</strong>
+        <ul class="item-list">
+          <template x-for="row in roi" :key="row.origin_id">
+            <li class="item">
+              <div class="grow">
+                <div class="title" x-text="row.origin_name"></div>
+                <div class="sub">Receita <span x-text="Fmt.brl(row.revenue)"></span> · Custo <span x-text="Fmt.brl(row.cost)"></span></div>
+              </div>
+              <span class="chip" :class="row.roi >= 0 ? 'ok' : 'attention'" x-text="Fmt.brl(row.roi)"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ PERFIL DO TERAPEUTA ═════════════════════════ -->
+  <section class="card" id="perfil-terapeuta" x-data="therapistPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "user"}}<h2>Meu perfil (terapeuta)</h2></header>
+    <p class="muted">Seus dados profissionais, bio e links de plataformas.</p>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div class="form-grid">
+      <div class="field">
+        <label for="th-nome">Nome</label>
+        <input id="th-nome" x-model="form.name"/>
+      </div>
+      <div class="field">
+        <label for="th-crp">CRP</label>
+        <input id="th-crp" x-model="form.crp"/>
+      </div>
+      <div class="field">
+        <label for="th-email">Email</label>
+        <input id="th-email" x-model="form.email" type="email"/>
+      </div>
+    </div>
+
+    <div class="field wide" style="margin-top:12px">
+      <label>Bio (Markdown)</label>
+      <div class="md-editor">
+        <div class="md-tabs">
+          <button type="button" class="md-tab" :class="{ active: !bioPreview }" @click="bioPreview = false">{{template "icon" "edit"}} Escrever</button>
+          <button type="button" class="md-tab" :class="{ active: bioPreview }" @click="bioPreview = true">{{template "icon" "doc"}} Visualizar</button>
+        </div>
+        <textarea x-show="!bioPreview" x-model="form.bio" placeholder="Apresente-se em Markdown…"></textarea>
+        <div x-show="bioPreview" class="md-preview md-body" x-html="Md.toHtml(form.bio)"></div>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:12px">
+      <label>Locais de atendimento</label>
+      <div class="row" style="flex-wrap:wrap">
+        <template x-for="l in locations" :key="l.id">
+          <label class="chip" style="cursor:pointer">
+            <input type="checkbox" :value="l.id" x-model="form.location_ids"/>
+            <span x-text="l.name"></span>
+          </label>
+        </template>
+      </div>
+    </div>
+
+    <div class="row end" style="margin-top:12px">
+      <button class="btn primary" @click="save()" :disabled="loading">{{template "icon" "check"}} Salvar perfil</button>
+    </div>
+
+    <!-- Foto -->
+    <div class="stack" style="margin-top:16px">
+      <strong>Foto</strong>
+      <template x-if="form.photo_id">
+        <img :src="'/v1/admin/files/' + form.photo_id" alt="Foto do perfil" style="max-width:120px;border-radius:8px"/>
+      </template>
+      <div class="row">
+        <input type="file" id="th-foto" accept="image/*" @change="photoChosen($event)"/>
+        <button class="btn secondary" @click="uploadPhoto()" :disabled="loading || !pendingPhoto">{{template "icon" "plus"}} Enviar foto</button>
+      </div>
+    </div>
+
+    <!-- Links de plataforma -->
+    <div class="stack" style="margin-top:16px">
+      <strong>Links de plataforma</strong>
+      <div class="form-grid">
+        <div class="field">
+          <label for="lk-label">Rótulo</label>
+          <input id="lk-label" x-model="linkForm.label" placeholder="Ex.: Doctoralia"/>
+        </div>
+        <div class="field">
+          <label for="lk-url">URL</label>
+          <input id="lk-url" x-model="linkForm.url" placeholder="https://…"/>
+        </div>
+        <div class="field">
+          <label for="lk-origem">Origem (opcional)</label>
+          <select id="lk-origem" x-model="linkForm.origin_id">
+            <option value="">— Nenhuma —</option>
+            <template x-for="o in origins" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn secondary" @click="addLink()" :disabled="loading">{{template "icon" "plus"}} Adicionar link</button>
+      </div>
+      <ul class="item-list">
+        <template x-for="l in links" :key="l.id">
+          <li class="item">
+            {{template "icon" "activity"}}
+            <div class="grow">
+              <div class="title" x-text="l.label"></div>
+              <div class="sub"><a :href="l.url" target="_blank" rel="noopener" x-text="l.url"></a></div>
+            </div>
+            <div class="actions" x-show="confirmingLinkId !== l.id">
+              <button class="btn danger" @click="confirmingLinkId = l.id" :disabled="loading">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingLinkId === l.id" x-cloak>
+              <span class="sub">Remover?</span>
+              <button class="btn danger" @click="removeLink(l.id)" :disabled="loading">Remover</button>
+              <button class="btn ghost" @click="confirmingLinkId = null" :disabled="loading">Cancelar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════ BACKUP ═══════════════════════════════ -->
+  <section class="card" id="backup" x-data="backupPanel()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "download"}}<h2>Backup e restauração</h2></header>
+    <p class="muted">Gere um backup cifrado no Google Drive ou restaure a partir do último backup.</p>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div class="row">
+      <button class="btn primary" @click="doBackup()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "download"}} Gerar backup agora
+      </button>
+    </div>
+    <div x-show="result" class="item-list" style="margin-top:12px">
+      <div class="item"><div class="grow"><div class="sub">Snapshot</div><div class="title" x-text="result && result.snapshot_file_id"></div></div></div>
+      <div class="item"><div class="grow"><div class="sub">GED enviados</div><div class="title" x-text="result && result.ged_uploaded"></div></div></div>
+      <div class="item"><div class="grow"><div class="sub">GED pulados (já no Drive)</div><div class="title" x-text="result && result.ged_skipped"></div></div></div>
+    </div>
+
+    <hr style="margin:18px 0;border:none;border-top:1px solid var(--border,#ddd)"/>
+    <strong style="color:var(--danger,#b00)">Restaurar (ação destrutiva)</strong>
+    <p class="muted">Substitui os dados atuais pelo último backup. A aplicação precisa ser reiniciada após restaurar.</p>
+    <!-- Dupla confirmação inline -->
+    <div class="stack">
+      <template x-if="restoreStep === 0">
+        <div class="row"><button class="btn danger" @click="restoreStep = 1" :disabled="loading">{{template "icon" "refresh"}} Restaurar do último backup</button></div>
+      </template>
+      <template x-if="restoreStep === 1">
+        <div class="row">
+          <span class="sub">Tem certeza? Isso sobrescreve os dados atuais.</span>
+          <button class="btn danger" @click="restoreStep = 2" :disabled="loading">Sim, continuar</button>
+          <button class="btn ghost" @click="restoreStep = 0" :disabled="loading">Cancelar</button>
+        </div>
+      </template>
+      <template x-if="restoreStep === 2">
+        <div class="stack">
+          <div class="field" style="max-width:360px">
+            <label for="rst-confirm">Digite <strong>RESTAURAR</strong> para confirmar</label>
+            <input id="rst-confirm" x-model="restoreConfirm" placeholder="RESTAURAR"/>
+          </div>
+          <div class="row">
+            <button class="btn danger" @click="doRestore()" :disabled="loading || restoreConfirm !== 'RESTAURAR'">{{template "icon" "refresh"}} Restaurar agora</button>
+            <button class="btn ghost" @click="restoreStep = 0; restoreConfirm = ''" :disabled="loading">Cancelar</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ AUDITORIA ═══════════════════════════════ -->
+  <section class="card" id="auditoria" x-data="auditPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "doc"}}<h2>Auditoria</h2></header>
+    <p class="muted">Registro das operações sensíveis (quem fez o quê e quando).</p>
+    <div class="row">
+      <button class="btn secondary" @click="load()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "refresh"}}
+        <span x-text="loading ? 'Atualizando…' : 'Atualizar'"></span>
+      </button>
+    </div>
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+    <div style="margin-top:12px;overflow-x:auto">
+      <template x-if="!loading && entries.length === 0">
+        <p class="empty">Nenhuma entrada de auditoria.</p>
+      </template>
+      <table class="table" x-show="entries.length" style="width:100%">
+        <thead><tr><th>Quando</th><th>Ator</th><th>Ação</th><th>Entidade</th></tr></thead>
+        <tbody>
+          <template x-for="(e, i) in entries" :key="i">
+            <tr>
+              <td x-text="Fmt.datetime(e.created_at)"></td>
+              <td x-text="e.actor"></td>
+              <td x-text="e.action"></td>
+              <td x-text="e.entity + (e.entity_id ? (' #' + e.entity_id.slice(-6)) : '')"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- ══════════════════════ APROVAÇÃO DE PACIENTES ═══════════════════════ -->
   <section class="card" id="aprovacoes" x-data="approvalsPanel()" x-init="load()" x-show="!$store.nav.patientId">
     <header>
@@ -1437,6 +1797,162 @@
       async remove(id) {
         const res = await this.run(() => Api.del(`/v1/admin/origins/${id}`));
         if (res) { this.ok("Origem removida."); this.confirmingId = null; await this.load(); }
+      },
+    };
+  }
+
+  // ── Custos e ROI ───────────────────────────────────────────────────────
+  const COST_KINDS = { local: "Local", crp: "CRP", infra: "Infraestrutura", plataforma: "Plataforma" };
+  function costsPanel() {
+    return {
+      ...panel(),
+      categories: [],
+      items: [],
+      origins: [],
+      costReport: null,
+      roi: [],
+      confirmingItemId: null,
+      catForm: { kind: "plataforma", name: "" },
+      itemForm: { category_id: "", name: "", amount: "", period: "mensal", origin_id: "" },
+      period: { from: "", to: "" },
+      kindLabel(k) { return COST_KINDS[k] || k; },
+      async load() {
+        const cr = await this.run(() => Api.get("/v1/admin/costs/categories"));
+        if (cr) this.categories = cr.data || [];
+        const ir = await this.run(() => Api.get("/v1/admin/costs/items"));
+        if (ir) this.items = ir.data || [];
+        const or = await this.run(() => Api.get("/v1/admin/origins"));
+        if (or) this.origins = or.data || [];
+      },
+      async createCategory() {
+        if (!this.catForm.name.trim()) { this.warn("Dê um nome à categoria."); return; }
+        const res = await this.run(() => Api.post("/v1/admin/costs/categories", { ...this.catForm }));
+        if (res) { this.ok("Categoria criada."); this.catForm.name = ""; await this.load(); }
+      },
+      async createItem() {
+        if (!this.itemForm.category_id) { this.warn("Selecione a categoria."); return; }
+        if (!this.itemForm.name.trim()) { this.warn("Dê um nome ao item."); return; }
+        const body = {
+          category_id: this.itemForm.category_id, name: this.itemForm.name,
+          amount: Money.toCents(this.itemForm.amount), period: this.itemForm.period,
+          origin_id: this.itemForm.origin_id,
+        };
+        const res = await this.run(() => Api.post("/v1/admin/costs/items", body));
+        if (res) { this.ok("Item de custo criado."); this.itemForm = { category_id: "", name: "", amount: "", period: "mensal", origin_id: "" }; await this.load(); }
+      },
+      async removeItem(id) {
+        const res = await this.run(() => Api.del(`/v1/admin/costs/items/${id}`));
+        if (res) { this.ok("Item removido."); this.confirmingItemId = null; await this.load(); }
+      },
+      periodQuery() {
+        const q = [];
+        if (this.period.from) q.push("from=" + encodeURIComponent(new Date(this.period.from + "T00:00:00").toISOString()));
+        if (this.period.to) q.push("to=" + encodeURIComponent(new Date(this.period.to + "T00:00:00").toISOString()));
+        return q.length ? ("?" + q.join("&")) : "";
+      },
+      async loadReports() {
+        const qs = this.periodQuery();
+        const cr = await this.run(() => Api.get("/v1/admin/reports/costs" + qs));
+        if (cr) this.costReport = cr.data || null;
+        const rr = await this.run(() => Api.get("/v1/admin/reports/roi" + qs));
+        if (rr) this.roi = rr.data || [];
+      },
+    };
+  }
+
+  // ── Perfil do terapeuta ────────────────────────────────────────────────
+  function therapistPanel() {
+    return {
+      ...panel(),
+      form: { name: "", crp: "", email: "", bio: "", photo_id: "", location_ids: [] },
+      links: [],
+      locations: [],
+      origins: [],
+      bioPreview: false,
+      pendingPhoto: null,
+      linkForm: { label: "", url: "", origin_id: "" },
+      confirmingLinkId: null,
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/profile"));
+        if (res && res.data) {
+          this.form = {
+            name: res.data.name || "", crp: res.data.crp || "", email: res.data.email || "",
+            bio: res.data.bio || "", photo_id: res.data.photo_id || "",
+            location_ids: res.data.location_ids || [],
+          };
+        }
+        const lk = await this.run(() => Api.get("/v1/admin/profile/links"));
+        if (lk) this.links = lk.data || [];
+        const lr = await this.run(() => Api.get("/v1/admin/locations"));
+        if (lr) this.locations = lr.data || [];
+        const or = await this.run(() => Api.get("/v1/admin/origins"));
+        if (or) this.origins = or.data || [];
+      },
+      async save() {
+        const body = {
+          name: this.form.name, crp: this.form.crp, email: this.form.email,
+          bio: this.form.bio, location_ids: this.form.location_ids,
+        };
+        const res = await this.run(() => Api.put("/v1/admin/profile", body));
+        if (res) { this.ok(res.message || "Perfil salvo."); if (res.data) this.form.photo_id = res.data.photo_id || this.form.photo_id; }
+      },
+      photoChosen(ev) { this.pendingPhoto = ev.target.files[0] || null; },
+      async uploadPhoto() {
+        if (!this.pendingPhoto) return;
+        const fd = new FormData();
+        fd.append("file", this.pendingPhoto);
+        this.loading = true; this.clearFeedback();
+        try {
+          const resp = await fetch("/v1/admin/profile/photo", { method: "POST", credentials: "same-origin", body: fd });
+          if (!resp.ok) { const e = await resp.json().catch(() => ({})); this.warn((e && e.message) || "Falha ao enviar a foto."); return; }
+          const env = await resp.json();
+          this.ok("Foto atualizada.");
+          if (env.data) this.form.photo_id = env.data.photo_id || this.form.photo_id;
+          this.pendingPhoto = null;
+          const input = document.getElementById("th-foto"); if (input) input.value = "";
+        } catch (e) {
+          this.warn("Erro no upload: " + (e && e.message ? e.message : String(e)));
+        } finally { this.loading = false; }
+      },
+      async addLink() {
+        if (!this.linkForm.label.trim() || !this.linkForm.url.trim()) { this.warn("Informe rótulo e URL."); return; }
+        const res = await this.run(() => Api.post("/v1/admin/profile/links", { ...this.linkForm }));
+        if (res) { this.ok("Link adicionado."); this.linkForm = { label: "", url: "", origin_id: "" }; const lk = await this.run(() => Api.get("/v1/admin/profile/links")); if (lk) this.links = lk.data || []; }
+      },
+      async removeLink(id) {
+        const res = await this.run(() => Api.del(`/v1/admin/profile/links/${id}`));
+        if (res) { this.ok("Link removido."); this.confirmingLinkId = null; const lk = await this.run(() => Api.get("/v1/admin/profile/links")); if (lk) this.links = lk.data || []; }
+      },
+    };
+  }
+
+  // ── Backup / restore ───────────────────────────────────────────────────
+  function backupPanel() {
+    return {
+      ...panel(),
+      result: null,
+      restoreStep: 0,
+      restoreConfirm: "",
+      async doBackup() {
+        const res = await this.run(() => Api.post("/v1/admin/backup", {}));
+        if (res) { this.ok(res.message || "Backup concluído."); this.result = res.data || null; }
+      },
+      async doRestore() {
+        if (this.restoreConfirm !== "RESTAURAR") return;
+        const res = await this.run(() => Api.post("/v1/admin/restore", {}));
+        if (res) { this.ok(res.message || "Restauração concluída. Reinicie a aplicação."); this.restoreStep = 0; this.restoreConfirm = ""; }
+      },
+    };
+  }
+
+  // ── Auditoria ──────────────────────────────────────────────────────────
+  function auditPanel() {
+    return {
+      ...panel(),
+      entries: [],
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/audit-log"));
+        if (res) this.entries = res.data || [];
       },
     };
   }

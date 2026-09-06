@@ -125,31 +125,31 @@ Convenções:
 
 ## Fase D — Gestão e operação (R6–R9)
 
-- [ ] **D1. Custos + relatórios (UI)** (dep: B1)
+- [x] **D1. Custos + relatórios (UI)** (dep: B1)
   - Seção de custos (categorias/itens) + relatórios de custo e ROI com seletor de período, legíveis.
   - **Aceite:** cadastrar categoria/item; ver relatório de custos e ROI do período.
   - **Testes:** smoke HTTP dos endpoints + render.
   - **Refs:** R6 · D2.5.
 
-- [ ] **D2. Perfil do terapeuta (UI)** (dep: B2)
+- [x] **D2. Perfil do terapeuta (UI)** (dep: B2)
   - Seção de perfil: dados + bio Markdown + foto + locais + links de plataforma.
   - **Aceite:** salvar perfil, subir foto, adicionar/remover link.
   - **Testes:** smoke HTTP (profile, photo, links).
   - **Refs:** R7 · D2.6.
 
-- [ ] **D3. Backup/Restore (UI)** (dep: —)
+- [x] **D3. Backup/Restore (UI)** (dep: —)
   - Seção de backup: gerar backup (mostra resultado); restaurar com dupla confirmação + aviso de reinício; audit.
   - **Aceite:** backup executa e mostra resultado; restore exige dupla confirmação.
   - **Testes:** smoke HTTP do backup (restore validado com cuidado em dev).
   - **Refs:** R8 · D2.7.
 
-- [ ] **D4. Auditoria (UI)** (dep: —)
+- [x] **D4. Auditoria (UI)** (dep: —)
   - Seção de auditoria: tabela legível de `GET /audit-log`.
   - **Aceite:** entradas recentes visíveis e legíveis.
   - **Testes:** smoke HTTP.
   - **Refs:** R9 · D2.8.
 
-- [ ] **D5. Fechamento da Fase D** (dep: D1–D4)
+- [x] **D5. Fechamento da Fase D** (dep: D1–D4)
   - Atualizar docs (requisitos/arquitetura/Swagger conforme telas de gestão) e `docs/decisions.md` se houve decisão.
   - `make check` verde. **Commit** PT-BR: "mvp-audit1 Fase D: custos/ROI, perfil, backup e auditoria". **Sem push.**
   - **Refs:** processo de entrega (steering).

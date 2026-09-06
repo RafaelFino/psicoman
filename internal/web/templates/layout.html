@@ -39,8 +39,12 @@
       <span class="menu-title">Gestão</span>
       <a class="menu-item" href="#locais" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "pin"}} Locais</a>
       <a class="menu-item" href="#origens" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "activity"}} Origens</a>
+      <a class="menu-item" href="#perfil-terapeuta" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "user"}} Meu perfil</a>
+      <a class="menu-item" href="#backup" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "download"}} Backup</a>
+      <a class="menu-item" href="#auditoria" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "doc"}} Auditoria</a>
       <span class="menu-title">Financeiro</span>
       <a class="menu-item" href="#financeiro" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "wallet"}} Financeiro</a>
+      <a class="menu-item" href="#custos-gestao" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "chart"}} Custos e ROI</a>
       {{else}}
       <span class="menu-title">Minha área</span>
       <a class="menu-item" href="#perfil">{{template "icon" "user"}} Meu perfil</a>
