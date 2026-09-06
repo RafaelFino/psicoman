@@ -1,0 +1,54 @@
+# Psicoman — configuração de exemplo de uma instância.
+# Copie para config.yaml e ajuste. NUNCA versione o config.yaml real (segredos).
+
+admin:
+  host: "127.0.0.1"
+  port: 8080
+
+portal:
+  host: "127.0.0.1"
+  port: 8081
+
+paths:
+  sqlite: "./data/psicoman.db"
+  ged_root: "./data/ged"
+  log_dir: "./data/logs"
+
+# Autenticação do admin (defense in depth sobre o Pangolin).
+# O Pangolin injeta o header de email; o secret é compartilhado.
+admin_auth:
+  email: "terapeuta@example.com"
+  secret: "troque-por-um-segredo-forte"
+  email_header: "X-Pangolin-Email"
+  secret_header: "X-Pangolin-Secret"
+
+# Credenciais OAuth do Google (Calendar/Meet, Gmail send, Drive.file).
+google:
+  client_id: ""
+  client_secret: ""
+  redirect_url: "https://admin.example.com/v1/admin/google/callback"
+  calendar_id: "primary"
+  drive_folder: "psicoman-backup"
+  scopes:
+    - "https://www.googleapis.com/auth/calendar"
+    - "https://www.googleapis.com/auth/gmail.send"
+    - "https://www.googleapis.com/auth/drive.file"
+
+# Chave de cifragem (AES-256-GCM) para tokens e backup.
+# Gere com: openssl rand -base64 32
+crypto:
+  key: ""
+
+log:
+  level: "info" # debug|info|warn|error
+
+# Lembretes do Google Calendar (minutos antes do evento, acumulativos).
+reminders:
+  minutes_before:
+    - 1440 # 1 dia
+    - 30
+
+# Rate limiting das rotas públicas do portal (por IP e por email).
+rate_limit:
+  requests_per_minute: 30
+  burst: 10

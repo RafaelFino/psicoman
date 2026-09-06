@@ -1,0 +1,61 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "__TITLE__",
+    "version": "1.0.0",
+    "description": "Plataforma de gestão de atendimentos para psicologia. Toda resposta usa o envelope padrão { message, elapsed_ms, data, error, request_id }."
+  },
+  "servers": [
+    { "url": "/", "description": "Instância local (TLS terminado no Pangolin)" }
+  ],
+  "components": {
+    "schemas": {
+      "Envelope": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "description": "Mensagem em PT-BR." },
+          "elapsed_ms": { "type": "integer", "description": "Tempo de processamento em ms." },
+          "data": { "type": "object", "nullable": true },
+          "error": { "type": "object", "nullable": true },
+          "request_id": { "type": "string" }
+        },
+        "required": ["message", "elapsed_ms"]
+      }
+    },
+    "securitySchemes": {
+      "pangolinEmail": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Pangolin-Email"
+      },
+      "pangolinSecret": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Pangolin-Secret"
+      }
+    }
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Health check",
+        "responses": { "200": { "description": "Serviço no ar" } }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "summary": "Readiness check",
+        "responses": {
+          "200": { "description": "Pronto" },
+          "503": { "description": "Degradado (dependência indisponível)" }
+        }
+      }
+    },
+    "/livez": {
+      "get": {
+        "summary": "Liveness check",
+        "responses": { "200": { "description": "Vivo" } }
+      }
+    }
+  }
+}
