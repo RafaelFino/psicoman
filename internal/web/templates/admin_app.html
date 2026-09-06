@@ -348,8 +348,13 @@
               <div class="md-body" x-html="Md.toHtml(n.content)"></div>
               <div class="sub" style="margin-top:6px" x-text="Fmt.datetime(n.created_at)"></div>
             </div>
-            <div class="actions">
-              <button class="btn danger" @click="deleteNote(n.id)" :disabled="loading">{{template "icon" "trash"}}</button>
+            <div class="actions" x-show="confirmingNoteId !== n.id">
+              <button class="btn danger" @click="confirmingNoteId = n.id" :disabled="loading">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingNoteId === n.id" x-cloak>
+              <span class="sub">Remover nota?</span>
+              <button class="btn danger" @click="deleteNote(n.id)" :disabled="loading">Remover</button>
+              <button class="btn ghost" @click="confirmingNoteId = null" :disabled="loading">Cancelar</button>
             </div>
           </li>
         </template>
@@ -374,11 +379,33 @@
               </div>
             </div>
             <div class="actions">
-              <template x-if="d.status !== 'pago'">
-                <button class="btn primary" @click="payDebt(d)" :disabled="loading">{{template "icon" "money"}} Registrar pagamento</button>
+              <template x-if="d.status !== 'pago' && payingDebt !== d.id">
+                <button class="btn primary" @click="startPay(d)" :disabled="loading">{{template "icon" "money"}} Registrar pagamento</button>
               </template>
               <a class="btn secondary" :href="'/v1/admin/debts/' + d.id + '/pdf'" target="_blank" rel="noopener">{{template "icon" "download"}} PDF</a>
               <button class="btn ghost" @click="togglePayments(d.id)" :disabled="loading">{{template "icon" "doc"}} Pagamentos</button>
+            </div>
+            <!-- Formulário de pagamento inline (sem window.prompt — R10.2) -->
+            <div class="stack" style="flex-basis:100%;margin-top:8px" x-show="payingDebt === d.id" x-cloak>
+              <div class="form-grid">
+                <div class="field">
+                  <label :for="'pay-val-' + d.id">Valor (R$)</label>
+                  <input :id="'pay-val-' + d.id" x-model="payForm.amount" inputmode="decimal"/>
+                </div>
+                <div class="field">
+                  <label :for="'pay-met-' + d.id">Forma de pagamento</label>
+                  <select :id="'pay-met-' + d.id" x-model="payForm.method">
+                    <option value="pix">Pix</option>
+                    <option value="dinheiro">Dinheiro</option>
+                    <option value="cartao">Cartão</option>
+                    <option value="transferencia">Transferência</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row end">
+                <button class="btn ghost" @click="payingDebt = null" :disabled="loading">Cancelar</button>
+                <button class="btn primary" @click="confirmPay(d)" :disabled="loading">{{template "icon" "check"}} Confirmar pagamento</button>
+              </div>
             </div>
             <div class="stack" style="flex-basis:100%; margin-top:8px" x-show="expandedDebt === d.id">
               <template x-if="(payments[d.id] || []).length === 0">
@@ -586,10 +613,15 @@
               <div class="title" x-text="t.name"></div>
               <div class="sub" x-text="'Criado em ' + Fmt.datetime(t.created_at)"></div>
             </div>
-            <div class="actions">
+            <div class="actions" x-show="confirmingId !== t.id">
               <button class="btn secondary" @click="editTemplate(t)" :disabled="loading">{{template "icon" "edit"}} Editar</button>
               <button class="btn secondary" @click="toggleSend(t.id)" :disabled="loading">{{template "icon" "check"}} Enviar</button>
-              <button class="btn danger" @click="remove(t.id)" :disabled="loading">{{template "icon" "trash"}}</button>
+              <button class="btn danger" @click="confirmingId = t.id" :disabled="loading">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingId === t.id" x-cloak>
+              <span class="sub">Excluir este template?</span>
+              <button class="btn danger" @click="remove(t.id)" :disabled="loading">{{template "icon" "trash"}} Excluir</button>
+              <button class="btn ghost" @click="confirmingId = null" :disabled="loading">Cancelar</button>
             </div>
             <div class="row" style="flex-basis:100%; margin-top:8px" x-show="sendingId === t.id">
               <select x-model="sendPatientId" style="max-width:340px">
@@ -1099,7 +1131,7 @@
         this.patient = null;
         this.anamnese = { content: "", updated_at: null };
         this.sessions = []; this.notes = []; this.debts = []; this.files = []; this.plans = [];
-        this.payments = {}; this.costs = {}; this.expandedDebt = null; this.confirmingPlanId = null;
+        this.payments = {}; this.costs = {}; this.expandedDebt = null; this.confirmingPlanId = null; this.payingDebt = null; this.confirmingNoteId = null;
         const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}`));
         if (res) this.patient = res.data;
         if (this.origins.length === 0) {
@@ -1220,9 +1252,10 @@
         const res = await this.run(() => Api.post(`/v1/admin/patients/${this.id}/notes`, { content: this.noteForm.content }));
         if (res) { this.ok("Nota adicionada."); this.noteForm.content = ""; await this.loadNotes(); }
       },
+      confirmingNoteId: null,
       async deleteNote(nid) {
         const res = await this.run(() => Api.del(`/v1/admin/notes/${nid}`));
-        if (res) { this.ok("Nota removida."); await this.loadNotes(); }
+        if (res) { this.ok("Nota removida."); this.confirmingNoteId = null; await this.loadNotes(); }
       },
 
       // Débitos / pagamentos / recibos
@@ -1230,12 +1263,18 @@
         const res = await this.run(() => Api.get(`/v1/admin/debts?patient_id=${this.id}`));
         if (res) this.debts = res.data || [];
       },
-      async payDebt(d) {
-        const amount = d.amount;
-        const method = window.prompt("Forma de pagamento (pix, dinheiro, cartao, transferencia):", "pix");
-        if (!method) return;
-        const res = await this.run(() => Api.post(`/v1/admin/debts/${d.id}/pay`, { amount, method }));
-        if (res) { this.ok("Pagamento registrado."); await this.loadDebts(); await this.loadPayments(d.id); }
+      payingDebt: null,
+      payForm: { amount: "", method: "pix" },
+      startPay(d) {
+        this.payingDebt = d.id;
+        // Pré-preenche com o saldo em aberto.
+        this.payForm = { amount: Money.fromCents(d.amount), method: "pix" };
+      },
+      async confirmPay(d) {
+        const amount = Money.toCents(this.payForm.amount);
+        if (amount <= 0) { this.warn("Informe um valor de pagamento válido."); return; }
+        const res = await this.run(() => Api.post(`/v1/admin/debts/${d.id}/pay`, { amount, method: this.payForm.method }));
+        if (res) { this.ok("Pagamento registrado."); this.payingDebt = null; await this.loadDebts(); await this.loadPayments(d.id); }
       },
       async togglePayments(did) {
         if (this.expandedDebt === did) { this.expandedDebt = null; return; }
@@ -1456,6 +1495,7 @@
       preview: false,
       sendingId: null,
       sendPatientId: "",
+      confirmingId: null,
       form: { id: null, name: "", body_md: "" },
       async load() {
         const res = await this.run(() => Api.get("/v1/admin/templates"));
@@ -1492,9 +1532,8 @@
         window.scrollTo({ top: 0, behavior: "smooth" });
       },
       async remove(id) {
-        if (!window.confirm("Excluir este template?")) return;
         const res = await this.run(() => Api.del(`/v1/admin/templates/${id}`));
-        if (res) { this.ok("Template removido."); if (this.form.id === id) this.resetForm(); await this.load(); }
+        if (res) { this.ok("Template removido."); this.confirmingId = null; if (this.form.id === id) this.resetForm(); await this.load(); }
       },
       toggleSend(id) {
         this.sendingId = this.sendingId === id ? null : id;

@@ -100,25 +100,25 @@ Convenções:
 
 ## Fase C — Usabilidade do portal e ações (R10.1, R10.2, R10.3)
 
-- [ ] **C1. Portal sem JSON** (dep: A5)
+- [x] **C1. Portal sem JSON** (dep: A5)
   - Substituir `<pre>` de sessões/débitos por listas legíveis (data, status PT-BR, valor).
   - **Aceite:** portal do aprovado mostra listas amigáveis, sem JSON.
   - **Testes:** smoke manual no portal.
   - **Refs:** R10.1 · D3.1.
 
-- [ ] **C2. Fim de prompt/confirm + pagamento inline** (dep: —)
+- [x] **C2. Fim de prompt/confirm + pagamento inline** (dep: —)
   - Pagamento com formulário inline (valor + forma); exclusões com confirmação inline em todas as telas.
   - **Aceite:** nenhum `window.prompt/confirm` remanescente; pagamento e exclusões funcionam por UI.
   - **Testes:** grep garante ausência de prompt/confirm; smoke dos fluxos.
   - **Refs:** R10.2 · D3.2.
 
-- [ ] **C3. Copy do login do portal** (dep: —)
+- [x] **C3. Copy do login do portal** (dep: —)
   - Textos coerentes com o `IdentityVerifier` real; sem promessa de fluxo inexistente.
   - **Aceite:** login descreve com honestidade o que faz.
   - **Testes:** revisão visual.
   - **Refs:** R10.3 · D3.3.
 
-- [ ] **C4. Fechamento da Fase C** (dep: C1–C3)
+- [x] **C4. Fechamento da Fase C** (dep: C1–C3)
   - Atualizar docs (`README.md`/arquitetura sobre o portal) e `docs/decisions.md` se aplicável.
   - `make check` verde. **Commit** PT-BR: "mvp-audit1 Fase C: portal legível e ações inline". **Sem push.**
   - **Refs:** processo de entrega (steering).
