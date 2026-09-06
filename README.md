@@ -169,7 +169,7 @@ Não foram encontrados outros bloqueadores. A spec está consistente entre `requ
 
 Instalação e atualização em um servidor (uma VM por terapeuta, atrás do Pangolin):
 
-- **Guia passo a passo:** [`DEPLOY.md`](./DEPLOY.md) — provisão da VM, credenciais Google (Calendar/Meet, Gmail, Drive), configuração do Pangolin, primeiro uso e operação.
+- **Guia passo a passo:** [`docs/deploy.md`](./docs/deploy.md) — provisão da VM, credenciais Google (Calendar/Meet, Gmail, Drive), configuração do Pangolin, primeiro uso e operação.
 - **Instalação interativa:** `make deploy` (ou `sudo ./scripts/deploy.sh`) — pergunta tudo, gera o `config.yaml` com chave de cifragem, compila os binários e cria os serviços systemd.
 - **Atualização segura:** `make update` (ou `sudo ./scripts/update-server.sh`) — backup completo, `git` da versão alvo, rebuild, migrations no boot, validação por `/readyz` e rollback automático em caso de falha.
 

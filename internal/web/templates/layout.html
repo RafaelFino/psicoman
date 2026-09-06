@@ -30,9 +30,11 @@
     <nav class="menu-dropdown" x-show="open" x-cloak x-transition.origin.top.left @click="open = false" aria-label="Navegação">
       {{if eq .Surface "admin-app"}}
       <span class="menu-title">Administração</span>
-      <a class="menu-item" href="#pacientes">{{template "icon" "users"}} Pacientes</a>
-      <a class="menu-item" href="#pendencias">{{template "icon" "clock"}} Pedidos de agendamento</a>
-      <a class="menu-item" href="#financeiro">{{template "icon" "wallet"}} Financeiro</a>
+      <a class="menu-item" href="#agenda" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "calendar"}} Agenda</a>
+      <a class="menu-item" href="#pacientes" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "users"}} Pacientes</a>
+      <a class="menu-item" href="#pendencias" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "clock"}} Pedidos de agendamento</a>
+      <a class="menu-item" href="#templates" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "note"}} Templates</a>
+      <a class="menu-item" href="#financeiro" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "wallet"}} Financeiro</a>
       <a class="menu-item" href="/">{{template "icon" "activity"}} Início</a>
       {{else}}
       <span class="menu-title">Minha área</span>

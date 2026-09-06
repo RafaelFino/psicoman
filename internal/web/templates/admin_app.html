@@ -1,15 +1,344 @@
 {{define "admin_app.html"}}
 {{template "head" .}}
-<main>
+<main x-data="adminApp()">
   <div class="page-header">
     <h1>Painel</h1>
     <p class="lead">Gestão do consultório</p>
   </div>
 
-  <!-- Pacientes -->
-  <section class="card" id="pacientes" x-data="patientsPanel()" x-init="load()">
+  <!-- ══════════════════════════════ AGENDA ══════════════════════════════ -->
+  <section class="card" id="agenda" x-data="agendaPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "calendar"}}<h2>Agenda da semana</h2></header>
+    <p class="muted">Sessões de segunda a sábado. Clique numa sessão para abrir o paciente.</p>
+
+    <div class="agenda-toolbar">
+      <button class="btn secondary icon-only" @click="prevWeek()" :disabled="loading" aria-label="Semana anterior">
+        {{template "icon" "chevron-left"}}
+      </button>
+      <button class="btn secondary" @click="thisWeek()" :disabled="loading">Hoje</button>
+      <button class="btn secondary icon-only" @click="nextWeek()" :disabled="loading" aria-label="Próxima semana">
+        {{template "icon" "chevron-right"}}
+      </button>
+      <span class="range" x-text="rangeLabel()"></span>
+      <span class="spacer"></span>
+      <button class="btn ghost" @click="load()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "refresh"}}
+        <span x-text="loading ? 'Atualizando…' : 'Atualizar'"></span>
+      </button>
+    </div>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div class="week-grid" role="region" aria-live="polite">
+      <template x-for="day in days" :key="day.iso">
+        <div class="week-day" :class="{ 'is-today': day.isToday }">
+          <div class="day-head">
+            <span class="day-name" x-text="day.name"></span>
+            <span class="day-num" x-text="day.num"></span>
+          </div>
+          <template x-if="day.slots.length === 0">
+            <span class="day-empty">—</span>
+          </template>
+          <template x-for="s in day.slots" :key="s.id">
+            <button class="slot" :class="'st-' + s.status" @click="openPatient(s.patient_id)">
+              <span class="slot-time" x-text="fmtTime(s.starts_at)"></span>
+              <span class="slot-name" x-text="patientName(s.patient_id)"></span>
+              <span class="slot-meta">
+                <svg class="icon" aria-hidden="true"><use :href="s.modality === 'online' ? '#i-video' : '#i-pin'"></use></svg>
+                <span x-text="s.status"></span>
+              </span>
+            </button>
+          </template>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ DETALHE DO PACIENTE ══════════════════════════ -->
+  <section class="card" id="paciente" x-data="patientDetail()" x-show="$store.nav.patientId"
+           x-effect="sync($store.nav.patientId)">
+    <div class="detail-head">
+      <button class="btn ghost icon-only" @click="close()" aria-label="Voltar">{{template "icon" "back"}}</button>
+      <span class="icon icon-lg" style="color:var(--primary)"><use href="#i-user"></use></span>
+      <div class="grow">
+        <h2 x-text="patient ? patient.name : 'Paciente'"></h2>
+        <div class="sub" x-show="patient">
+          <span x-text="patient && patient.email"></span> ·
+          <span x-text="patient && patient.phone"></span>
+          <template x-if="patient && patient.can_issue_receipt">
+            <span class="chip ok" style="margin-left:6px">{{template "icon" "doc"}} Recibo</span>
+          </template>
+        </div>
+      </div>
+      <button class="btn ghost" @click="reload()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "refresh"}} Atualizar
+      </button>
+    </div>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <nav class="tabs" aria-label="Seções do paciente">
+      <button class="tab" :class="{ active: tab === 'dados' }" @click="tab = 'dados'">{{template "icon" "user"}} Dados</button>
+      <button class="tab" :class="{ active: tab === 'anamnese' }" @click="go('anamnese')">{{template "icon" "note"}} Anamnese</button>
+      <button class="tab" :class="{ active: tab === 'sessoes' }" @click="go('sessoes')">{{template "icon" "heart"}} Sessões</button>
+      <button class="tab" :class="{ active: tab === 'notas' }" @click="go('notas')">{{template "icon" "edit"}} Notas</button>
+      <button class="tab" :class="{ active: tab === 'financeiro' }" @click="go('financeiro')">{{template "icon" "wallet"}} Débitos</button>
+      <button class="tab" :class="{ active: tab === 'custos' }" @click="go('custos')">{{template "icon" "chart"}} Custos</button>
+      <button class="tab" :class="{ active: tab === 'arquivos' }" @click="go('arquivos')">{{template "icon" "doc"}} Arquivos</button>
+    </nav>
+
+    <!-- Dados -->
+    <div x-show="tab === 'dados'" class="stack">
+      <div class="kpis" x-show="patient">
+        <div class="kpi"><span class="n" x-text="sessions.length"></span><span class="k">Sessões</span></div>
+        <div class="kpi"><span class="n" x-text="realizadas()"></span><span class="k">Realizadas</span></div>
+        <div class="kpi accent"><span class="n" x-text="Fmt.brl(openDebt())"></span><span class="k">Em aberto</span></div>
+        <div class="kpi"><span class="n" x-text="files.length"></span><span class="k">Arquivos</span></div>
+      </div>
+
+      <!-- Visualização -->
+      <div class="item-list" x-show="patient && !editing">
+        <div class="item"><div class="grow"><div class="sub">Nome</div><div class="title" x-text="patient && patient.name"></div></div></div>
+        <div class="item"><div class="grow"><div class="sub">Email</div><div class="title" x-text="patient && patient.email"></div></div></div>
+        <div class="item"><div class="grow"><div class="sub">Telefone</div><div class="title" x-text="patient && patient.phone"></div></div></div>
+        <div class="item"><div class="grow"><div class="sub">CPF</div><div class="title" x-text="(patient && patient.cpf) || '—'"></div></div></div>
+        <div class="item"><div class="grow"><div class="sub">Cadastrado em</div><div class="title" x-text="Fmt.datetime(patient && patient.created_at)"></div></div></div>
+      </div>
+      <div class="row end" x-show="patient && !editing">
+        <button class="btn secondary" @click="startEdit()">{{template "icon" "edit"}} Editar dados</button>
+      </div>
+
+      <!-- Edição -->
+      <div x-show="editing">
+        <div class="form-grid">
+          <div class="field">
+            <label for="e-nome">Nome</label>
+            <input id="e-nome" x-model="edit.name" required autocomplete="name"/>
+          </div>
+          <div class="field">
+            <label for="e-tel">Telefone</label>
+            <input id="e-tel" x-model="edit.phone" inputmode="tel" autocomplete="tel"/>
+          </div>
+          <div class="field">
+            <label for="e-email">Email</label>
+            <input id="e-email" x-model="edit.email" type="email" autocomplete="email"/>
+          </div>
+          <div class="field">
+            <label for="e-cpf">CPF</label>
+            <input id="e-cpf" x-model="edit.cpf" inputmode="numeric"/>
+            <span class="hint">Necessário para emitir recibo.</span>
+          </div>
+        </div>
+        <div class="row end" style="margin-top:14px">
+          <button class="btn ghost" @click="editing = false" :disabled="loading">Cancelar</button>
+          <button class="btn primary" @click="savePatient()" :disabled="loading">{{template "icon" "check"}} Salvar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Anamnese (Markdown) -->
+    <div x-show="tab === 'anamnese'" class="stack">
+      <div class="field wide">
+        <label>Anamnese</label>
+        <div class="md-editor">
+          <div class="md-tabs">
+            <button type="button" class="md-tab" :class="{ active: !anamnesePreview }" @click="anamnesePreview = false">{{template "icon" "edit"}} Escrever</button>
+            <button type="button" class="md-tab" :class="{ active: anamnesePreview }" @click="anamnesePreview = true">{{template "icon" "doc"}} Visualizar</button>
+            <span class="hint">Markdown: # título, **negrito**, *itálico*, - lista, `código`</span>
+          </div>
+          <textarea x-show="!anamnesePreview" class="tall" x-model="anamnese.content" placeholder="Registre a anamnese do paciente em Markdown…"></textarea>
+          <div x-show="anamnesePreview" class="md-preview md-body" x-html="Md.toHtml(anamnese.content)"></div>
+        </div>
+        <span class="hint" x-show="anamnese.updated_at">Última atualização: <span x-text="Fmt.datetime(anamnese.updated_at)"></span></span>
+      </div>
+      <div class="row end">
+        <button class="btn primary" @click="saveAnamnese()" :disabled="loading">{{template "icon" "check"}} Salvar anamnese</button>
+      </div>
+    </div>
+
+    <!-- Sessões / agendamentos -->
+    <div x-show="tab === 'sessoes'" class="stack">
+      <template x-if="!loading && sessions.length === 0">
+        <p class="empty">Nenhuma sessão registrada para este paciente.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="s in sessions" :key="s.id">
+          <li class="item">
+            <svg class="icon icon-lg" aria-hidden="true" style="color:var(--primary)"><use :href="s.modality === 'online' ? '#i-video' : '#i-pin'"></use></svg>
+            <div class="grow">
+              <div class="title" x-text="Fmt.datetime(s.starts_at)"></div>
+              <div class="sub">
+                <span x-text="s.modality"></span> · <span x-text="s.status"></span>
+                <template x-if="s.bill"><span class="chip info" style="margin-left:6px">cobrar</span></template>
+              </div>
+            </div>
+            <div class="actions">
+              <template x-if="s.status === 'agendada'">
+                <button class="btn primary" @click="finishSession(s.id)" :disabled="loading">{{template "icon" "check"}} Finalizar</button>
+              </template>
+              <template x-if="s.status === 'agendada'">
+                <button class="btn danger" @click="cancelSession(s.id)" :disabled="loading">{{template "icon" "x"}} Cancelar</button>
+              </template>
+              <template x-if="s.meet_url">
+                <a class="btn secondary" :href="s.meet_url" target="_blank" rel="noopener">{{template "icon" "video"}} Meet</a>
+              </template>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Notas (Markdown) -->
+    <div x-show="tab === 'notas'" class="stack">
+      <div class="field wide">
+        <label>Nova nota</label>
+        <div class="md-editor">
+          <div class="md-tabs">
+            <button type="button" class="md-tab" :class="{ active: !notePreview }" @click="notePreview = false">{{template "icon" "edit"}} Escrever</button>
+            <button type="button" class="md-tab" :class="{ active: notePreview }" @click="notePreview = true">{{template "icon" "doc"}} Visualizar</button>
+            <span class="hint">Markdown suportado</span>
+          </div>
+          <textarea x-show="!notePreview" x-model="noteForm.content" placeholder="Anotação do controle terapêutico (Markdown)…"></textarea>
+          <div x-show="notePreview" class="md-preview md-body" x-html="Md.toHtml(noteForm.content)"></div>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn primary" @click="addNote()" :disabled="loading">{{template "icon" "plus"}} Adicionar nota</button>
+      </div>
+      <template x-if="!loading && notes.length === 0">
+        <p class="empty">Nenhuma nota registrada.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="n in notes" :key="n.id">
+          <li class="item" style="align-items:flex-start">
+            <span class="icon" style="color:var(--primary);margin-top:2px"><use href="#i-note"></use></span>
+            <div class="grow">
+              <div class="md-body" x-html="Md.toHtml(n.content)"></div>
+              <div class="sub" style="margin-top:6px" x-text="Fmt.datetime(n.created_at)"></div>
+            </div>
+            <div class="actions">
+              <button class="btn danger" @click="deleteNote(n.id)" :disabled="loading">{{template "icon" "trash"}}</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Financeiro (débitos + pagamentos + recibos) -->
+    <div x-show="tab === 'financeiro'" class="stack">
+      <template x-if="!loading && debts.length === 0">
+        <p class="empty">Nenhum débito para este paciente.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="d in debts" :key="d.id">
+          <li class="item" style="flex-wrap:wrap">
+            {{template "icon" "wallet"}}
+            <div class="grow">
+              <div class="title" x-text="Fmt.brl(d.amount)"></div>
+              <div class="sub">
+                <span x-text="d.billing_period || '—'"></span> ·
+                <span class="chip" :class="d.status === 'pago' ? 'ok' : (d.status === 'parcial' ? 'warn' : 'info')" x-text="d.status"></span>
+                <template x-if="d.due_date"><span> · vence <span x-text="Fmt.datetime(d.due_date)"></span></span></template>
+              </div>
+            </div>
+            <div class="actions">
+              <template x-if="d.status !== 'pago'">
+                <button class="btn primary" @click="payDebt(d)" :disabled="loading">{{template "icon" "money"}} Registrar pagamento</button>
+              </template>
+              <a class="btn secondary" :href="'/v1/admin/debts/' + d.id + '/pdf'" target="_blank" rel="noopener">{{template "icon" "download"}} PDF</a>
+              <button class="btn ghost" @click="togglePayments(d.id)" :disabled="loading">{{template "icon" "doc"}} Pagamentos</button>
+            </div>
+            <div class="stack" style="flex-basis:100%; margin-top:8px" x-show="expandedDebt === d.id">
+              <template x-if="(payments[d.id] || []).length === 0">
+                <p class="empty">Sem pagamentos registrados.</p>
+              </template>
+              <ul class="item-list">
+                <template x-for="p in (payments[d.id] || [])" :key="p.id">
+                  <li class="item">
+                    {{template "icon" "money"}}
+                    <div class="grow">
+                      <div class="title" x-text="Fmt.brl(p.amount)"></div>
+                      <div class="sub"><span x-text="p.method"></span> · <span x-text="Fmt.datetime(p.paid_at)"></span></div>
+                    </div>
+                    <div class="actions">
+                      <button class="btn secondary" @click="issueReceipt(p.id)" :disabled="loading">{{template "icon" "doc"}} Recibo</button>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Custos por sessão -->
+    <div x-show="tab === 'custos'" class="stack">
+      <p class="muted">Custo apurado por sessão (rateio de locais e despesas).</p>
+      <template x-if="!loading && sessions.length === 0">
+        <p class="empty">Sem sessões para apurar custo.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="s in sessions" :key="'c-' + s.id">
+          <li class="item">
+            {{template "icon" "chart"}}
+            <div class="grow">
+              <div class="title" x-text="Fmt.datetime(s.starts_at)"></div>
+              <div class="sub">
+                <span x-text="s.status"></span>
+                <template x-if="costs[s.id]"><span> · custo <span x-text="Fmt.brl(costs[s.id].amount)"></span> (<span x-text="costs[s.id].method"></span>)</span></template>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="btn ghost" @click="loadCost(s.id)" :disabled="loading">{{template "icon" "chart"}} Apurar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Arquivos (GED) -->
+    <div x-show="tab === 'arquivos'" class="stack">
+      <div class="row">
+        <input type="file" id="ged-file" @change="fileChosen($event)"/>
+        <button class="btn primary" @click="uploadFile()" :disabled="loading || !pendingFile">{{template "icon" "plus"}} Enviar arquivo</button>
+      </div>
+      <template x-if="!loading && files.length === 0">
+        <p class="empty">Nenhum arquivo anexado.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="f in files" :key="f.id">
+          <li class="item">
+            {{template "icon" "doc"}}
+            <div class="grow">
+              <div class="title" x-text="f.mime || 'arquivo'"></div>
+              <div class="sub"><span x-text="fmtSize(f.size)"></span> · <span x-text="Fmt.datetime(f.created_at)"></span></div>
+            </div>
+            <div class="actions">
+              <a class="btn secondary" :href="'/v1/admin/files/' + f.id" target="_blank" rel="noopener">{{template "icon" "download"}} Abrir</a>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ PACIENTES ═══════════════════════════════ -->
+  <section class="card" id="pacientes" x-data="patientsPanel()" x-init="load()" x-show="!$store.nav.patientId">
     <header>{{template "icon" "users"}}<h2>Pacientes</h2></header>
-    <p class="muted">Cadastre e acompanhe seus pacientes.</p>
+    <p class="muted">Cadastre e acompanhe seus pacientes. Clique num paciente para ver tudo dele.</p>
 
     <form @submit.prevent="create()">
       <div class="form-grid">
@@ -56,7 +385,7 @@
       </template>
       <ul class="item-list">
         <template x-for="p in items" :key="p.id">
-          <li class="item">
+          <li class="item clickable" @click="open(p.id)" role="button" tabindex="0" @keydown.enter="open(p.id)">
             <span class="icon icon-lg" style="color:var(--primary)"><use href="#i-user"></use></span>
             <div class="grow">
               <div class="title" x-text="p.name"></div>
@@ -65,14 +394,91 @@
             <template x-if="p.can_issue_receipt">
               <span class="chip ok">{{template "icon" "doc"}} Recibo</span>
             </template>
+            <span class="icon chev" aria-hidden="true"><use href="#i-chevron-right"></use></span>
           </li>
         </template>
       </ul>
     </div>
   </section>
 
-  <!-- Pedidos de agendamento -->
-  <section class="card" id="pendencias" x-data="pendingPanel()" x-init="load()">
+  <!-- ═══════════════════════════ TEMPLATES ═══════════════════════════════ -->
+  <section class="card" id="templates" x-data="templatesPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "note"}}<h2>Templates</h2></header>
+    <p class="muted">Modelos em Markdown (anamnese, orientações, etc.) para enviar aos pacientes.</p>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <!-- Editor: criar / editar -->
+    <div class="field">
+      <label for="t-nome">Nome do template</label>
+      <input id="t-nome" x-model="form.name" placeholder="Ex.: Ficha de anamnese"/>
+    </div>
+    <div class="field wide" style="margin-top:12px">
+      <label>Conteúdo (Markdown)</label>
+      <div class="md-editor">
+        <div class="md-tabs">
+          <button type="button" class="md-tab" :class="{ active: !preview }" @click="preview = false">{{template "icon" "edit"}} Escrever</button>
+          <button type="button" class="md-tab" :class="{ active: preview }" @click="preview = true">{{template "icon" "doc"}} Visualizar</button>
+          <span class="hint">Markdown: # título, **negrito**, *itálico*, - lista, `código`, [link](url)</span>
+        </div>
+        <textarea x-show="!preview" class="tall" x-model="form.body_md" placeholder="# Título&#10;&#10;Escreva o modelo em Markdown…"></textarea>
+        <div x-show="preview" class="md-preview md-body" x-html="Md.toHtml(form.body_md)"></div>
+      </div>
+    </div>
+    <div class="row end" style="margin-top:14px">
+      <button class="btn ghost" x-show="form.id" @click="resetForm()" :disabled="loading">Cancelar edição</button>
+      <button class="btn primary" @click="save()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "check"}}
+        <span x-text="form.id ? 'Salvar alterações' : 'Criar template'"></span>
+      </button>
+    </div>
+
+    <!-- Lista -->
+    <div class="stack" style="margin-top:18px" role="region" aria-live="polite">
+      <div class="row">
+        <strong>Modelos</strong>
+        <span class="chip info" x-text="items.length"></span>
+      </div>
+      <template x-if="!loading && items.length === 0">
+        <p class="empty">Nenhum template criado ainda.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="t in items" :key="t.id">
+          <li class="item">
+            {{template "icon" "note"}}
+            <div class="grow">
+              <div class="title" x-text="t.name"></div>
+              <div class="sub" x-text="'Criado em ' + Fmt.datetime(t.created_at)"></div>
+            </div>
+            <div class="actions">
+              <button class="btn secondary" @click="editTemplate(t)" :disabled="loading">{{template "icon" "edit"}} Editar</button>
+              <button class="btn secondary" @click="toggleSend(t.id)" :disabled="loading">{{template "icon" "check"}} Enviar</button>
+              <button class="btn danger" @click="remove(t.id)" :disabled="loading">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="row" style="flex-basis:100%; margin-top:8px" x-show="sendingId === t.id">
+              <select x-model="sendPatientId" style="max-width:340px">
+                <option value="">Selecione o paciente…</option>
+                <template x-for="p in patients" :key="p.id">
+                  <option :value="p.id" x-text="p.name"></option>
+                </template>
+              </select>
+              <button class="btn primary" @click="doSend(t.id)" :disabled="loading || !sendPatientId">Enviar por email</button>
+              <button class="btn ghost" @click="sendingId = null">Cancelar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ PEDIDOS DE AGENDAMENTO ═══════════════════════ -->
+  <section class="card" id="pendencias" x-data="pendingPanel()" x-init="load()" x-show="!$store.nav.patientId">
     <header>{{template "icon" "clock"}}<h2>Pedidos de agendamento</h2></header>
     <p class="muted">Pedidos feitos pelos pacientes aguardando sua confirmação.</p>
     <div class="row">
@@ -115,8 +521,8 @@
     </div>
   </section>
 
-  <!-- Financeiro -->
-  <section class="card" id="financeiro" x-data="financePanel()">
+  <!-- ═══════════════════════════ FINANCEIRO ══════════════════════════════ -->
+  <section class="card" id="financeiro" x-data="financePanel()" x-show="!$store.nav.patientId">
     <header>{{template "icon" "wallet"}}<h2>Financeiro</h2></header>
     <p class="muted">Resumo do período (mês atual).</p>
     <div class="row">
@@ -144,6 +550,262 @@
 </main>
 
 <script>
+  // Store global de navegação: qual paciente está aberto (null = lista/agenda).
+  document.addEventListener("alpine:init", () => {
+    Alpine.store("nav", {
+      patientId: null,
+      openPatient(id) { this.patientId = id; window.scrollTo({ top: 0, behavior: "smooth" }); },
+      closePatient() { this.patientId = null; },
+    });
+  });
+
+  function adminApp() { return {}; }
+
+  // ── Agenda semanal (segunda a sábado) ──────────────────────────────────
+  function agendaPanel() {
+    return {
+      ...panel(),
+      weekStart: null,      // segunda-feira da semana exibida (Date, meia-noite local)
+      sessions: [],
+      patients: {},         // id -> nome (para exibir no slot)
+      days: [],
+      init() { this.weekStart = mondayOf(new Date()); },
+      async load() {
+        if (!this.weekStart) this.weekStart = mondayOf(new Date());
+        // Carrega nomes de pacientes uma vez (para rotular os slots).
+        if (Object.keys(this.patients).length === 0) {
+          const pr = await this.run(() => Api.get("/v1/admin/patients"));
+          if (pr) (pr.data || []).forEach((p) => { this.patients[p.id] = p.name; });
+        }
+        const res = await this.run(() => Api.get("/v1/admin/sessions"));
+        if (res) { this.sessions = res.data || []; this.build(); }
+      },
+      build() {
+        const start = new Date(this.weekStart);
+        const end = new Date(start); end.setDate(end.getDate() + 6); // seg..sáb (6 dias)
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const names = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+        const days = [];
+        for (let i = 0; i < 6; i++) {
+          const d = new Date(start); d.setDate(start.getDate() + i);
+          days.push({
+            iso: d.toISOString().slice(0, 10),
+            name: names[i],
+            num: d.getDate(),
+            isToday: d.getTime() === today.getTime(),
+            date: d,
+            slots: [],
+          });
+        }
+        // Distribui sessões dentro da janela seg..sáb.
+        this.sessions
+          .filter((s) => s.status !== "cancelada")
+          .forEach((s) => {
+            const st = new Date(s.starts_at);
+            const idx = Math.floor((dayFloor(st) - start.getTime()) / 86400000);
+            if (idx >= 0 && idx < 6) days[idx].slots.push(s);
+          });
+        days.forEach((d) => d.slots.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)));
+        this.days = days;
+      },
+      prevWeek() { this.weekStart.setDate(this.weekStart.getDate() - 7); this.weekStart = new Date(this.weekStart); this.load(); },
+      nextWeek() { this.weekStart.setDate(this.weekStart.getDate() + 7); this.weekStart = new Date(this.weekStart); this.load(); },
+      thisWeek() { this.weekStart = mondayOf(new Date()); this.load(); },
+      rangeLabel() {
+        if (!this.weekStart) return "";
+        const end = new Date(this.weekStart); end.setDate(end.getDate() + 5);
+        const f = (d) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+        return f(this.weekStart) + " – " + f(end);
+      },
+      fmtTime(iso) { return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); },
+      patientName(id) { return this.patients[id] || "Paciente"; },
+      openPatient(id) { Alpine.store("nav").openPatient(id); },
+    };
+  }
+
+  // ── Detalhe do paciente ────────────────────────────────────────────────
+  function patientDetail() {
+    return {
+      ...panel(),
+      id: null,
+      tab: "dados",
+      patient: null,
+      editing: false,
+      edit: { name: "", phone: "", email: "", cpf: "" },
+      anamnese: { content: "", updated_at: null },
+      anamnesePreview: false,
+      sessions: [],
+      notes: [],
+      notePreview: false,
+      debts: [],
+      payments: {},        // debtId -> [payments]
+      expandedDebt: null,
+      costs: {},           // sessionId -> cost
+      files: [],
+      noteForm: { content: "" },
+      pendingFile: null,
+      loaded: {},          // aba -> bool (evita recarregar)
+
+      // Reage à mudança do paciente selecionado no store.
+      sync(pid) {
+        if (pid && pid !== this.id) { this.id = pid; this.bootstrap(); }
+      },
+      close() { this.id = null; Alpine.store("nav").closePatient(); },
+
+      async bootstrap() {
+        this.tab = "dados";
+        this.loaded = {};
+        this.editing = false;
+        this.anamnesePreview = false;
+        this.notePreview = false;
+        this.patient = null;
+        this.anamnese = { content: "", updated_at: null };
+        this.sessions = []; this.notes = []; this.debts = []; this.files = [];
+        this.payments = {}; this.costs = {}; this.expandedDebt = null;
+        const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}`));
+        if (res) this.patient = res.data;
+        // Pré-carrega sessões e débitos p/ os KPIs da aba Dados.
+        await this.loadSessions();
+        await this.loadDebts();
+        await this.loadFiles();
+      },
+      reload() { this.loaded = {}; this.bootstrap(); },
+
+      go(tab) {
+        this.tab = tab;
+        if (this.loaded[tab]) return;
+        this.loaded[tab] = true;
+        if (tab === "anamnese") this.loadAnamnese();
+        else if (tab === "sessoes") this.loadSessions();
+        else if (tab === "notas") this.loadNotes();
+        else if (tab === "financeiro") this.loadDebts();
+        else if (tab === "arquivos") this.loadFiles();
+      },
+
+      // Edição de dados do paciente
+      startEdit() {
+        if (!this.patient) return;
+        this.edit = {
+          name: this.patient.name || "",
+          phone: this.patient.phone || "",
+          email: this.patient.email || "",
+          cpf: this.patient.cpf || "",
+        };
+        this.editing = true;
+      },
+      async savePatient() {
+        const res = await this.run(() => Api.put(`/v1/admin/patients/${this.id}`, { ...this.edit }));
+        if (res) { this.ok(res.message || "Paciente atualizado."); this.patient = res.data; this.editing = false; }
+      },
+
+      // KPIs
+      realizadas() { return this.sessions.filter((s) => s.status === "realizada").length; },
+      openDebt() { return this.debts.filter((d) => d.status !== "pago").reduce((a, d) => a + (d.amount || 0), 0); },
+
+      // Anamnese
+      async loadAnamnese() {
+        const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/anamnesis`));
+        if (res) this.anamnese = { content: (res.data && res.data.content) || "", updated_at: res.data && res.data.updated_at };
+      },
+      async saveAnamnese() {
+        const res = await this.run(() => Api.put(`/v1/admin/patients/${this.id}/anamnesis`, { content: this.anamnese.content }));
+        if (res) { this.ok(res.message || "Anamnese salva."); this.anamnese.updated_at = res.data && res.data.updated_at; }
+      },
+
+      // Sessões
+      async loadSessions() {
+        const res = await this.run(() => Api.get(`/v1/admin/sessions?patient_id=${this.id}`));
+        if (res) this.sessions = (res.data || []).sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
+      },
+      async finishSession(sid) {
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${sid}/finish`, { bill: true, consider_cost: true }));
+        if (res) { this.ok("Sessão finalizada."); await this.loadSessions(); await this.loadDebts(); }
+      },
+      async cancelSession(sid) {
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${sid}/cancel`, {}));
+        if (res) { this.ok("Sessão cancelada."); await this.loadSessions(); }
+      },
+
+      // Notas
+      async loadNotes() {
+        const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/notes`));
+        if (res) this.notes = res.data || [];
+      },
+      async addNote() {
+        if (!this.noteForm.content.trim()) { this.warn("Escreva algo na nota."); return; }
+        const res = await this.run(() => Api.post(`/v1/admin/patients/${this.id}/notes`, { content: this.noteForm.content }));
+        if (res) { this.ok("Nota adicionada."); this.noteForm.content = ""; await this.loadNotes(); }
+      },
+      async deleteNote(nid) {
+        const res = await this.run(() => Api.del(`/v1/admin/notes/${nid}`));
+        if (res) { this.ok("Nota removida."); await this.loadNotes(); }
+      },
+
+      // Débitos / pagamentos / recibos
+      async loadDebts() {
+        const res = await this.run(() => Api.get(`/v1/admin/debts?patient_id=${this.id}`));
+        if (res) this.debts = res.data || [];
+      },
+      async payDebt(d) {
+        const amount = d.amount;
+        const method = window.prompt("Forma de pagamento (pix, dinheiro, cartao, transferencia):", "pix");
+        if (!method) return;
+        const res = await this.run(() => Api.post(`/v1/admin/debts/${d.id}/pay`, { amount, method }));
+        if (res) { this.ok("Pagamento registrado."); await this.loadDebts(); await this.loadPayments(d.id); }
+      },
+      async togglePayments(did) {
+        if (this.expandedDebt === did) { this.expandedDebt = null; return; }
+        this.expandedDebt = did;
+        await this.loadPayments(did);
+      },
+      async loadPayments(did) {
+        const res = await this.run(() => Api.get(`/v1/admin/debts/${did}/payments`));
+        if (res) this.payments[did] = res.data || [];
+      },
+      async issueReceipt(pid) {
+        const res = await this.run(() => Api.post(`/v1/admin/payments/${pid}/receipt`, {}));
+        if (res) this.ok(res.message || "Recibo emitido.");
+      },
+
+      // Custos por sessão
+      async loadCost(sid) {
+        const res = await this.run(() => Api.get(`/v1/admin/sessions/${sid}/cost`));
+        if (res) this.costs[sid] = res.data;
+      },
+
+      // Arquivos (GED)
+      async loadFiles() {
+        const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/files`));
+        if (res) this.files = res.data || [];
+      },
+      fileChosen(ev) { this.pendingFile = ev.target.files[0] || null; },
+      async uploadFile() {
+        if (!this.pendingFile) return;
+        const fd = new FormData();
+        fd.append("file", this.pendingFile);
+        this.loading = true; this.clearFeedback();
+        try {
+          const resp = await fetch(`/v1/admin/patients/${this.id}/files`, { method: "POST", credentials: "same-origin", body: fd });
+          if (!resp.ok) { const e = await resp.json().catch(() => ({})); this.warn((e && e.message) || "Falha no upload."); return; }
+          this.ok("Arquivo enviado.");
+          this.pendingFile = null;
+          const input = document.getElementById("ged-file"); if (input) input.value = "";
+          await this.loadFiles();
+        } catch (e) {
+          this.warn("Erro no upload: " + (e && e.message ? e.message : String(e)));
+        } finally { this.loading = false; }
+      },
+      fmtSize(bytes) {
+        if (!bytes) return "—";
+        const u = ["B", "KB", "MB", "GB"];
+        let i = 0, n = bytes;
+        while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+        return n.toFixed(n < 10 && i > 0 ? 1 : 0) + " " + u[i];
+      },
+    };
+  }
+
+  // ── Pacientes (lista + cadastro) ───────────────────────────────────────
   function patientsPanel() {
     return {
       ...panel(),
@@ -153,6 +815,7 @@
         const res = await this.run(() => Api.get("/v1/admin/patients"));
         if (res) this.items = res.data || [];
       },
+      open(id) { Alpine.store("nav").openPatient(id); },
       async create() {
         const res = await this.run(() => Api.post("/v1/admin/patients", { ...this.form }));
         if (res) {
@@ -183,6 +846,67 @@
     };
   }
 
+  // ── Templates (modelos Markdown) ───────────────────────────────────────
+  function templatesPanel() {
+    return {
+      ...panel(),
+      items: [],
+      patients: [],
+      preview: false,
+      sendingId: null,
+      sendPatientId: "",
+      form: { id: null, name: "", body_md: "" },
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/templates"));
+        if (res) this.items = res.data || [];
+        if (this.patients.length === 0) {
+          const pr = await this.run(() => Api.get("/v1/admin/patients"));
+          if (pr) this.patients = pr.data || [];
+        }
+      },
+      resetForm() { this.form = { id: null, name: "", body_md: "" }; this.preview = false; },
+      async save() {
+        if (!this.form.name.trim()) { this.warn("Dê um nome ao template."); return; }
+        if (this.form.id) {
+          // O backend não expõe PUT de template; recriamos (novo modelo) e
+          // removemos o antigo para simular edição.
+          const created = await this.run(() => Api.post("/v1/admin/templates", { name: this.form.name, body_md: this.form.body_md }));
+          if (!created) return;
+          await this.run(() => Api.del(`/v1/admin/templates/${this.form.id}`));
+          this.ok("Template atualizado.");
+        } else {
+          const res = await this.run(() => Api.post("/v1/admin/templates", { name: this.form.name, body_md: this.form.body_md }));
+          if (!res) return;
+          this.ok(res.message || "Template criado.");
+        }
+        this.resetForm();
+        await this.load();
+      },
+      async editTemplate(t) {
+        // Busca o corpo completo (a lista já traz body_md, mas garante atualizado).
+        const res = await this.run(() => Api.get(`/v1/admin/templates/${t.id}`));
+        const data = (res && res.data) || t;
+        this.form = { id: data.id, name: data.name, body_md: data.body_md || "" };
+        this.preview = false;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      },
+      async remove(id) {
+        if (!window.confirm("Excluir este template?")) return;
+        const res = await this.run(() => Api.del(`/v1/admin/templates/${id}`));
+        if (res) { this.ok("Template removido."); if (this.form.id === id) this.resetForm(); await this.load(); }
+      },
+      toggleSend(id) {
+        this.sendingId = this.sendingId === id ? null : id;
+        this.sendPatientId = "";
+      },
+      async doSend(id) {
+        if (!this.sendPatientId) return;
+        const res = await this.run(() => Api.post(`/v1/admin/templates/${id}/send`, { patient_id: this.sendPatientId }));
+        if (res) { this.ok(res.message || "Template enviado."); this.sendingId = null; this.sendPatientId = ""; }
+      },
+    };
+  }
+
   function financePanel() {
     return {
       ...panel(),
@@ -193,6 +917,16 @@
       },
     };
   }
+
+  // ── Helpers de data (segunda-feira da semana / piso do dia) ─────────────
+  function mondayOf(date) {
+    const d = new Date(date); d.setHours(0, 0, 0, 0);
+    const dow = d.getDay();               // 0=dom, 1=seg, ... 6=sáb
+    const diff = (dow === 0 ? -6 : 1 - dow); // volta até a segunda
+    d.setDate(d.getDate() + diff);
+    return d;
+  }
+  function dayFloor(date) { const d = new Date(date); d.setHours(0, 0, 0, 0); return d.getTime(); }
 </script>
 {{template "foot" .}}
 {{end}}

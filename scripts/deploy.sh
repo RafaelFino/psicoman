@@ -14,7 +14,7 @@
 # Uso:
 #   sudo ./scripts/deploy.sh
 #
-# Guia detalhado (Google, Pangolin, DNS): ver DEPLOY.md.
+# Guia detalhado (Google, Pangolin, DNS): ver docs/deploy.md.
 
 set -euo pipefail
 
@@ -110,7 +110,7 @@ ask SECRET_HEADER  "Header de secret enviado pelo Pangolin"      "X-Pangolin-Sec
 
 echo
 printf '%s\n' "${BOLD}--- Integração Google (Calendar/Meet, Gmail, Drive) ---${RESET}"
-echo "Crie as credenciais OAuth no Google Cloud antes (ver DEPLOY.md, seção Google)."
+echo "Crie as credenciais OAuth no Google Cloud antes (ver docs/deploy.md, seção Google)."
 echo "Você pode deixar em branco agora e autorizar depois pela API/UI."
 ask GOOGLE_CLIENT_ID     "Google OAuth Client ID"                ""
 ask_secret GOOGLE_CLIENT_SECRET "Google OAuth Client Secret (não exibido)"
@@ -292,9 +292,9 @@ cat <<EOF
 Próximos passos:
   1. Configure o Pangolin apontando para admin (${ADMIN_HOST}:${ADMIN_PORT}) e portal
      (${PORTAL_HOST}:${PORTAL_PORT}). O admin exige controle de acesso; o portal só TLS.
-     (ver DEPLOY.md, seção Pangolin)
+     (ver docs/deploy.md, seção Pangolin)
   2. Autorize o Google: POST https://admin.seudominio.com.br/v1/admin/google/authorize
-     e conclua o consentimento (ver DEPLOY.md, seção Google).
+     e conclua o consentimento (ver docs/deploy.md, seção Google).
   3. Configure seu perfil: PUT /v1/admin/profile.
 
 Config: ${CONFIG_PATH}

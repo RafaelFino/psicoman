@@ -119,3 +119,99 @@ const Fmt = {
     return div.innerHTML;
   },
 };
+
+// Renderizador Markdown client-side.
+// Espelha o subconjunto do servidor (internal/platform/markdown): cabeçalhos,
+// listas não ordenadas, **negrito**, *itálico*, parágrafos. Acrescenta código
+// inline (`code`), links [texto](url) e blocos de código (``` … ```), sempre
+// escapando HTML antes de aplicar a formatação (segurança contra XSS).
+const Md = (() => {
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // Formatação inline aplicada após o escape de HTML.
+  function inline(s) {
+    let out = escapeHtml(s);
+    // Código inline primeiro (protege o conteúdo de outras regras).
+    out = out.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+    out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    out = out.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    // Links [texto](http…): só http/https/mailto para evitar javascript:.
+    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
+      (_, txt, url) => `<a href="${url}" target="_blank" rel="noopener">${txt}</a>`);
+    return out;
+  }
+
+  function toHtml(md) {
+    if (!md) return "";
+    const lines = String(md).replace(/\r\n/g, "\n").split("\n");
+    const out = [];
+    let inList = false;
+    let inCode = false;
+    let para = [];
+    let code = [];
+
+    const flushPara = () => {
+      if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; }
+    };
+    const closeList = () => { if (inList) { out.push("</ul>"); inList = false; } };
+
+    for (const raw of lines) {
+      const line = raw.replace(/\s+$/, "");
+      const trimmed = line.trim();
+
+      // Bloco de código cercado por ```
+      if (trimmed.startsWith("```")) {
+        if (inCode) { out.push(`<pre class="code">${escapeHtml(code.join("\n"))}</pre>`); code = []; inCode = false; }
+        else { flushPara(); closeList(); inCode = true; }
+        continue;
+      }
+      if (inCode) { code.push(raw); continue; }
+
+      if (trimmed === "") { flushPara(); closeList(); continue; }
+
+      if (trimmed.startsWith("#")) {
+        flushPara(); closeList();
+        let level = 0;
+        while (level < trimmed.length && trimmed[level] === "#") level++;
+        if (level > 6) level = 6;
+        const text = trimmed.slice(level).trim();
+        out.push(`<h${level}>${inline(text)}</h${level}>`);
+        continue;
+      }
+
+      if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+        flushPara();
+        if (!inList) { out.push("<ul>"); inList = true; }
+        out.push(`<li>${inline(trimmed.slice(2).trim())}</li>`);
+        continue;
+      }
+
+      closeList();
+      para.push(trimmed);
+    }
+    if (inCode) out.push(`<pre class="code">${escapeHtml(code.join("\n"))}</pre>`);
+    flushPara();
+    closeList();
+    return out.join("\n");
+  }
+
+  return { toHtml };
+})();
+
+// Componente Alpine reutilizável: editor de texto com Markdown.
+// Uso:  x-data="mdField('conteúdo inicial')"  e faça x-model no textarea via
+// o próprio state.value; ou bind manual. Fornece o toggle escrever/visualizar.
+function mdField(initial) {
+  return {
+    value: initial || "",
+    preview: false,
+    get html() { return Md.toHtml(this.value); },
+    toggle() { this.preview = !this.preview; },
+  };
+}

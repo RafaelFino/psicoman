@@ -120,7 +120,7 @@ $(DEV_CONFIG):
 	  '  level: "debug"' \
 	  > $(DEV_CONFIG)
 
-## deploy: instalação interativa (ver DEPLOY.md)
+## deploy: instalação interativa (ver docs/deploy.md)
 deploy:
 	sudo ./scripts/deploy.sh
 
