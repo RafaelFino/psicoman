@@ -36,3 +36,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Kiro: versionar apenas specs e steering; ignorar o resto (extensões, sessões, cache)
+.kiro/*
+!.kiro/specs/
+!.kiro/steering/
