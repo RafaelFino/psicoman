@@ -477,6 +477,69 @@
     </div>
   </section>
 
+  <!-- ══════════════════════ APROVAÇÃO DE PACIENTES ═══════════════════════ -->
+  <section class="card" id="aprovacoes" x-data="approvalsPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>
+      {{template "icon" "users"}}
+      <h2>Aprovações de cadastro</h2>
+      <span class="chip attention" x-show="items.length" x-text="items.length" style="margin-left:8px"
+            :aria-label="items.length + ' cadastro(s) aguardando aprovação'"></span>
+    </header>
+    <p class="muted">Pacientes que se cadastraram pelo portal e aguardam sua liberação de acesso.</p>
+    <div class="row">
+      <button class="btn secondary" @click="load()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "refresh"}}
+        <span x-text="loading ? 'Atualizando…' : 'Atualizar'"></span>
+      </button>
+    </div>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div id="lista-aprovacoes" role="region" aria-live="polite" style="margin-top:14px">
+      <template x-if="!loading && items.length === 0">
+        <p class="empty">Nenhum cadastro aguardando aprovação.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="p in items" :key="p.id">
+          <li class="item" style="align-items:flex-start;flex-direction:column">
+            <div class="row" style="width:100%">
+              {{template "icon" "user"}}
+              <div class="grow">
+                <div class="title" x-text="p.name"></div>
+                <div class="sub">
+                  <span x-text="p.email"></span> · <span x-text="p.phone"></span>
+                  · cadastrado em <span x-text="Fmt.short(p.created_at)"></span>
+                </div>
+              </div>
+              <div class="actions" x-show="confirmingId !== p.id">
+                <button class="btn primary" @click="askApprove(p.id)" :disabled="loading">{{template "icon" "check"}} Aprovar</button>
+                <button class="btn danger" @click="askReject(p.id)" :disabled="loading">{{template "icon" "x"}} Rejeitar</button>
+              </div>
+            </div>
+            <!-- Confirmação inline (sem window.confirm — R10.2) -->
+            <div class="row" style="width:100%;margin-top:8px" x-show="confirmingId === p.id" x-cloak>
+              <span class="sub" x-text="confirmAction === 'approve'
+                ? 'Confirmar aprovação? O acesso será liberado imediatamente.'
+                : 'Confirmar rejeição do cadastro?'"></span>
+              <span class="spacer"></span>
+              <button class="btn" :class="confirmAction === 'approve' ? 'primary' : 'danger'"
+                      @click="doConfirm(p.id)" :disabled="loading">
+                {{template "icon" "check"}} <span x-text="confirmAction === 'approve' ? 'Aprovar' : 'Rejeitar'"></span>
+              </button>
+              <button class="btn ghost" @click="cancelConfirm()" :disabled="loading">Cancelar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
   <!-- ══════════════════════ PEDIDOS DE AGENDAMENTO ═══════════════════════ -->
   <section class="card" id="pendencias" x-data="pendingPanel()" x-init="load()" x-show="!$store.nav.patientId">
     <header>{{template "icon" "clock"}}<h2>Pedidos de agendamento</h2></header>
@@ -821,6 +884,32 @@
         if (res) {
           this.ok(res.message || "Paciente cadastrado.");
           this.form = { name: "", phone: "", email: "", cpf: "" };
+          await this.load();
+        }
+      },
+    };
+  }
+
+  // ── Aprovação de pacientes (gate de acesso do portal) ──────────────────
+  function approvalsPanel() {
+    return {
+      ...panel(),
+      items: [],
+      confirmingId: null,
+      confirmAction: null, // 'approve' | 'reject'
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/patients/pending"));
+        if (res) this.items = res.data || [];
+      },
+      askApprove(id) { this.confirmingId = id; this.confirmAction = "approve"; },
+      askReject(id) { this.confirmingId = id; this.confirmAction = "reject"; },
+      cancelConfirm() { this.confirmingId = null; this.confirmAction = null; },
+      async doConfirm(id) {
+        const action = this.confirmAction;
+        const res = await this.run(() => Api.post(`/v1/admin/patients/${id}/${action}`, {}));
+        if (res) {
+          this.ok(res.message || (action === "approve" ? "Paciente aprovado." : "Cadastro rejeitado."));
+          this.cancelConfirm();
           await this.load();
         }
       },

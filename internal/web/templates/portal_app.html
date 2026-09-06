@@ -53,8 +53,48 @@
     </template>
   </section>
 
-  <!-- Áreas após login -->
-  <template x-if="authed">
+  <!-- Cadastro em análise (pendente) -->
+  <template x-if="authed && pending">
+    <section class="card" id="em-analise">
+      <div class="hero" style="padding-block:16px">
+        <span class="logo-big" style="color:var(--primary)">{{template "icon" "clock"}}</span>
+        <h2 style="font-size:1.25rem">Seu cadastro está em análise</h2>
+        <p style="max-width:440px;margin:0 auto">
+          Recebemos seus dados. O terapeuta precisa liberar o seu acesso antes de
+          você ver a agenda, as sessões e os débitos. Assim que for aprovado, é só
+          voltar aqui e atualizar.
+        </p>
+        <div class="row" style="justify-content:center;margin-top:12px">
+          <button class="btn primary" @click="refreshStatus()" :disabled="loading">
+            <template x-if="loading"><span class="spinner"></span></template>
+            {{template "icon" "refresh"}}
+            <span x-text="loading ? 'Verificando…' : 'Atualizar'"></span>
+          </button>
+          <button class="btn ghost" @click="logout()" :disabled="loading">{{template "icon" "logout"}} Sair</button>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <!-- Acesso não liberado (rejeitado) -->
+  <template x-if="authed && rejected">
+    <section class="card" id="nao-liberado">
+      <div class="hero" style="padding-block:16px">
+        <span class="logo-big" style="color:var(--danger,#b00)">{{template "icon" "info"}}</span>
+        <h2 style="font-size:1.25rem">Acesso não liberado</h2>
+        <p style="max-width:440px;margin:0 auto">
+          No momento seu acesso a esta área não foi liberado. Se você acredita que
+          isso é um engano, entre em contato diretamente com o seu terapeuta.
+        </p>
+        <div class="row" style="justify-content:center;margin-top:12px">
+          <button class="btn ghost" @click="logout()" :disabled="loading">{{template "icon" "logout"}} Sair</button>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <!-- Áreas após login (aprovado) -->
+  <template x-if="authed && approved">
     <div class="stack">
       <!-- Perfil -->
       <section class="card" x-data="profilePanel()" x-init="load()">
@@ -154,7 +194,17 @@
           <template x-if="!loading && rows.length === 0">
             <p class="empty">Nenhuma sessão encontrada.</p>
           </template>
-          <pre class="code" x-show="rows.length" x-text="pretty"></pre>
+          <ul class="item-list" x-show="rows.length">
+            <template x-for="(s, i) in rows" :key="s.id || i">
+              <li class="item">
+                <div class="grow">
+                  <div class="title" x-text="Fmt.short(s.starts_at)"></div>
+                  <div class="sub" x-text="s.modality ? ('Modalidade: ' + s.modality) : ''"></div>
+                </div>
+                <span class="chip info" x-text="Fmt.sessionStatus(s.status)"></span>
+              </li>
+            </template>
+          </ul>
         </div>
       </section>
 
@@ -178,7 +228,17 @@
           <template x-if="!loading && rows.length === 0">
             <p class="empty">Nenhum débito encontrado.</p>
           </template>
-          <pre class="code" x-show="rows.length" x-text="pretty"></pre>
+          <ul class="item-list" x-show="rows.length">
+            <template x-for="(d, i) in rows" :key="d.id || i">
+              <li class="item">
+                <div class="grow">
+                  <div class="title" x-text="Fmt.brl(d.amount)"></div>
+                  <div class="sub" x-text="d.due_date ? ('Vencimento: ' + Fmt.short(d.due_date)) : (d.reference || '')"></div>
+                </div>
+                <span class="chip info" x-text="Fmt.debtStatus(d.status)"></span>
+              </li>
+            </template>
+          </ul>
         </div>
       </section>
     </div>
@@ -193,24 +253,40 @@
       showForm: false,
       cred: "",
       me: null,
+      status: "",
+      get approved() { return this.status === "aprovado"; },
+      get pending() { return this.status === "pendente"; },
+      get rejected() { return this.status === "rejeitado"; },
       async init() {
         try {
           const res = await Api.get("/v1/portal/me");
           this.me = res.data;
           this.authed = true;
+          await this.loadStatus();
         } catch { this.authed = false; }
+      },
+      async loadStatus() {
+        try {
+          const res = await Api.get("/v1/portal/approval-status");
+          this.status = (res.data && res.data.status) || "";
+        } catch { this.status = ""; }
+      },
+      async refreshStatus() {
+        await this.run(async () => { await this.loadStatus(); return true; });
       },
       async login() {
         const res = await this.run(() => Api.post("/v1/portal/login", { credential: this.cred }));
         if (res) {
           this.authed = true;
           try { this.me = (await Api.get("/v1/portal/me")).data; } catch {}
+          await this.loadStatus();
         }
       },
       async logout() {
         await this.run(() => Api.post("/v1/portal/logout", {}));
         this.authed = false;
         this.me = null;
+        this.status = "";
         this.cred = "";
         this.showForm = false;
       },
@@ -249,13 +325,11 @@
     return {
       ...panel(),
       rows: [],
-      pretty: "",
       async load() {
         const res = await this.run(() => Api.get(path));
         if (res) {
           const data = res.data;
           this.rows = Array.isArray(data) ? data : (data ? [data] : []);
-          this.pretty = JSON.stringify(data, null, 2);
         }
       },
     };

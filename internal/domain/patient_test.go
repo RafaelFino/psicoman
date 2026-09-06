@@ -63,3 +63,57 @@ func TestValidCPFRejectsRepeated(t *testing.T) {
 		t.Error("CPF com dígitos repetidos deveria ser inválido")
 	}
 }
+
+func TestPatientApprovalTransition(t *testing.T) {
+	t.Run("pendente pode aprovar", func(t *testing.T) {
+		p := &Patient{ApprovalStatus: PatientPending}
+		if !p.CanTransitionApproval(PatientApproved) {
+			t.Error("pendente deveria poder virar aprovado")
+		}
+		if !p.CanTransitionApproval(PatientRejected) {
+			t.Error("pendente deveria poder virar rejeitado")
+		}
+	})
+	t.Run("aprovado não retrocede", func(t *testing.T) {
+		p := &Patient{ApprovalStatus: PatientApproved}
+		if p.CanTransitionApproval(PatientRejected) {
+			t.Error("aprovado não deveria virar rejeitado")
+		}
+		if p.CanTransitionApproval(PatientPending) {
+			t.Error("aprovado não deveria voltar a pendente")
+		}
+	})
+	t.Run("rejeitado não transita", func(t *testing.T) {
+		p := &Patient{ApprovalStatus: PatientRejected}
+		if p.CanTransitionApproval(PatientApproved) {
+			t.Error("rejeitado não deveria virar aprovado")
+		}
+	})
+	t.Run("estado inválido nunca é destino", func(t *testing.T) {
+		p := &Patient{ApprovalStatus: PatientPending}
+		if p.CanTransitionApproval("qualquer") {
+			t.Error("destino inválido não deveria ser aceito")
+		}
+	})
+}
+
+func TestPatientIsApproved(t *testing.T) {
+	if (&Patient{ApprovalStatus: PatientApproved}).IsApproved() != true {
+		t.Error("aprovado deveria ser IsApproved")
+	}
+	if (&Patient{ApprovalStatus: PatientPending}).IsApproved() != false {
+		t.Error("pendente não deveria ser IsApproved")
+	}
+}
+
+func TestPatientValidateApprovalStatus(t *testing.T) {
+	p := &Patient{Name: "Maria", Phone: "11999998888", Email: "maria@example.com"}
+	p.ApprovalStatus = "invalido"
+	if err := p.Validate(); err == nil {
+		t.Error("estado de aprovação inválido deveria falhar na validação")
+	}
+	p.ApprovalStatus = PatientPending
+	if err := p.Validate(); err != nil {
+		t.Errorf("estado pendente deveria ser válido: %v", err)
+	}
+}

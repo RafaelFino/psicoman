@@ -17,7 +17,7 @@ Convenções:
 
 ## Fase A — Segurança de acesso (R1)
 
-- [ ] **A1. Domínio + persistência do estado de aprovação** (dep: —)
+- [x] **A1. Domínio + persistência do estado de aprovação** (dep: —)
   - `domain.Patient.ApprovalStatus` + constantes (`pendente`/`aprovado`/`rejeitado`); helpers `IsApproved`, `CanTransitionApproval`; `Validate` aceita só estados válidos.
   - Migration aditiva: coluna `approval_status` default `pendente` + `UPDATE … 'aprovado'` para os pré-existentes.
   - Repositório SQLite: coluna em insert/select/update; `ListByApproval`.
@@ -25,37 +25,37 @@ Convenções:
   - **Testes:** unit de transição/validação; migration em base com e sem dados.
   - **Refs:** R1.1 · D1.1–D1.2.
 
-- [ ] **A2. Serviço de aprovação** (dep: A1)
+- [x] **A2. Serviço de aprovação** (dep: A1)
   - `PatientService`: `RegisterFromPortal` → `pendente` (mantém `aprovado` no vínculo por email); `Create` (admin) → `aprovado`; `Approve`/`Reject` com transição; `ListPending`.
   - **Aceite:** auto-cadastro nasce pendente; cadastro admin nasce aprovado; approve/reject mudam estado.
   - **Testes:** unit dos quatro caminhos + vínculo por email não rebaixa.
   - **Refs:** R1.1, R1.4 · D1.3.
 
-- [ ] **A3. Enforcement no portal (403 até aprovar)** (dep: A2)
+- [x] **A3. Enforcement no portal (403 até aprovar)** (dep: A2)
   - `httpx.ErrForbidden` (se ausente); middleware `RequireApproved`; reorganizar `RegisterAuthenticated` (liberadas vs. atrás do gate); endpoint `GET /v1/portal/approval-status`.
   - **Aceite:** paciente pendente recebe 403 nas rotas de recurso e 200 em `/me` e `/approval-status`; aprovado acessa tudo.
   - **Testes:** E2E portal — pendente (403) e aprovado (200); ajustar fixtures existentes.
   - **Refs:** R1.2 · D1.4.
 
-- [ ] **A4. Fila de aprovação no admin (API)** (dep: A2)
+- [x] **A4. Fila de aprovação no admin (API)** (dep: A2)
   - `GET /v1/admin/patients/pending`, `POST /patients/{id}/approve`, `POST /patients/{id}/reject` (+ audit log); `patientView` inclui `approval_status`.
   - **Aceite:** endpoints respondem; aprovar/rejeitar gera audit.
   - **Testes:** E2E admin dos três endpoints + verificação de audit.
   - **Refs:** R1.4 · D1.5.
 
-- [ ] **A5. UI — página de status do paciente pendente** (dep: A3)
+- [x] **A5. UI — página de status do paciente pendente** (dep: A3)
   - `portal_app.html`: ramificar por `approval-status`; cards "em análise" e "não liberado"; botões Atualizar/Sair.
   - **Aceite:** login de pendente mostra a página de análise; aprovado mostra a área normal; rejeitado mostra o aviso.
   - **Testes:** smoke manual (dev) dos três estados.
   - **Refs:** R1.3 · D1.6.
 
-- [ ] **A6. UI — fila de aprovação no admin** (dep: A4)
+- [x] **A6. UI — fila de aprovação no admin** (dep: A4)
   - Seção `#aprovacoes` + `approvalsPanel()` com aprovar/rejeitar por **confirmação inline**; badge de contagem; item no menu.
   - **Aceite:** terapeuta aprova/rejeita pela tela; contagem atualiza; paciente liberado imediatamente.
   - **Testes:** smoke manual; verificação do fluxo ponta a ponta com A5.
   - **Refs:** R1.4, R10.2 · D1.7.
 
-- [ ] **A7. Fechamento da Fase A** (dep: A1–A6)
+- [x] **A7. Fechamento da Fase A** (dep: A1–A6)
   - Atualizar docs: `docs/requirements.md` (novo requisito de aprovação), `docs/architecture.md` (gate/endpoints/migration), Swagger (novos endpoints), `docs/decisions.md` (já iniciado — revisar/confirmar).
   - `make check` verde (build + vet + unit + E2E). **Commit** PT-BR: "mvp-audit1 Fase A: gate de aprovação de paciente". **Sem push.**
   - **Aceite:** docs coerentes com o implementado; suíte verde; commit criado.

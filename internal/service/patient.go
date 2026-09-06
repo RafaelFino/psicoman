@@ -15,6 +15,7 @@ type PatientRepository interface {
 	Get(ctx context.Context, id string) (*domain.Patient, error)
 	GetByEmail(ctx context.Context, email string) (*domain.Patient, error)
 	List(ctx context.Context) ([]*domain.Patient, error)
+	ListByApproval(ctx context.Context, status string) ([]*domain.Patient, error)
 	SoftDelete(ctx context.Context, id string) error
 	// EmailExists / CPFExists checam unicidade ignorando um id (para update).
 	EmailExists(ctx context.Context, email, exceptID string) (bool, error)
@@ -45,14 +46,15 @@ type CreateInput struct {
 func (s *PatientService) Create(ctx context.Context, in CreateInput) (*domain.Patient, error) {
 	now := s.clock.Now()
 	p := &domain.Patient{
-		ID:        ulid.New(),
-		Name:      in.Name,
-		Phone:     in.Phone,
-		Email:     in.Email,
-		CPF:       domain.NormalizeCPF(in.CPF),
-		OriginID:  in.OriginID,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:             ulid.New(),
+		Name:           in.Name,
+		Phone:          in.Phone,
+		Email:          in.Email,
+		CPF:            domain.NormalizeCPF(in.CPF),
+		OriginID:       in.OriginID,
+		ApprovalStatus: domain.PatientApproved, // cadastro pelo admin: já aprovado (R1.1)
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	if err := p.Validate(); err != nil {
 		return nil, NewValidation(err.Error())
@@ -127,6 +129,12 @@ func (s *PatientService) RegisterFromPortal(ctx context.Context, in PortalRegist
 		if cpf := domain.NormalizeCPF(in.CPF); cpf != "" {
 			existing.CPF = cpf
 		}
+		// Vínculo por email não rebaixa o estado: se já era aprovado (cadastrado
+		// pelo terapeuta), mantém aprovado (R1.1). Registros legados sem estado
+		// definido caem em pendente por segurança.
+		if !domain.ValidApprovalStatus(existing.ApprovalStatus) {
+			existing.ApprovalStatus = domain.PatientPending
+		}
 		existing.UpdatedAt = s.clock.Now()
 		if err := existing.Validate(); err != nil {
 			return nil, NewValidation(err.Error())
@@ -136,8 +144,28 @@ func (s *PatientService) RegisterFromPortal(ctx context.Context, in PortalRegist
 		}
 		return existing, nil
 	}
-	// Novo cadastro básico.
-	return s.Create(ctx, CreateInput{Name: in.Name, Phone: in.Phone, Email: in.Email, CPF: in.CPF})
+	// Novo auto-cadastro pelo portal: nasce pendente de aprovação (R1.1).
+	now := s.clock.Now()
+	p := &domain.Patient{
+		ID:             ulid.New(),
+		Name:           in.Name,
+		Phone:          in.Phone,
+		Email:          in.Email,
+		CPF:            domain.NormalizeCPF(in.CPF),
+		ApprovalStatus: domain.PatientPending,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := p.Validate(); err != nil {
+		return nil, NewValidation(err.Error())
+	}
+	if err := s.checkUnique(ctx, p, ""); err != nil {
+		return nil, err
+	}
+	if err := s.repo.Create(ctx, p); err != nil {
+		return nil, s.mapErr(err)
+	}
+	return p, nil
 }
 
 // Get devolve um paciente por id.
@@ -165,6 +193,41 @@ func (s *PatientService) Delete(ctx context.Context, id string) error {
 		return s.mapErr(err)
 	}
 	return s.repo.SoftDelete(ctx, id)
+}
+
+// ListPending devolve os pacientes com cadastro pendente de aprovação (fila).
+func (s *PatientService) ListPending(ctx context.Context) ([]*domain.Patient, error) {
+	return s.repo.ListByApproval(ctx, domain.PatientPending)
+}
+
+// Approve libera o acesso do paciente ao portal (transição pendente→aprovado).
+func (s *PatientService) Approve(ctx context.Context, id string) (*domain.Patient, error) {
+	return s.transitionApproval(ctx, id, domain.PatientApproved)
+}
+
+// Reject nega o acesso do paciente ao portal (transição pendente→rejeitado).
+func (s *PatientService) Reject(ctx context.Context, id string) (*domain.Patient, error) {
+	return s.transitionApproval(ctx, id, domain.PatientRejected)
+}
+
+// transitionApproval aplica uma transição de estado de aprovação válida.
+func (s *PatientService) transitionApproval(ctx context.Context, id, next string) (*domain.Patient, error) {
+	p, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, s.mapErr(err)
+	}
+	if p.ApprovalStatus == next {
+		return p, nil // idempotente: já está no estado desejado
+	}
+	if !p.CanTransitionApproval(next) {
+		return nil, NewValidation("Este cadastro não pode mais ter o estado de aprovação alterado.")
+	}
+	p.ApprovalStatus = next
+	p.UpdatedAt = s.clock.Now()
+	if err := s.repo.Update(ctx, p); err != nil {
+		return nil, s.mapErr(err)
+	}
+	return p, nil
 }
 
 // checkUnique valida unicidade de email e CPF (exceto o próprio id no update).

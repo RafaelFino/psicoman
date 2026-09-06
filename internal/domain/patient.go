@@ -10,14 +10,48 @@ import (
 // Patient é o paciente. Obrigatórios: nome, telefone, email. CPF é opcional,
 // mas exigido para emissão de recibo/Receita Saúde (requirements §3.1).
 type Patient struct {
-	ID        string
-	Name      string
-	Phone     string
-	Email     string
-	CPF       string // vazio = não informado
-	OriginID  string // canal de aquisição (opcional)
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             string
+	Name           string
+	Phone          string
+	Email          string
+	CPF            string // vazio = não informado
+	OriginID       string // canal de aquisição (opcional)
+	ApprovalStatus string // pendente | aprovado | rejeitado (gate de acesso do portal)
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// Estados de aprovação do paciente (gate de acesso do portal — mvp-audit1 R1).
+const (
+	PatientPending  = "pendente"
+	PatientApproved = "aprovado"
+	PatientRejected = "rejeitado"
+)
+
+// ValidApprovalStatus indica se o estado de aprovação é conhecido.
+func ValidApprovalStatus(s string) bool {
+	switch s {
+	case PatientPending, PatientApproved, PatientRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsApproved indica se o paciente já teve o acesso ao portal liberado.
+func (p *Patient) IsApproved() bool { return p.ApprovalStatus == PatientApproved }
+
+// CanTransitionApproval indica se é possível transitar do estado atual para
+// next. Só `pendente` transita (→ aprovado|rejeitado); estados finais não
+// retrocedem por padrão (reavaliação futura fora de escopo — design D1.1).
+func (p *Patient) CanTransitionApproval(next string) bool {
+	if !ValidApprovalStatus(next) {
+		return false
+	}
+	if p.ApprovalStatus == PatientPending {
+		return next == PatientApproved || next == PatientRejected
+	}
+	return false
 }
 
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
@@ -42,6 +76,9 @@ func (p *Patient) Validate() error {
 	}
 	if p.CPF != "" && !validCPF(p.CPF) {
 		return errors.New("O CPF informado não é válido.")
+	}
+	if p.ApprovalStatus != "" && !ValidApprovalStatus(p.ApprovalStatus) {
+		return errors.New("O estado de aprovação é inválido.")
 	}
 	return nil
 }

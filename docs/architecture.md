@@ -90,9 +90,10 @@ erDiagram
 
 ### 3.2 Entidades principais
 
-**patient** — nome, telefone, email (obrigatórios, `email` UNIQUE); cpf (opcional, `cpf` UNIQUE quando não nulo); origin_id; created_at/updated_at.
+**patient** — nome, telefone, email (obrigatórios, `email` UNIQUE); cpf (opcional, `cpf` UNIQUE quando não nulo); origin_id; `approval_status` (`pendente`|`aprovado`|`rejeitado`); created_at/updated_at.
 - Regra: emissão de recibo/Receita Saúde exige `cpf` não nulo.
 - Regra: cadastro via portal com email já existente vincula ao `patient` existente (upsert por email), nunca duplica.
+- Regra: gate de aprovação (mvp-audit1 R1) — auto-cadastro nasce `pendente`, cadastro pelo admin nasce `aprovado`; vínculo por email não rebaixa. Coluna `approval_status` adicionada pela migration `0002_patient_approval` (default `pendente`; backfill `aprovado` para os pré-existentes).
 
 **origin** — canal de aquisição (Doctoralia, indicação, etc.). Pode ligar-se a `cost_item` (plataforma paga) para cálculo de ROI.
 
@@ -234,6 +235,7 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 
 - **Admin:** atrás do Pangolin **com** autenticação. O middleware valida header de email (Pangolin) == email admin do config, e header secret == secret do config. Falha → 401/403 com mensagem PT-BR + audit log.
 - **Portal:** atrás do Pangolin **sem** controle de acesso (só TLS/HTTPS). A autenticação é da aplicação: OAuth Google login → sessão assinada (cookie httpOnly/JWT). Handlers filtram por email verificado; nenhum acesso a dados clínicos. Como o Pangolin não filtra acesso aqui, as rotas públicas (cadastro, pedido de agendamento) têm rate limiting próprio.
+- **Gate de aprovação do portal (defense in depth):** as rotas de recurso do portal passam por um middleware `ApprovalGate` encadeado **depois** do autenticador de sessão — resolve o paciente pelo email da sessão e nega (HTTP 403) enquanto não estiver `aprovado`. As rotas `GET /me`, `GET /approval-status` e `POST /logout` ficam fora do gate (só exigem sessão). Complementa o rate limiting, não o substitui.
 
 ---
 
@@ -256,6 +258,8 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 | GET | `/v1/admin/me` | Terapeuta autenticado |
 | GET/PUT | `/v1/admin/profile` | Perfil do terapeuta (nome, CRP, contatos, foto, bio, locais, links de plataformas) |
 | CRUD | `/v1/admin/patients` | Pacientes |
+| GET | `/v1/admin/patients/pending` | Fila de aprovação (cadastros pendentes) |
+| POST | `/v1/admin/patients/{id}/approve` \| `/reject` | Aprovar/rejeitar cadastro (audit log) |
 | CRUD | `/v1/admin/locations` | Locais |
 | CRUD | `/v1/admin/plans` | Planos por paciente |
 | GET/POST | `/v1/admin/sessions` | Sessões e transições de estado (checa conflito via freebusy do Calendar antes de confirmar) |
@@ -277,9 +281,10 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| GET | `/v1/portal/me` | Perfil do paciente logado |
-| PUT | `/v1/portal/me` | Cadastro básico (nome, cpf, email, telefone) |
-| GET | `/v1/portal/availability` | Lacunas de agenda abertas |
+| GET | `/v1/portal/me` | Perfil do paciente logado (fora do gate) |
+| GET | `/v1/portal/approval-status` | Estado de aprovação do cadastro (fora do gate) |
+| PUT | `/v1/portal/me` | Edição de perfil (exige aprovação) |
+| GET | `/v1/portal/availability` | Lacunas de agenda abertas (exige aprovação) |
 | POST | `/v1/portal/appointment-requests` | Solicitar sessão |
 | GET | `/v1/portal/sessions` | Minhas sessões |
 | GET | `/v1/portal/debts` | Meus débitos (pendentes/pagos) e comprovantes |

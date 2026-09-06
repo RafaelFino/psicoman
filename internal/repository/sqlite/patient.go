@@ -20,9 +20,9 @@ var _ service.PatientRepository = (*PatientRepo)(nil)
 // Create insere um paciente.
 func (r *PatientRepo) Create(ctx context.Context, p *domain.Patient) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO patient (id, name, phone, email, cpf, origin_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Phone, p.Email, nullStr(p.CPF), nullStr(p.OriginID),
+		`INSERT INTO patient (id, name, phone, email, cpf, origin_id, approval_status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Phone, p.Email, nullStr(p.CPF), nullStr(p.OriginID), p.ApprovalStatus,
 		clock.Format(p.CreatedAt), clock.Format(p.UpdatedAt),
 	)
 	return mapError(err)
@@ -31,9 +31,9 @@ func (r *PatientRepo) Create(ctx context.Context, p *domain.Patient) error {
 // Update atualiza um paciente.
 func (r *PatientRepo) Update(ctx context.Context, p *domain.Patient) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE patient SET name=?, phone=?, email=?, cpf=?, origin_id=?, updated_at=?
+		`UPDATE patient SET name=?, phone=?, email=?, cpf=?, origin_id=?, approval_status=?, updated_at=?
 		 WHERE id=? AND deleted_at IS NULL`,
-		p.Name, p.Phone, p.Email, nullStr(p.CPF), nullStr(p.OriginID),
+		p.Name, p.Phone, p.Email, nullStr(p.CPF), nullStr(p.OriginID), p.ApprovalStatus,
 		clock.Format(p.UpdatedAt), p.ID,
 	)
 	if err != nil {
@@ -48,7 +48,7 @@ func (r *PatientRepo) Update(ctx context.Context, p *domain.Patient) error {
 // Get busca um paciente ativo por id.
 func (r *PatientRepo) Get(ctx context.Context, id string) (*domain.Patient, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, name, phone, email, cpf, origin_id, created_at, updated_at
+		`SELECT id, name, phone, email, cpf, origin_id, approval_status, created_at, updated_at
 		 FROM patient WHERE id=? AND deleted_at IS NULL`, id)
 	return scanPatient(row)
 }
@@ -56,7 +56,7 @@ func (r *PatientRepo) Get(ctx context.Context, id string) (*domain.Patient, erro
 // GetByEmail busca um paciente ativo por email.
 func (r *PatientRepo) GetByEmail(ctx context.Context, email string) (*domain.Patient, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, name, phone, email, cpf, origin_id, created_at, updated_at
+		`SELECT id, name, phone, email, cpf, origin_id, approval_status, created_at, updated_at
 		 FROM patient WHERE email=? AND deleted_at IS NULL`, email)
 	return scanPatient(row)
 }
@@ -64,8 +64,29 @@ func (r *PatientRepo) GetByEmail(ctx context.Context, email string) (*domain.Pat
 // List devolve os pacientes ativos ordenados por criação.
 func (r *PatientRepo) List(ctx context.Context) ([]*domain.Patient, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, phone, email, cpf, origin_id, created_at, updated_at
+		`SELECT id, name, phone, email, cpf, origin_id, approval_status, created_at, updated_at
 		 FROM patient WHERE deleted_at IS NULL ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*domain.Patient
+	for rows.Next() {
+		p, err := scanPatientRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ListByApproval devolve os pacientes ativos com o estado de aprovação
+// informado, ordenados por criação (mais antigos primeiro, para a fila).
+func (r *PatientRepo) ListByApproval(ctx context.Context, status string) ([]*domain.Patient, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, phone, email, cpf, origin_id, approval_status, created_at, updated_at
+		 FROM patient WHERE approval_status=? AND deleted_at IS NULL ORDER BY created_at ASC`, status)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -130,7 +151,7 @@ func scanPatientFrom(s scanner) (*domain.Patient, error) {
 		cpf, originID      sql.NullString
 		createdAt, updated string
 	)
-	if err := s.Scan(&p.ID, &p.Name, &p.Phone, &p.Email, &cpf, &originID, &createdAt, &updated); err != nil {
+	if err := s.Scan(&p.ID, &p.Name, &p.Phone, &p.Email, &cpf, &originID, &p.ApprovalStatus, &createdAt, &updated); err != nil {
 		return nil, err
 	}
 	p.CPF = cpf.String

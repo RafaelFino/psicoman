@@ -112,11 +112,59 @@ const Fmt = {
     if (isNaN(d.getTime())) return String(iso);
     return d.toLocaleString("pt-BR");
   },
+  // ISO-8601 -> data/hora curta pt-BR: "Seg, 08/09 · 14:00".
+  short(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    const dia = d.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
+    const cap = dia.charAt(0).toUpperCase() + dia.slice(1);
+    const data = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return `${cap}, ${data} · ${hora}`;
+  },
   // Escapa texto para inserção segura (usado só quando necessário; Alpine já escapa via x-text).
   esc(s) {
     const div = document.createElement("div");
     div.textContent = s == null ? "" : String(s);
     return div.innerHTML;
+  },
+  // Rótulo PT-BR para status de sessão.
+  sessionStatus(s) {
+    return ({
+      solicitada: "Solicitada", agendada: "Agendada",
+      realizada: "Realizada", finalizada: "Finalizada",
+      cancelada: "Cancelada", falta: "Falta",
+    })[s] || (s || "—");
+  },
+  // Rótulo PT-BR para status de débito.
+  debtStatus(s) {
+    return ({
+      aberto: "Em aberto", pago: "Pago", quitado: "Quitado",
+      cancelado: "Cancelado", vencido: "Vencido",
+    })[s] || (s || "—");
+  },
+};
+
+// Money: conversão reais<->centavos para os formulários (a API usa centavos).
+const Money = {
+  // "1.234,56" ou "1234.56" ou "1234,56" -> 123456 (centavos). "" -> 0.
+  toCents(input) {
+    if (input === null || input === undefined || input === "") return 0;
+    if (typeof input === "number") return Math.round(input * 100);
+    let s = String(input).trim().replace(/[R$\s]/g, "");
+    // Se tem vírgula, ela é o separador decimal (pt-BR): remove pontos de milhar.
+    if (s.indexOf(",") >= 0) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    }
+    const v = parseFloat(s);
+    if (isNaN(v)) return 0;
+    return Math.round(v * 100);
+  },
+  // 123456 (centavos) -> "1234.56" (para value de <input>). null/0 -> "".
+  fromCents(cents) {
+    if (cents === null || cents === undefined) return "";
+    return (cents / 100).toFixed(2);
   },
 };
 
