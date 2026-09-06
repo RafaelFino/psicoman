@@ -86,7 +86,7 @@ func bootstrap(cfg *config.Config, component string) (*deps, error) {
 		log.Close()
 		return nil, fmt.Errorf("aplicando migrations: %w", err)
 	}
-	log.Info("migrations aplicadas", "db", cfg.Paths.SQLite)
+	log.Info("banco de dados pronto e migrations aplicadas", "arquivo", cfg.Paths.SQLite)
 
 	reg := metrics.New()
 	health := api.NewHealth(reg)
@@ -273,7 +273,9 @@ func buildPortal(_ context.Context, cfg *config.Config, opts Options) (*instance
 		sqlite.NewAppointmentRepo(d.db), patientRepo, portalSessions, sqlite.NewLocationRepo(d.db))
 
 	// Sessão própria (cookie assinado com o secret do admin como chave HMAC).
-	sessMgr := portal.NewSessionManager(cfg.AdminAuth.Secret, 24*time.Hour)
+	// Em modo dev (http://localhost) o cookie não pode ser Secure, senão o
+	// navegador não o reenvia e as rotas autenticadas do portal dão 401.
+	sessMgr := portal.NewSessionManager(cfg.AdminAuth.Secret, 24*time.Hour, !cfg.Dev)
 	// Login social: verificador injetável (fake nos testes, Google userinfo real).
 	var verifier portal.IdentityVerifier = opts.Identity
 	if verifier == nil {

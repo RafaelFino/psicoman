@@ -1,25 +1,27 @@
 {{define "admin_home.html"}}
 {{template "head" .}}
-<main>
-  <section class="card">
-    <h2>Bem-vindo(a) à administração</h2>
-    <p class="muted">
-      Gerencie pacientes, agenda, sessões, prontuário, financeiro e custos em um só lugar.
-      O acesso é protegido pelo gateway e por autenticação própria.
-    </p>
+<main class="narrow">
+  <section class="card hero">
+    <span class="logo-big">{{template "icon" "brain"}}</span>
+    <h1>Administração</h1>
     <p>
-      <a class="btn" href="/app/">Abrir painel</a>
-      <a class="btn secondary" href="/v1/swagger">Documentação da API</a>
+      Painel de administração do consultório: pacientes, agenda, sessões, prontuário,
+      financeiro e custos em um só lugar. O acesso é protegido pelo gateway e por
+      autenticação própria.
     </p>
+    <div class="row" style="justify-content:center">
+      <a class="btn primary" href="/app/">{{template "icon" "activity"}} Abrir painel</a>
+      <a class="btn secondary" href="/v1/swagger">{{template "icon" "doc"}} Documentação da API</a>
+    </div>
   </section>
 
   <section class="card">
-    <h2>Saúde do sistema</h2>
+    <header>{{template "icon" "info"}}<h2>Saúde do sistema</h2></header>
     <p class="muted">Verifique se a instância está pronta para uso.</p>
-    <p>
-      <a class="btn secondary" href="/healthz">Liveness</a>
-      <a class="btn secondary" href="/readyz">Readiness</a>
-    </p>
+    <div class="row">
+      <a class="btn ghost" href="/healthz">{{template "icon" "check"}} Liveness</a>
+      <a class="btn ghost" href="/readyz">{{template "icon" "activity"}} Readiness</a>
+    </div>
   </section>
 </main>
 {{template "foot" .}}

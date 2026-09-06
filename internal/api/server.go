@@ -46,7 +46,7 @@ func (s *Server) Mux() *http.ServeMux { return s.mux }
 
 // Start sobe o servidor de forma bloqueante.
 func (s *Server) Start() error {
-	s.log.Info("servidor iniciando", "addr", s.http.Addr)
+	s.log.Info("servidor pronto, aguardando requisições", "endereco", "http://"+s.http.Addr)
 	if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

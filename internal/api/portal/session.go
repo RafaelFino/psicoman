@@ -28,14 +28,20 @@ type sessionData struct {
 type SessionManager struct {
 	secret []byte
 	ttl    time.Duration
+	secure bool
 }
 
 // NewSessionManager cria o gerenciador de sessão do portal.
-func NewSessionManager(secret string, ttl time.Duration) *SessionManager {
+//
+// secure controla o atributo Secure do cookie. Em produção (TLS terminado no
+// Pangolin) deve ser true; em desenvolvimento local sobre http://localhost deve
+// ser false, senão o navegador não reenvia o cookie e toda rota autenticada
+// responde 401.
+func NewSessionManager(secret string, ttl time.Duration, secure bool) *SessionManager {
 	if ttl == 0 {
 		ttl = 24 * time.Hour
 	}
-	return &SessionManager{secret: []byte(secret), ttl: ttl}
+	return &SessionManager{secret: []byte(secret), ttl: ttl, secure: secure}
 }
 
 // Issue cria um cookie de sessão assinado para o email verificado.
@@ -51,7 +57,7 @@ func (m *SessionManager) Issue(w http.ResponseWriter, email string) {
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true, // TLS terminado no Pangolin
+		Secure:   m.secure, // TLS terminado no Pangolin (true em prod; false em dev local)
 		SameSite: http.SameSiteLaxMode,
 		Expires:  clock.Now().Add(m.ttl),
 	})

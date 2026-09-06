@@ -4,15 +4,52 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="theme-color" content="#0d9488"/>
   <title>{{.Title}}</title>
   <link rel="stylesheet" href="/static/app.css"/>
-  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <!-- Cliente da API JSON (envelope + fetch com credenciais). Carrega antes do Alpine. -->
+  <script src="/static/api.js"></script>
+  <!-- Alpine para interatividade declarativa. -->
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 </head>
 <body>
+{{template "icon-sprite"}}
+{{template "topbar" .}}
+{{end}}
+
+{{/* Topbar com marca e menu no canto superior esquerdo (dropdown Alpine).
+     O menu só aparece nas telas de app (Surface admin-app / portal-app). */}}
+{{define "topbar"}}
 <header class="topbar">
-  <span aria-hidden="true">🧠</span>
-  <h1>{{.Title}}</h1>
+  {{if or (eq .Surface "admin-app") (eq .Surface "portal-app")}}
+  <div class="menu-wrap" x-data="{ open: false }" @keydown.escape="open = false" @click.outside="open = false">
+    <button class="menu-btn" @click="open = !open" :aria-expanded="open ? 'true' : 'false'" aria-haspopup="true">
+      {{template "icon" "menu"}}
+      <span>Menu</span>
+    </button>
+    <nav class="menu-dropdown" x-show="open" x-cloak x-transition.origin.top.left @click="open = false" aria-label="Navegação">
+      {{if eq .Surface "admin-app"}}
+      <span class="menu-title">Administração</span>
+      <a class="menu-item" href="#pacientes">{{template "icon" "users"}} Pacientes</a>
+      <a class="menu-item" href="#pendencias">{{template "icon" "clock"}} Pedidos de agendamento</a>
+      <a class="menu-item" href="#financeiro">{{template "icon" "wallet"}} Financeiro</a>
+      <a class="menu-item" href="/">{{template "icon" "activity"}} Início</a>
+      {{else}}
+      <span class="menu-title">Minha área</span>
+      <a class="menu-item" href="#perfil">{{template "icon" "user"}} Meu perfil</a>
+      <a class="menu-item" href="#agenda">{{template "icon" "calendar"}} Agenda aberta</a>
+      <a class="menu-item" href="#sessoes">{{template "icon" "heart"}} Minhas sessões</a>
+      <a class="menu-item" href="#debitos">{{template "icon" "wallet"}} Meus débitos</a>
+      {{end}}
+    </nav>
+  </div>
+  {{end}}
+
+  <div class="brand">
+    <span class="logo">{{template "icon" "brain"}}</span>
+    <span>Psicoman <span class="sub">{{.Title}}</span></span>
+  </div>
+  <div class="spacer"></div>
 </header>
 {{end}}
 

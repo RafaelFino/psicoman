@@ -75,16 +75,16 @@ func (s *Server) render(w http.ResponseWriter, name string, data pageData) {
 
 func (s *Server) index(w http.ResponseWriter, _ *http.Request) {
 	if s.surface == Admin {
-		s.render(w, "admin_home.html", pageData{Title: "Psicoman — Administração", Surface: "admin"})
+		s.render(w, "admin_home.html", pageData{Title: "Administração", Surface: "admin"})
 		return
 	}
-	s.render(w, "portal_home.html", pageData{Title: "Psicoman — Portal do Paciente", Surface: "portal"})
+	s.render(w, "portal_home.html", pageData{Title: "Portal do Paciente", Surface: "portal"})
 }
 
 func (s *Server) adminApp(w http.ResponseWriter, _ *http.Request) {
-	s.render(w, "admin_app.html", pageData{Title: "Psicoman — Painel", Surface: "admin"})
+	s.render(w, "admin_app.html", pageData{Title: "Painel", Surface: "admin-app"})
 }
 
 func (s *Server) portalApp(w http.ResponseWriter, _ *http.Request) {
-	s.render(w, "portal_app.html", pageData{Title: "Psicoman — Minha Área", Surface: "portal"})
+	s.render(w, "portal_app.html", pageData{Title: "Minha área", Surface: "portal-app"})
 }

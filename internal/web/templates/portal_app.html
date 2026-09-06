@@ -1,44 +1,265 @@
 {{define "portal_app.html"}}
 {{template "head" .}}
-<main>
-  <section class="card">
-    <h2>Meu perfil</h2>
-    <p class="muted">Mantenha seus dados atualizados.</p>
-    <form hx-put="/v1/portal/me" hx-swap="none">
-      <label for="m-nome">Nome</label>
-      <input id="m-nome" name="name" required autocomplete="name"/>
-      <label for="m-tel">Telefone</label>
-      <input id="m-tel" name="phone" inputmode="tel" autocomplete="tel"/>
-      <label for="m-cpf">CPF (opcional)</label>
-      <input id="m-cpf" name="cpf" inputmode="numeric"/>
-      <p><button class="btn" type="submit">Salvar</button></p>
-    </form>
+<main x-data="portalApp()" x-init="init()">
+
+  <!-- Sessão: login com Google / logout -->
+  <section class="card" id="perfil">
+    <template x-if="!authed">
+      <div class="hero" style="padding-block:8px">
+        <span class="logo-big">{{template "icon" "heart"}}</span>
+        <h1 style="font-size:1.4rem">Entrar</h1>
+        <p>Acesse sua área com sua conta Google.</p>
+
+        <div class="row" style="justify-content:center">
+          <button class="btn google" @click="showForm = true" x-show="!showForm">
+            {{template "google-logo"}}
+            <span>Entrar com Google</span>
+          </button>
+        </div>
+
+        <form @submit.prevent="login()" x-show="showForm" x-cloak style="max-width:360px;margin:0 auto;text-align:left">
+          <div class="field">
+            <label for="l-cred">E-mail da sua conta Google</label>
+            <input id="l-cred" x-model="cred" type="email" required autocomplete="email" placeholder="voce@gmail.com"/>
+            <span class="hint">Confirme o e-mail vinculado à sua conta para continuar.</span>
+          </div>
+          <div class="form-actions">
+            <button class="btn google block" type="submit" :disabled="loading">
+              <template x-if="loading"><span class="spinner"></span></template>
+              {{template "google-logo"}}
+              <span x-text="loading ? 'Entrando…' : 'Continuar com Google'"></span>
+            </button>
+          </div>
+        </form>
+
+        <template x-if="feedback">
+          <p class="feedback" :class="feedback.kind" role="status">
+            <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+            <span x-text="feedback.text"></span>
+          </p>
+        </template>
+      </div>
+    </template>
+
+    <template x-if="authed">
+      <div class="row">
+        <span class="icon icon-lg" style="color:var(--primary)"><use href="#i-user"></use></span>
+        <div class="grow">
+          <div class="title">Olá<span x-text="me && me.name ? ', ' + me.name : ''"></span></div>
+          <div class="sub" x-text="me ? me.email : ''"></div>
+        </div>
+        <button class="btn ghost" @click="logout()" :disabled="loading">{{template "icon" "logout"}} Sair</button>
+      </div>
+    </template>
   </section>
 
-  <section class="card">
-    <h2>Agenda aberta</h2>
-    <p class="muted">Veja os horários disponíveis e solicite uma sessão.</p>
-    <button class="btn secondary" hx-get="/v1/portal/availability" hx-target="#agenda-aberta">
-      Ver horários
-    </button>
-    <div id="agenda-aberta" role="region" aria-live="polite"></div>
-  </section>
+  <!-- Áreas após login -->
+  <template x-if="authed">
+    <div class="stack">
+      <!-- Perfil -->
+      <section class="card" x-data="profilePanel()" x-init="load()">
+        <header>{{template "icon" "user"}}<h2>Meu perfil</h2></header>
+        <p class="muted">Mantenha seus dados atualizados.</p>
+        <form @submit.prevent="save()">
+          <div class="form-grid">
+            <div class="field">
+              <label for="m-nome">Nome</label>
+              <input id="m-nome" x-model="form.name" required autocomplete="name"/>
+            </div>
+            <div class="field">
+              <label for="m-tel">Telefone</label>
+              <input id="m-tel" x-model="form.phone" inputmode="tel" autocomplete="tel"/>
+            </div>
+            <div class="field">
+              <label for="m-cpf">CPF</label>
+              <input id="m-cpf" x-model="form.cpf" inputmode="numeric"/>
+              <span class="hint">Opcional.</span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn primary" type="submit" :disabled="loading">
+              <template x-if="loading"><span class="spinner"></span></template>
+              <span x-text="loading ? 'Salvando…' : 'Salvar'"></span>
+            </button>
+          </div>
+        </form>
+        <template x-if="feedback">
+          <p class="feedback" :class="feedback.kind" role="status">
+            <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+            <span x-text="feedback.text"></span>
+          </p>
+        </template>
+      </section>
 
-  <section class="card">
-    <h2>Minhas sessões</h2>
-    <button class="btn secondary" hx-get="/v1/portal/sessions" hx-target="#minhas-sessoes">
-      Atualizar
-    </button>
-    <div id="minhas-sessoes" role="region" aria-live="polite"></div>
-  </section>
+      <!-- Agenda aberta -->
+      <section class="card" id="agenda" x-data="availabilityPanel()">
+        <header>{{template "icon" "calendar"}}<h2>Agenda aberta</h2></header>
+        <p class="muted">Veja os horários disponíveis e solicite uma sessão.</p>
+        <div class="row">
+          <button class="btn secondary" @click="load()" :disabled="loading">
+            <template x-if="loading"><span class="spinner"></span></template>
+            {{template "icon" "refresh"}}
+            <span x-text="loading ? 'Carregando…' : 'Ver horários'"></span>
+          </button>
+        </div>
+        <template x-if="feedback">
+          <p class="feedback" :class="feedback.kind" role="status">
+            <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+            <span x-text="feedback.text"></span>
+          </p>
+        </template>
+        <div id="agenda-aberta" role="region" aria-live="polite" style="margin-top:14px">
+          <template x-if="!loading && items.length === 0">
+            <p class="empty">Clique em "Ver horários" para carregar a agenda.</p>
+          </template>
+          <div class="stack">
+            <template x-for="loc in items" :key="loc.location_id">
+              <div class="item" style="align-items:flex-start;flex-direction:column">
+                <div class="row">
+                  {{template "icon" "activity"}}
+                  <strong x-text="loc.location_name"></strong>
+                  <span class="chip info" x-text="loc.modality"></span>
+                </div>
+                <ul class="item-list" style="width:100%;margin-top:8px">
+                  <template x-for="(s, i) in (loc.slots || [])" :key="i">
+                    <li class="sub" x-text="'Dia ' + s.weekday + ': ' + s.start_time + '–' + s.end_time"></li>
+                  </template>
+                </ul>
+                <template x-if="(loc.slots || []).length === 0">
+                  <span class="sub muted">Sem janelas cadastradas.</span>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+      </section>
 
-  <section class="card">
-    <h2>Meus débitos</h2>
-    <button class="btn secondary" hx-get="/v1/portal/debts" hx-target="#meus-debitos">
-      Atualizar
-    </button>
-    <div id="meus-debitos" role="region" aria-live="polite"></div>
-  </section>
+      <!-- Minhas sessões -->
+      <section class="card" id="sessoes" x-data="listPanel('/v1/portal/sessions')">
+        <header>{{template "icon" "heart"}}<h2>Minhas sessões</h2></header>
+        <div class="row">
+          <button class="btn secondary" @click="load()" :disabled="loading">
+            <template x-if="loading"><span class="spinner"></span></template>
+            {{template "icon" "refresh"}}
+            <span x-text="loading ? 'Atualizando…' : 'Atualizar'"></span>
+          </button>
+        </div>
+        <template x-if="feedback">
+          <p class="feedback" :class="feedback.kind" role="status">
+            <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+            <span x-text="feedback.text"></span>
+          </p>
+        </template>
+        <div id="minhas-sessoes" role="region" aria-live="polite" style="margin-top:14px">
+          <template x-if="!loading && rows.length === 0">
+            <p class="empty">Nenhuma sessão encontrada.</p>
+          </template>
+          <pre class="code" x-show="rows.length" x-text="pretty"></pre>
+        </div>
+      </section>
+
+      <!-- Meus débitos -->
+      <section class="card" id="debitos" x-data="listPanel('/v1/portal/debts')">
+        <header>{{template "icon" "wallet"}}<h2>Meus débitos</h2></header>
+        <div class="row">
+          <button class="btn secondary" @click="load()" :disabled="loading">
+            <template x-if="loading"><span class="spinner"></span></template>
+            {{template "icon" "refresh"}}
+            <span x-text="loading ? 'Atualizando…' : 'Atualizar'"></span>
+          </button>
+        </div>
+        <template x-if="feedback">
+          <p class="feedback" :class="feedback.kind" role="status">
+            <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+            <span x-text="feedback.text"></span>
+          </p>
+        </template>
+        <div id="meus-debitos" role="region" aria-live="polite" style="margin-top:14px">
+          <template x-if="!loading && rows.length === 0">
+            <p class="empty">Nenhum débito encontrado.</p>
+          </template>
+          <pre class="code" x-show="rows.length" x-text="pretty"></pre>
+        </div>
+      </section>
+    </div>
+  </template>
 </main>
+
+<script>
+  function portalApp() {
+    return {
+      ...panel(),
+      authed: false,
+      showForm: false,
+      cred: "",
+      me: null,
+      async init() {
+        try {
+          const res = await Api.get("/v1/portal/me");
+          this.me = res.data;
+          this.authed = true;
+        } catch { this.authed = false; }
+      },
+      async login() {
+        const res = await this.run(() => Api.post("/v1/portal/login", { credential: this.cred }));
+        if (res) {
+          this.authed = true;
+          try { this.me = (await Api.get("/v1/portal/me")).data; } catch {}
+        }
+      },
+      async logout() {
+        await this.run(() => Api.post("/v1/portal/logout", {}));
+        this.authed = false;
+        this.me = null;
+        this.cred = "";
+        this.showForm = false;
+      },
+    };
+  }
+
+  function profilePanel() {
+    return {
+      ...panel(),
+      form: { name: "", phone: "", cpf: "" },
+      async load() {
+        const res = await this.run(() => Api.get("/v1/portal/me"));
+        if (res && res.data) {
+          this.form = { name: res.data.name || "", phone: res.data.phone || "", cpf: res.data.cpf || "" };
+        }
+      },
+      async save() {
+        const res = await this.run(() => Api.put("/v1/portal/me", { ...this.form }));
+        if (res) this.ok(res.message || "Perfil atualizado.");
+      },
+    };
+  }
+
+  function availabilityPanel() {
+    return {
+      ...panel(),
+      items: [],
+      async load() {
+        const res = await this.run(() => Api.get("/v1/portal/availability"));
+        if (res) this.items = res.data || [];
+      },
+    };
+  }
+
+  function listPanel(path) {
+    return {
+      ...panel(),
+      rows: [],
+      pretty: "",
+      async load() {
+        const res = await this.run(() => Api.get(path));
+        if (res) {
+          const data = res.data;
+          this.rows = Array.isArray(data) ? data : (data ? [data] : []);
+          this.pretty = JSON.stringify(data, null, 2);
+        }
+      },
+    };
+  }
+</script>
 {{template "foot" .}}
 {{end}}

@@ -1,13 +1,19 @@
 {{define "portal_home.html"}}
 {{template "head" .}}
-<main>
-  <section class="card">
-    <h2>Sua área de atendimento</h2>
-    <p class="muted">
+<main class="narrow">
+  <section class="card hero">
+    <span class="logo-big">{{template "icon" "heart"}}</span>
+    <h1>Sua área de atendimento</h1>
+    <p>
       Entre com sua conta Google para ver sua agenda, solicitar sessões e acompanhar
       seus atendimentos e pagamentos.
     </p>
-    <p><a class="btn" href="/app/">Entrar com Google</a></p>
+    <div class="row" style="justify-content:center">
+      <a class="btn google" href="/app/">
+        {{template "google-logo"}}
+        <span>Entrar com Google</span>
+      </a>
+    </div>
   </section>
 </main>
 {{template "foot" .}}

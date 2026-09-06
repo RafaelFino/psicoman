@@ -39,7 +39,7 @@ func TestRateLimiterEmail(t *testing.T) {
 }
 
 func TestSessionIssueVerify(t *testing.T) {
-	m := NewSessionManager("segredo-de-teste", time.Hour)
+	m := NewSessionManager("segredo-de-teste", time.Hour, false)
 	rec := httptest.NewRecorder()
 	m.Issue(rec, "user@example.com")
 
@@ -58,7 +58,7 @@ func TestSessionIssueVerify(t *testing.T) {
 }
 
 func TestSessionRejectsTampered(t *testing.T) {
-	m := NewSessionManager("segredo", time.Hour)
+	m := NewSessionManager("segredo", time.Hour, false)
 	rec := httptest.NewRecorder()
 	m.Issue(rec, "user@example.com")
 	req := httptest.NewRequest("GET", "/", nil)
@@ -72,7 +72,7 @@ func TestSessionRejectsTampered(t *testing.T) {
 }
 
 func TestSessionExpired(t *testing.T) {
-	m := NewSessionManager("segredo", -time.Hour) // já expira no passado
+	m := NewSessionManager("segredo", -time.Hour, false) // já expira no passado
 	rec := httptest.NewRecorder()
 	m.Issue(rec, "user@example.com")
 	req := httptest.NewRequest("GET", "/", nil)
