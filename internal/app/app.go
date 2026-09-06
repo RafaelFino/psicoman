@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/RafaelFino/psicoman/internal/api"
@@ -93,6 +94,17 @@ func bootstrap(cfg *config.Config, component string) (*deps, error) {
 	health.AddReadiness("sqlite", api.HealthCheckFunc(db.Ping))
 
 	return &deps{cfg: cfg, log: log, metrics: reg, health: health, db: db}, nil
+}
+
+// chainMiddleware compõe middlewares aplicando-os na ordem informada: o
+// primeiro é o mais externo (roda primeiro na requisição).
+func chainMiddleware(mws ...func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		for i := len(mws) - 1; i >= 0; i-- {
+			next = mws[i](next)
+		}
+		return next
+	}
 }
 
 // serve sobe o servidor e aguarda o contexto ser cancelado para encerrar.
@@ -289,14 +301,18 @@ func buildPortal(_ context.Context, cfg *config.Config, opts Options) (*instance
 	}
 	limiter := portal.NewRateLimiter(cfg.RateLimit.RequestsPerMinute, cfg.RateLimit.Burst)
 	authn := portal.NewAuthenticator(sessMgr)
+	gate := portal.NewApprovalGate(patientSvc)
 	handlers := portal.NewHandlers(patientSvc, portalSessionSvc, locationSvc, apptSvc, sessMgr, verifier, limiter)
 
 	v1 := api.V1(srv.Mux())
 	api.RegisterVersion(v1.Portal(), "portal")
 	// Rotas públicas (login/cadastro): rate limit por IP (e por email no handler).
 	handlers.RegisterPublic(v1.Portal().WithAuth(limiter.Middleware))
-	// Rotas autenticadas: exigem sessão própria do paciente.
-	handlers.RegisterAuthenticated(v1.Portal().WithAuth(authn.Middleware))
+	// Rotas autenticadas. Dois grupos: só-sessão (status/leitura do cadastro) e
+	// atrás do gate de aprovação (recursos). O gate roda depois do Authenticator.
+	authedGroup := v1.Portal().WithAuth(authn.Middleware)
+	gatedGroup := v1.Portal().WithAuth(chainMiddleware(authn.Middleware, gate.Middleware))
+	handlers.RegisterAuthenticated(authedGroup, gatedGroup)
 
 	return &instance{log: d.log, srv: srv, db: d.db}, nil
 }

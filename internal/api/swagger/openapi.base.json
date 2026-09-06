@@ -44,6 +44,17 @@
       "get": { "tags": ["admin"], "summary": "Listar pacientes", "responses": { "200": { "description": "OK" } } },
       "post": { "tags": ["admin"], "summary": "Cadastrar paciente", "responses": { "201": { "description": "Criado" }, "409": { "description": "Email/CPF duplicado" }, "422": { "description": "Validação" } } }
     },
+    "/v1/admin/patients/pending": {
+      "get": { "tags": ["admin"], "summary": "Fila de aprovação (cadastros pendentes)", "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/admin/patients/{id}/approve": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": { "tags": ["admin"], "summary": "Aprovar cadastro do paciente (libera o acesso ao portal)", "responses": { "200": { "description": "Aprovado" }, "404": { "description": "Não encontrado" }, "422": { "description": "Transição inválida" } } }
+    },
+    "/v1/admin/patients/{id}/reject": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": { "tags": ["admin"], "summary": "Rejeitar cadastro do paciente", "responses": { "200": { "description": "Rejeitado" }, "404": { "description": "Não encontrado" }, "422": { "description": "Transição inválida" } } }
+    },
     "/v1/admin/patients/{id}": {
       "get": { "tags": ["admin"], "summary": "Obter paciente", "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" } } },
       "put": { "tags": ["admin"], "summary": "Atualizar paciente", "responses": { "200": { "description": "OK" } } },
@@ -103,16 +114,19 @@
 
     "/v1/portal/login": { "post": { "tags": ["portal"], "summary": "Login social (credencial Google)", "responses": { "200": { "description": "OK" }, "401": { "description": "Falha" } } } },
     "/v1/portal/register": { "put": { "tags": ["portal"], "summary": "Cadastro básico (upsert por email)", "responses": { "200": { "description": "OK" }, "429": { "description": "Rate limit" } } } },
+    "/v1/portal/approval-status": {
+      "get": { "tags": ["portal"], "summary": "Estado de aprovação do meu cadastro (pendente/aprovado/rejeitado)", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Sem sessão" } } }
+    },
     "/v1/portal/me": {
       "get": { "tags": ["portal"], "summary": "Meu perfil", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Sem sessão" } } },
-      "put": { "tags": ["portal"], "summary": "Atualizar meu perfil", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } }
+      "put": { "tags": ["portal"], "summary": "Atualizar meu perfil (exige aprovação)", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "403": { "description": "Cadastro não aprovado" } } }
     },
-    "/v1/portal/availability": { "get": { "tags": ["portal"], "summary": "Agenda aberta", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } } },
+    "/v1/portal/availability": { "get": { "tags": ["portal"], "summary": "Agenda aberta (exige aprovação)", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "403": { "description": "Cadastro não aprovado" } } } },
     "/v1/portal/appointment-requests": {
-      "get": { "tags": ["portal"], "summary": "Meus pedidos", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["portal"], "summary": "Solicitar sessão", "security": [{ "portalSession": [] }], "responses": { "201": { "description": "Criado" }, "429": { "description": "Rate limit" } } }
+      "get": { "tags": ["portal"], "summary": "Meus pedidos (exige aprovação)", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "403": { "description": "Cadastro não aprovado" } } },
+      "post": { "tags": ["portal"], "summary": "Solicitar sessão (exige aprovação)", "security": [{ "portalSession": [] }], "responses": { "201": { "description": "Criado" }, "403": { "description": "Cadastro não aprovado" }, "429": { "description": "Rate limit" } } }
     },
-    "/v1/portal/sessions": { "get": { "tags": ["portal"], "summary": "Minhas sessões", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } } },
-    "/v1/portal/debts": { "get": { "tags": ["portal"], "summary": "Meus débitos", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" } } } }
+    "/v1/portal/sessions": { "get": { "tags": ["portal"], "summary": "Minhas sessões (exige aprovação)", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "403": { "description": "Cadastro não aprovado" } } } },
+    "/v1/portal/debts": { "get": { "tags": ["portal"], "summary": "Meus débitos (exige aprovação)", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "403": { "description": "Cadastro não aprovado" } } } }
   }
 }

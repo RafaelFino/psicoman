@@ -30,4 +30,6 @@ const (
 	AuditActionBackup       = "backup"
 	AuditActionRestore      = "restore"
 	AuditActionConfig       = "config"
+	AuditActionApprove      = "aprovar"
+	AuditActionReject       = "rejeitar"
 )

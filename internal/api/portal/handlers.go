@@ -39,14 +39,41 @@ func (h *Handlers) RegisterPublic(g *api.Group) {
 }
 
 // RegisterAuthenticated instala as rotas que exigem sessão do paciente.
-func (h *Handlers) RegisterAuthenticated(g *api.Group) {
-	g.Handle("GET", "/me", h.me)
-	g.Handle("PUT", "/me", h.updateMe)
-	g.Handle("GET", "/availability", h.availability)
-	g.Handle("POST", "/appointment-requests", h.requestAppointment)
-	g.Handle("GET", "/appointment-requests", h.myRequests)
-	g.Handle("GET", "/sessions", h.mySessions)
-	g.Handle("GET", "/debts", h.myDebts)
+//
+// Dois grupos (defense in depth — R1.2):
+//   - authed: só exige sessão válida. Rotas de status/leitura do próprio
+//     cadastro, disponíveis mesmo com o cadastro pendente/rejeitado.
+//   - gated: exige sessão + aprovação do terapeuta (ApprovalGate). Todas as
+//     rotas de recurso (agenda, pedidos, sessões, débitos, edição de perfil).
+func (h *Handlers) RegisterAuthenticated(authed, gated *api.Group) {
+	// Sempre liberadas (só exigem sessão).
+	authed.Handle("GET", "/me", h.me)
+	authed.Handle("GET", "/approval-status", h.approvalStatus)
+
+	// Exigem aprovação.
+	gated.Handle("PUT", "/me", h.updateMe)
+	gated.Handle("GET", "/availability", h.availability)
+	gated.Handle("POST", "/appointment-requests", h.requestAppointment)
+	gated.Handle("GET", "/appointment-requests", h.myRequests)
+	gated.Handle("GET", "/sessions", h.mySessions)
+	gated.Handle("GET", "/debts", h.myDebts)
+}
+
+// approvalStatus devolve o estado de aprovação do paciente autenticado, usado
+// pela UI para decidir o que exibir (área normal, "em análise" ou "não
+// liberado"). Disponível mesmo para pendentes/rejeitados (R1.2, R1.3).
+func (h *Handlers) approvalStatus(w http.ResponseWriter, r *http.Request) {
+	email := httpx.Actor(r.Context())
+	p, err := h.patients.GetByEmail(r.Context(), email)
+	if err != nil {
+		respondServiceError(w, r, err)
+		return
+	}
+	httpx.Respond(w, r, http.StatusOK, "Estado do seu cadastro.", map[string]any{
+		"status": p.ApprovalStatus,
+		"name":   p.Name,
+		"email":  p.Email,
+	})
 }
 
 // availability lista as lacunas abertas (locais + janelas de disponibilidade).

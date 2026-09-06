@@ -595,3 +595,9 @@ textarea.tall { min-height: 180px; resize: vertical; line-height: 1.5; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .row.end { justify-content: flex-end; }
 [x-cloak] { display: none !important; }
+
+/* ── Tabela (auditoria) ─────────────────────────────────────────────────── */
+.table { border-collapse: collapse; font-size: .9rem; }
+.table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border, #e5e7eb); }
+.table th { color: var(--muted); font-weight: 600; }
+.table tbody tr:hover { background: var(--surface-2, #f8fafc); }

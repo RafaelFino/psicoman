@@ -46,6 +46,16 @@ Requisitos:
 - **Email é único** por paciente. **CPF, quando informado, também é único.**
 - Se o paciente se cadastra no portal com um email que já corresponde a um paciente existente (cadastrado pelo terapeuta), o sistema **vincula ao registro existente** em vez de criar um duplicado.
 
+#### 3.1.1 Aprovação de acesso ao portal (gate)
+
+Como o portal fica exposto na internet e o Pangolin não aplica controle de acesso (§4.1), todo paciente tem um **estado de aprovação**: `pendente`, `aprovado` ou `rejeitado`.
+
+- Auto-cadastro pelo portal nasce **`pendente`**; cadastro feito pelo terapeuta nasce **`aprovado`** (o terapeuta é a autoridade de aprovação).
+- Vínculo por email não rebaixa: se o email já é de um paciente `aprovado`, o auto-cadastro mantém `aprovado`.
+- Enquanto `pendente`/`rejeitado`, o paciente **não acessa nenhum recurso** do portal (agenda, pedidos, sessões, débitos, edição de perfil). Só pode consultar o próprio estado e sair. O bloqueio é imposto **no servidor** (HTTP 403), não só na UI.
+- O terapeuta tem uma **fila de aprovação** no admin (com contagem destacada) para aprovar/rejeitar; aprovar/rejeitar registram **audit log**. Aprovar libera o acesso imediatamente.
+- Persistido por migration aditiva (registros pré-existentes → `aprovado`, idempotente).
+
 ### 3.2 Locais de Atendimento
 
 - Cada local tem nome, endereço, modalidade (presencial ou online) e **custo** com periodicidade (`por_sessao`, `diario`, `mensal`, `anual`).

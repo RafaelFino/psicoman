@@ -6,8 +6,9 @@ import (
 	"time"
 )
 
-// registerPortalPatient cadastra um paciente no portal e devolve o client logado.
-func registerPortalPatient(t *testing.T, portalEnv *Env, email string) *PortalClient {
+// registerPortalPatient cadastra um paciente no portal, aprova-o pelo admin
+// (o gate de aprovação — R1 — barra pendentes) e devolve o client logado.
+func registerPortalPatient(t *testing.T, adminEnv, portalEnv *Env, email string) *PortalClient {
 	t.Helper()
 	pc := portalEnv.NewPortalClient(t)
 	resp := pc.PUT(t, "/v1/portal/register", map[string]any{
@@ -17,7 +18,28 @@ func registerPortalPatient(t *testing.T, portalEnv *Env, email string) *PortalCl
 		t.Fatalf("register status = %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+	approvePortalPatient(t, adminEnv, email)
 	return pc
+}
+
+// approvePortalPatient localiza o paciente pendente pelo email e o aprova.
+func approvePortalPatient(t *testing.T, adminEnv *Env, email string) {
+	t.Helper()
+	le := DecodeEnvelope(t, adminEnv.AdminGET(t, "/v1/admin/patients/pending"))
+	var pendings []struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+	}
+	le.DataAs(t, &pendings)
+	for _, p := range pendings {
+		if p.Email == email {
+			if resp := adminEnv.AdminPOST(t, "/v1/admin/patients/"+p.ID+"/approve", nil); resp.StatusCode != http.StatusOK {
+				t.Fatalf("approve status = %d", resp.StatusCode)
+			}
+			return
+		}
+	}
+	t.Fatalf("paciente %q não encontrado na fila de pendentes", email)
 }
 
 func TestAppointmentFlow(t *testing.T) {
@@ -25,7 +47,7 @@ func TestAppointmentFlow(t *testing.T) {
 	defer adminEnv.Stop()
 	defer portalEnv.Stop()
 
-	pc := registerPortalPatient(t, portalEnv, "agenda@example.com")
+	pc := registerPortalPatient(t, adminEnv, portalEnv, "agenda@example.com")
 
 	// Paciente vê a agenda aberta (vazia mas responde 200).
 	resp := pc.GET(t, "/v1/portal/availability")
@@ -114,7 +136,7 @@ func TestConfirmBlockedByConflict(t *testing.T) {
 	end := start.Add(time.Hour)
 	adminEnv.Google.SetBusy(start, end)
 
-	pc := registerPortalPatient(t, portalEnv, "conflito2@example.com")
+	pc := registerPortalPatient(t, adminEnv, portalEnv, "conflito2@example.com")
 	resp := pc.POST(t, "/v1/portal/appointment-requests", map[string]any{
 		"slot_start": start.Format(time.RFC3339), "slot_end": end.Format(time.RFC3339),
 	})

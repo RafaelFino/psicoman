@@ -21,6 +21,7 @@
       </button>
       <span class="range" x-text="rangeLabel()"></span>
       <span class="spacer"></span>
+      <button class="btn primary" @click="openNew()" :disabled="loading">{{template "icon" "plus"}} Nova sessão</button>
       <button class="btn ghost" @click="load()" :disabled="loading">
         <template x-if="loading"><span class="spinner"></span></template>
         {{template "icon" "refresh"}}
@@ -35,12 +36,58 @@
       </p>
     </template>
 
+    <!-- Formulário inline de nova sessão -->
+    <div class="stack" style="margin:12px 0;padding:12px;border:1px solid var(--border,#ddd);border-radius:8px" x-show="showNew" x-cloak>
+      <strong>Agendar nova sessão</strong>
+      <div class="form-grid">
+        <div class="field">
+          <label for="ns-paciente">Paciente</label>
+          <select id="ns-paciente" x-model="newForm.patient_id">
+            <option value="">Selecione…</option>
+            <template x-for="p in approvedPatients" :key="p.id">
+              <option :value="p.id" x-text="p.name"></option>
+            </template>
+          </select>
+          <span class="hint">Somente pacientes aprovados.</span>
+        </div>
+        <div class="field">
+          <label for="ns-local">Local</label>
+          <select id="ns-local" x-model="newForm.location_id" @change="syncModality()">
+            <option value="">Selecione…</option>
+            <template x-for="l in locations" :key="l.id">
+              <option :value="l.id" x-text="l.name"></option>
+            </template>
+          </select>
+        </div>
+        <div class="field">
+          <label for="ns-mod">Modalidade</label>
+          <select id="ns-mod" x-model="newForm.modality">
+            <option value="presencial">Presencial</option>
+            <option value="online">Online</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="ns-ini">Início</label>
+          <input id="ns-ini" type="datetime-local" x-model="newForm.starts_at"/>
+        </div>
+        <div class="field">
+          <label for="ns-fim">Fim</label>
+          <input id="ns-fim" type="datetime-local" x-model="newForm.ends_at"/>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn ghost" @click="showNew = false" :disabled="loading">Cancelar</button>
+        <button class="btn primary" @click="createSession()" :disabled="loading">{{template "icon" "check"}} Agendar</button>
+      </div>
+    </div>
+
     <div class="week-grid" role="region" aria-live="polite">
       <template x-for="day in days" :key="day.iso">
         <div class="week-day" :class="{ 'is-today': day.isToday }">
           <div class="day-head">
             <span class="day-name" x-text="day.name"></span>
             <span class="day-num" x-text="day.num"></span>
+            <button class="btn ghost icon-only" @click="openNewOn(day)" :aria-label="'Nova sessão em ' + day.name" title="Nova sessão">{{template "icon" "plus"}}</button>
           </div>
           <template x-if="day.slots.length === 0">
             <span class="day-empty">—</span>
@@ -93,6 +140,7 @@
       <button class="tab" :class="{ active: tab === 'dados' }" @click="tab = 'dados'">{{template "icon" "user"}} Dados</button>
       <button class="tab" :class="{ active: tab === 'anamnese' }" @click="go('anamnese')">{{template "icon" "note"}} Anamnese</button>
       <button class="tab" :class="{ active: tab === 'sessoes' }" @click="go('sessoes')">{{template "icon" "heart"}} Sessões</button>
+      <button class="tab" :class="{ active: tab === 'plano' }" @click="go('plano')">{{template "icon" "wallet"}} Plano</button>
       <button class="tab" :class="{ active: tab === 'notas' }" @click="go('notas')">{{template "icon" "edit"}} Notas</button>
       <button class="tab" :class="{ active: tab === 'financeiro' }" @click="go('financeiro')">{{template "icon" "wallet"}} Débitos</button>
       <button class="tab" :class="{ active: tab === 'custos' }" @click="go('custos')">{{template "icon" "chart"}} Custos</button>
@@ -140,6 +188,15 @@
             <input id="e-cpf" x-model="edit.cpf" inputmode="numeric"/>
             <span class="hint">Necessário para emitir recibo.</span>
           </div>
+          <div class="field">
+            <label for="e-origem">Origem</label>
+            <select id="e-origem" x-model="edit.origin_id">
+              <option value="">— Sem origem —</option>
+              <template x-for="o in origins" :key="o.id">
+                <option :value="o.id" x-text="o.name"></option>
+              </template>
+            </select>
+          </div>
         </div>
         <div class="row end" style="margin-top:14px">
           <button class="btn ghost" @click="editing = false" :disabled="loading">Cancelar</button>
@@ -178,7 +235,7 @@
           <li class="item">
             <svg class="icon icon-lg" aria-hidden="true" style="color:var(--primary)"><use :href="s.modality === 'online' ? '#i-video' : '#i-pin'"></use></svg>
             <div class="grow">
-              <div class="title" x-text="Fmt.datetime(s.starts_at)"></div>
+              <div class="title" x-text="Fmt.short(s.starts_at)"></div>
               <div class="sub">
                 <span x-text="s.modality"></span> · <span x-text="s.status"></span>
                 <template x-if="s.bill"><span class="chip info" style="margin-left:6px">cobrar</span></template>
@@ -194,6 +251,69 @@
               <template x-if="s.meet_url">
                 <a class="btn secondary" :href="s.meet_url" target="_blank" rel="noopener">{{template "icon" "video"}} Meet</a>
               </template>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Plano de pagamento -->
+    <div x-show="tab === 'plano'" class="stack">
+      <p class="muted">Como as sessões deste paciente geram cobrança.</p>
+      <div class="form-grid">
+        <div class="field">
+          <label for="pl-tipo">Tipo de plano</label>
+          <select id="pl-tipo" x-model="planForm.type">
+            <template x-for="t in planTypes" :key="t.value">
+              <option :value="t.value" x-text="t.label"></option>
+            </template>
+          </select>
+          <span class="hint" x-text="planExplain()"></span>
+        </div>
+        <template x-if="planNeedsAmount()">
+          <div class="field">
+            <label for="pl-valor">Valor (R$)</label>
+            <input id="pl-valor" x-model="planForm.amount" inputmode="decimal" placeholder="0,00"/>
+          </div>
+        </template>
+        <div class="field">
+          <label for="pl-ini">Início da vigência</label>
+          <input id="pl-ini" type="date" x-model="planForm.starts_at"/>
+        </div>
+        <template x-if="planNeedsAmount()">
+          <div class="field">
+            <label for="pl-fim">Fim da vigência</label>
+            <input id="pl-fim" type="date" x-model="planForm.ends_at"/>
+            <span class="hint">Opcional.</span>
+          </div>
+        </template>
+      </div>
+      <div class="row end">
+        <button class="btn primary" @click="createPlan()" :disabled="loading">{{template "icon" "plus"}} Criar plano</button>
+      </div>
+
+      <template x-if="!loading && plans.length === 0">
+        <p class="empty">Nenhum plano cadastrado para este paciente.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="p in plans" :key="p.id">
+          <li class="item">
+            {{template "icon" "wallet"}}
+            <div class="grow">
+              <div class="title" x-text="planLabel(p.type)"></div>
+              <div class="sub">
+                <template x-if="p.amount"><span x-text="Fmt.brl(p.amount) + ' · '"></span></template>
+                <span x-text="'desde ' + Fmt.short(p.starts_at)"></span>
+                <template x-if="p.ends_at"><span x-text="' até ' + Fmt.short(p.ends_at)"></span></template>
+              </div>
+            </div>
+            <div class="actions" x-show="confirmingPlanId !== p.id">
+              <button class="btn danger" @click="confirmingPlanId = p.id" :disabled="loading" aria-label="Remover plano">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingPlanId === p.id" x-cloak>
+              <span class="sub">Remover?</span>
+              <button class="btn danger" @click="removePlan(p.id)" :disabled="loading">Remover</button>
+              <button class="btn ghost" @click="confirmingPlanId = null" :disabled="loading">Cancelar</button>
             </div>
           </li>
         </template>
@@ -228,8 +348,13 @@
               <div class="md-body" x-html="Md.toHtml(n.content)"></div>
               <div class="sub" style="margin-top:6px" x-text="Fmt.datetime(n.created_at)"></div>
             </div>
-            <div class="actions">
-              <button class="btn danger" @click="deleteNote(n.id)" :disabled="loading">{{template "icon" "trash"}}</button>
+            <div class="actions" x-show="confirmingNoteId !== n.id">
+              <button class="btn danger" @click="confirmingNoteId = n.id" :disabled="loading" aria-label="Remover nota">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingNoteId === n.id" x-cloak>
+              <span class="sub">Remover nota?</span>
+              <button class="btn danger" @click="deleteNote(n.id)" :disabled="loading">Remover</button>
+              <button class="btn ghost" @click="confirmingNoteId = null" :disabled="loading">Cancelar</button>
             </div>
           </li>
         </template>
@@ -250,15 +375,37 @@
               <div class="sub">
                 <span x-text="d.billing_period || '—'"></span> ·
                 <span class="chip" :class="d.status === 'pago' ? 'ok' : (d.status === 'parcial' ? 'warn' : 'info')" x-text="d.status"></span>
-                <template x-if="d.due_date"><span> · vence <span x-text="Fmt.datetime(d.due_date)"></span></span></template>
+                <template x-if="d.due_date"><span> · vence <span x-text="Fmt.short(d.due_date)"></span></span></template>
               </div>
             </div>
             <div class="actions">
-              <template x-if="d.status !== 'pago'">
-                <button class="btn primary" @click="payDebt(d)" :disabled="loading">{{template "icon" "money"}} Registrar pagamento</button>
+              <template x-if="d.status !== 'pago' && payingDebt !== d.id">
+                <button class="btn primary" @click="startPay(d)" :disabled="loading">{{template "icon" "money"}} Registrar pagamento</button>
               </template>
               <a class="btn secondary" :href="'/v1/admin/debts/' + d.id + '/pdf'" target="_blank" rel="noopener">{{template "icon" "download"}} PDF</a>
               <button class="btn ghost" @click="togglePayments(d.id)" :disabled="loading">{{template "icon" "doc"}} Pagamentos</button>
+            </div>
+            <!-- Formulário de pagamento inline (sem window.prompt — R10.2) -->
+            <div class="stack" style="flex-basis:100%;margin-top:8px" x-show="payingDebt === d.id" x-cloak>
+              <div class="form-grid">
+                <div class="field">
+                  <label :for="'pay-val-' + d.id">Valor (R$)</label>
+                  <input :id="'pay-val-' + d.id" x-model="payForm.amount" inputmode="decimal"/>
+                </div>
+                <div class="field">
+                  <label :for="'pay-met-' + d.id">Forma de pagamento</label>
+                  <select :id="'pay-met-' + d.id" x-model="payForm.method">
+                    <option value="pix">Pix</option>
+                    <option value="dinheiro">Dinheiro</option>
+                    <option value="cartao">Cartão</option>
+                    <option value="transferencia">Transferência</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row end">
+                <button class="btn ghost" @click="payingDebt = null" :disabled="loading">Cancelar</button>
+                <button class="btn primary" @click="confirmPay(d)" :disabled="loading">{{template "icon" "check"}} Confirmar pagamento</button>
+              </div>
             </div>
             <div class="stack" style="flex-basis:100%; margin-top:8px" x-show="expandedDebt === d.id">
               <template x-if="(payments[d.id] || []).length === 0">
@@ -295,7 +442,7 @@
           <li class="item">
             {{template "icon" "chart"}}
             <div class="grow">
-              <div class="title" x-text="Fmt.datetime(s.starts_at)"></div>
+              <div class="title" x-text="Fmt.short(s.starts_at)"></div>
               <div class="sub">
                 <span x-text="s.status"></span>
                 <template x-if="costs[s.id]"><span> · custo <span x-text="Fmt.brl(costs[s.id].amount)"></span> (<span x-text="costs[s.id].method"></span>)</span></template>
@@ -358,6 +505,16 @@
           <label for="p-cpf">CPF</label>
           <input id="p-cpf" x-model="form.cpf" inputmode="numeric"/>
           <span class="hint">Opcional — necessário para recibo.</span>
+        </div>
+        <div class="field">
+          <label for="p-origem">Origem</label>
+          <select id="p-origem" x-model="form.origin_id">
+            <option value="">— Sem origem —</option>
+            <template x-for="o in origins" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+          <span class="hint" x-show="origins.length === 0">Cadastre origens na seção "Origens" para medir ROI.</span>
         </div>
       </div>
       <div class="form-actions">
@@ -456,10 +613,15 @@
               <div class="title" x-text="t.name"></div>
               <div class="sub" x-text="'Criado em ' + Fmt.datetime(t.created_at)"></div>
             </div>
-            <div class="actions">
+            <div class="actions" x-show="confirmingId !== t.id">
               <button class="btn secondary" @click="editTemplate(t)" :disabled="loading">{{template "icon" "edit"}} Editar</button>
               <button class="btn secondary" @click="toggleSend(t.id)" :disabled="loading">{{template "icon" "check"}} Enviar</button>
-              <button class="btn danger" @click="remove(t.id)" :disabled="loading">{{template "icon" "trash"}}</button>
+              <button class="btn danger" @click="confirmingId = t.id" :disabled="loading" aria-label="Excluir template">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingId === t.id" x-cloak>
+              <span class="sub">Excluir este template?</span>
+              <button class="btn danger" @click="remove(t.id)" :disabled="loading">{{template "icon" "trash"}} Excluir</button>
+              <button class="btn ghost" @click="confirmingId = null" :disabled="loading">Cancelar</button>
             </div>
             <div class="row" style="flex-basis:100%; margin-top:8px" x-show="sendingId === t.id">
               <select x-model="sendPatientId" style="max-width:340px">
@@ -470,6 +632,623 @@
               </select>
               <button class="btn primary" @click="doSend(t.id)" :disabled="loading || !sendPatientId">Enviar por email</button>
               <button class="btn ghost" @click="sendingId = null">Cancelar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════ LOCAIS ═══════════════════════════════ -->
+  <section class="card" id="locais" x-data="locationsPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "pin"}}<h2>Locais de atendimento</h2></header>
+    <p class="muted">Onde você atende (presencial ou online), o custo e os horários disponíveis para os pacientes.</p>
+
+    <form @submit.prevent="save()">
+      <div class="form-grid">
+        <div class="field">
+          <label for="loc-nome">Nome</label>
+          <input id="loc-nome" x-model="form.name" required placeholder="Ex.: Consultório Centro"/>
+        </div>
+        <div class="field">
+          <label for="loc-end">Endereço</label>
+          <input id="loc-end" x-model="form.address" placeholder="Opcional (para online)"/>
+        </div>
+        <div class="field">
+          <label for="loc-mod">Modalidade</label>
+          <select id="loc-mod" x-model="form.modality">
+            <option value="presencial">Presencial</option>
+            <option value="online">Online</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="loc-custo">Custo (R$)</label>
+          <input id="loc-custo" x-model="form.cost" inputmode="decimal" placeholder="0,00"/>
+          <span class="hint">Custo do local por período.</span>
+        </div>
+        <div class="field">
+          <label for="loc-per">Periodicidade do custo</label>
+          <select id="loc-per" x-model="form.cost_period">
+            <option value="por_sessao">Por sessão</option>
+            <option value="diario">Diário</option>
+            <option value="mensal">Mensal</option>
+            <option value="anual">Anual</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn ghost" type="button" x-show="form.id" @click="resetForm()" :disabled="loading">Cancelar edição</button>
+        <button class="btn primary" type="submit" :disabled="loading">
+          <template x-if="loading"><span class="spinner"></span></template>
+          {{template "icon" "check"}}
+          <span x-text="form.id ? 'Salvar alterações' : 'Cadastrar local'"></span>
+        </button>
+      </div>
+    </form>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div class="stack" style="margin-top:18px" role="region" aria-live="polite">
+      <template x-if="!loading && items.length === 0">
+        <p class="empty">Nenhum local cadastrado. Cadastre ao menos um para abrir a agenda ao paciente.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="l in items" :key="l.id">
+          <li class="item" style="align-items:flex-start;flex-direction:column">
+            <div class="row" style="width:100%">
+              {{template "icon" "pin"}}
+              <div class="grow">
+                <div class="title" x-text="l.name"></div>
+                <div class="sub">
+                  <span class="chip info" x-text="l.modality"></span>
+                  · <span x-text="Fmt.brl(l.cost_amount)"></span>/<span x-text="l.cost_period"></span>
+                  <template x-if="l.address"><span> · <span x-text="l.address"></span></span></template>
+                </div>
+              </div>
+              <div class="actions">
+                <button class="btn secondary" @click="edit(l)" :disabled="loading">{{template "icon" "edit"}} Editar</button>
+                <button class="btn secondary" @click="toggleWindows(l.id)" :disabled="loading">{{template "icon" "calendar"}} Horários</button>
+                <template x-if="confirmingId !== l.id">
+                  <button class="btn danger" @click="confirmingId = l.id" :disabled="loading" aria-label="Remover local">{{template "icon" "trash"}}</button>
+                </template>
+              </div>
+            </div>
+            <!-- Confirmação inline de exclusão -->
+            <div class="row" style="width:100%;margin-top:8px" x-show="confirmingId === l.id" x-cloak>
+              <span class="sub">Remover este local e seus horários?</span>
+              <span class="spacer"></span>
+              <button class="btn danger" @click="remove(l.id)" :disabled="loading">{{template "icon" "trash"}} Remover</button>
+              <button class="btn ghost" @click="confirmingId = null" :disabled="loading">Cancelar</button>
+            </div>
+            <!-- Disponibilidade (janelas) -->
+            <div class="stack" style="width:100%;margin-top:10px" x-show="openWindowsId === l.id" x-cloak>
+              <strong class="sub">Horários disponíveis</strong>
+              <template x-if="(windows[l.id] || []).length === 0">
+                <p class="empty">Nenhuma janela cadastrada.</p>
+              </template>
+              <ul class="item-list">
+                <template x-for="w in (windows[l.id] || [])" :key="w.id">
+                  <li class="item">
+                    {{template "icon" "clock"}}
+                    <div class="grow">
+                      <div class="title" x-text="weekdayName(w.weekday) + ': ' + w.start_time + '–' + w.end_time"></div>
+                      <div class="sub" x-text="'Capacidade: ' + w.capacity"></div>
+                    </div>
+                    <div class="actions">
+                      <button class="btn danger" @click="removeWindow(l.id, w.id)" :disabled="loading">{{template "icon" "x"}}</button>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+              <div class="form-grid">
+                <div class="field">
+                  <label :for="'w-dia-' + l.id">Dia</label>
+                  <select :id="'w-dia-' + l.id" x-model.number="winForm.weekday">
+                    <option value="1">Segunda</option>
+                    <option value="2">Terça</option>
+                    <option value="3">Quarta</option>
+                    <option value="4">Quinta</option>
+                    <option value="5">Sexta</option>
+                    <option value="6">Sábado</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label :for="'w-ini-' + l.id">Início</label>
+                  <input :id="'w-ini-' + l.id" type="time" x-model="winForm.start_time"/>
+                </div>
+                <div class="field">
+                  <label :for="'w-fim-' + l.id">Fim</label>
+                  <input :id="'w-fim-' + l.id" type="time" x-model="winForm.end_time"/>
+                </div>
+                <div class="field">
+                  <label :for="'w-cap-' + l.id">Capacidade</label>
+                  <input :id="'w-cap-' + l.id" type="number" min="1" x-model.number="winForm.capacity"/>
+                </div>
+              </div>
+              <div class="row end">
+                <button class="btn primary" @click="addWindow(l.id)" :disabled="loading">{{template "icon" "plus"}} Adicionar horário</button>
+              </div>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════ ORIGENS ══════════════════════════════ -->
+  <section class="card" id="origens" x-data="originsPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "activity"}}<h2>Origens (canais de aquisição)</h2></header>
+    <p class="muted">De onde vêm seus pacientes (Doctoralia, indicação, etc.). Base para o relatório de ROI por canal.</p>
+
+    <form @submit.prevent="save()">
+      <div class="form-grid">
+        <div class="field">
+          <label for="ori-nome" x-text="form.id ? 'Renomear origem' : 'Nova origem'"></label>
+          <input id="ori-nome" x-model="form.name" required placeholder="Ex.: Doctoralia"/>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn ghost" type="button" x-show="form.id" @click="resetForm()" :disabled="loading">Cancelar</button>
+        <button class="btn primary" type="submit" :disabled="loading">
+          <template x-if="loading"><span class="spinner"></span></template>
+          {{template "icon" "check"}}
+          <span x-text="form.id ? 'Salvar' : 'Cadastrar origem'"></span>
+        </button>
+      </div>
+    </form>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div class="stack" style="margin-top:18px" role="region" aria-live="polite">
+      <template x-if="!loading && items.length === 0">
+        <p class="empty">Nenhuma origem cadastrada.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="o in items" :key="o.id">
+          <li class="item">
+            {{template "icon" "activity"}}
+            <div class="grow"><div class="title" x-text="o.name"></div></div>
+            <div class="actions" x-show="confirmingId !== o.id">
+              <button class="btn secondary" @click="edit(o)" :disabled="loading">{{template "icon" "edit"}} Renomear</button>
+              <button class="btn danger" @click="confirmingId = o.id" :disabled="loading" aria-label="Remover origem">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingId === o.id" x-cloak>
+              <span class="sub">Remover?</span>
+              <button class="btn danger" @click="remove(o.id)" :disabled="loading">Remover</button>
+              <button class="btn ghost" @click="confirmingId = null" :disabled="loading">Cancelar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════ CUSTOS E ROI ═════════════════════════════ -->
+  <section class="card" id="custos-gestao" x-data="costsPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "chart"}}<h2>Custos e ROI</h2></header>
+    <p class="muted">Cadastre seus custos (local, CRP, infraestrutura, plataformas) e acompanhe os relatórios por período.</p>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <!-- Categorias -->
+    <div class="stack" style="margin-top:12px">
+      <strong>Categorias de custo</strong>
+      <div class="form-grid">
+        <div class="field">
+          <label for="cat-kind">Tipo</label>
+          <select id="cat-kind" x-model="catForm.kind">
+            <option value="local">Local</option>
+            <option value="crp">CRP</option>
+            <option value="infra">Infraestrutura</option>
+            <option value="plataforma">Plataforma</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="cat-nome">Nome</label>
+          <input id="cat-nome" x-model="catForm.name" placeholder="Ex.: Anuidade CRP"/>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn secondary" @click="createCategory()" :disabled="loading">{{template "icon" "plus"}} Adicionar categoria</button>
+      </div>
+      <ul class="item-list">
+        <template x-for="c in categories" :key="c.id">
+          <li class="item">
+            {{template "icon" "chart"}}
+            <div class="grow"><div class="title" x-text="c.name"></div><div class="sub" x-text="kindLabel(c.kind)"></div></div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Itens de custo -->
+    <div class="stack" style="margin-top:16px">
+      <strong>Itens de custo</strong>
+      <div class="form-grid">
+        <div class="field">
+          <label for="it-cat">Categoria</label>
+          <select id="it-cat" x-model="itemForm.category_id">
+            <option value="">Selecione…</option>
+            <template x-for="c in categories" :key="c.id">
+              <option :value="c.id" x-text="c.name + ' (' + kindLabel(c.kind) + ')'"></option>
+            </template>
+          </select>
+        </div>
+        <div class="field">
+          <label for="it-nome">Nome</label>
+          <input id="it-nome" x-model="itemForm.name" placeholder="Ex.: Assinatura Doctoralia"/>
+        </div>
+        <div class="field">
+          <label for="it-valor">Valor (R$)</label>
+          <input id="it-valor" x-model="itemForm.amount" inputmode="decimal" placeholder="0,00"/>
+        </div>
+        <div class="field">
+          <label for="it-per">Periodicidade</label>
+          <select id="it-per" x-model="itemForm.period">
+            <option value="por_sessao">Por sessão</option>
+            <option value="diario">Diário</option>
+            <option value="mensal">Mensal</option>
+            <option value="anual">Anual</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="it-origem">Origem (plataforma)</label>
+          <select id="it-origem" x-model="itemForm.origin_id">
+            <option value="">— Nenhuma —</option>
+            <template x-for="o in origins" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+          <span class="hint">Ligue à origem para o ROI por canal.</span>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn secondary" @click="createItem()" :disabled="loading">{{template "icon" "plus"}} Adicionar item</button>
+      </div>
+      <ul class="item-list">
+        <template x-for="i in items" :key="i.id">
+          <li class="item">
+            {{template "icon" "wallet"}}
+            <div class="grow">
+              <div class="title" x-text="i.name"></div>
+              <div class="sub"><span x-text="Fmt.brl(i.amount)"></span>/<span x-text="i.period"></span></div>
+            </div>
+            <div class="actions" x-show="confirmingItemId !== i.id">
+              <button class="btn danger" @click="confirmingItemId = i.id" :disabled="loading" aria-label="Remover item de custo">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingItemId === i.id" x-cloak>
+              <span class="sub">Remover?</span>
+              <button class="btn danger" @click="removeItem(i.id)" :disabled="loading">Remover</button>
+              <button class="btn ghost" @click="confirmingItemId = null" :disabled="loading">Cancelar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Relatórios -->
+    <div class="stack" style="margin-top:16px">
+      <strong>Relatórios do período</strong>
+      <div class="row">
+        <div class="field">
+          <label for="rep-de">De</label>
+          <input id="rep-de" type="date" x-model="period.from"/>
+        </div>
+        <div class="field">
+          <label for="rep-ate">Até</label>
+          <input id="rep-ate" type="date" x-model="period.to"/>
+        </div>
+        <button class="btn primary" @click="loadReports()" :disabled="loading" style="align-self:flex-end">
+          <template x-if="loading"><span class="spinner"></span></template>
+          {{template "icon" "chart"}} Gerar relatórios
+        </button>
+      </div>
+
+      <div x-show="costReport" style="margin-top:10px">
+        <strong class="sub">Custos por tipo</strong>
+        <ul class="item-list">
+          <template x-for="(v, k) in (costReport ? costReport.by_kind : {})" :key="k">
+            <li class="item">
+              <div class="grow"><div class="title" x-text="kindLabel(k)"></div></div>
+              <span x-text="Fmt.brl(v)"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+
+      <div x-show="roi.length" style="margin-top:10px">
+        <strong class="sub">ROI por canal</strong>
+        <ul class="item-list">
+          <template x-for="row in roi" :key="row.origin_id">
+            <li class="item">
+              <div class="grow">
+                <div class="title" x-text="row.origin_name"></div>
+                <div class="sub">Receita <span x-text="Fmt.brl(row.revenue)"></span> · Custo <span x-text="Fmt.brl(row.cost)"></span></div>
+              </div>
+              <span class="chip" :class="row.roi >= 0 ? 'ok' : 'attention'" x-text="Fmt.brl(row.roi)"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ PERFIL DO TERAPEUTA ═════════════════════════ -->
+  <section class="card" id="perfil-terapeuta" x-data="therapistPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "user"}}<h2>Meu perfil (terapeuta)</h2></header>
+    <p class="muted">Seus dados profissionais, bio e links de plataformas.</p>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div class="form-grid">
+      <div class="field">
+        <label for="th-nome">Nome</label>
+        <input id="th-nome" x-model="form.name"/>
+      </div>
+      <div class="field">
+        <label for="th-crp">CRP</label>
+        <input id="th-crp" x-model="form.crp"/>
+      </div>
+      <div class="field">
+        <label for="th-email">Email</label>
+        <input id="th-email" x-model="form.email" type="email"/>
+      </div>
+    </div>
+
+    <div class="field wide" style="margin-top:12px">
+      <label>Bio (Markdown)</label>
+      <div class="md-editor">
+        <div class="md-tabs">
+          <button type="button" class="md-tab" :class="{ active: !bioPreview }" @click="bioPreview = false">{{template "icon" "edit"}} Escrever</button>
+          <button type="button" class="md-tab" :class="{ active: bioPreview }" @click="bioPreview = true">{{template "icon" "doc"}} Visualizar</button>
+        </div>
+        <textarea x-show="!bioPreview" x-model="form.bio" placeholder="Apresente-se em Markdown…"></textarea>
+        <div x-show="bioPreview" class="md-preview md-body" x-html="Md.toHtml(form.bio)"></div>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:12px">
+      <label>Locais de atendimento</label>
+      <div class="row" style="flex-wrap:wrap">
+        <template x-for="l in locations" :key="l.id">
+          <label class="chip" style="cursor:pointer">
+            <input type="checkbox" :value="l.id" x-model="form.location_ids"/>
+            <span x-text="l.name"></span>
+          </label>
+        </template>
+      </div>
+    </div>
+
+    <div class="row end" style="margin-top:12px">
+      <button class="btn primary" @click="save()" :disabled="loading">{{template "icon" "check"}} Salvar perfil</button>
+    </div>
+
+    <!-- Foto -->
+    <div class="stack" style="margin-top:16px">
+      <strong>Foto</strong>
+      <template x-if="form.photo_id">
+        <img :src="'/v1/admin/files/' + form.photo_id" alt="Foto do perfil" style="max-width:120px;border-radius:8px"/>
+      </template>
+      <div class="row">
+        <input type="file" id="th-foto" accept="image/*" @change="photoChosen($event)"/>
+        <button class="btn secondary" @click="uploadPhoto()" :disabled="loading || !pendingPhoto">{{template "icon" "plus"}} Enviar foto</button>
+      </div>
+    </div>
+
+    <!-- Links de plataforma -->
+    <div class="stack" style="margin-top:16px">
+      <strong>Links de plataforma</strong>
+      <div class="form-grid">
+        <div class="field">
+          <label for="lk-label">Rótulo</label>
+          <input id="lk-label" x-model="linkForm.label" placeholder="Ex.: Doctoralia"/>
+        </div>
+        <div class="field">
+          <label for="lk-url">URL</label>
+          <input id="lk-url" x-model="linkForm.url" placeholder="https://…"/>
+        </div>
+        <div class="field">
+          <label for="lk-origem">Origem (opcional)</label>
+          <select id="lk-origem" x-model="linkForm.origin_id">
+            <option value="">— Nenhuma —</option>
+            <template x-for="o in origins" :key="o.id">
+              <option :value="o.id" x-text="o.name"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn secondary" @click="addLink()" :disabled="loading">{{template "icon" "plus"}} Adicionar link</button>
+      </div>
+      <ul class="item-list">
+        <template x-for="l in links" :key="l.id">
+          <li class="item">
+            {{template "icon" "activity"}}
+            <div class="grow">
+              <div class="title" x-text="l.label"></div>
+              <div class="sub"><a :href="l.url" target="_blank" rel="noopener" x-text="l.url"></a></div>
+            </div>
+            <div class="actions" x-show="confirmingLinkId !== l.id">
+              <button class="btn danger" @click="confirmingLinkId = l.id" :disabled="loading" aria-label="Remover link">{{template "icon" "trash"}}</button>
+            </div>
+            <div class="actions" x-show="confirmingLinkId === l.id" x-cloak>
+              <span class="sub">Remover?</span>
+              <button class="btn danger" @click="removeLink(l.id)" :disabled="loading">Remover</button>
+              <button class="btn ghost" @click="confirmingLinkId = null" :disabled="loading">Cancelar</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════ BACKUP ═══════════════════════════════ -->
+  <section class="card" id="backup" x-data="backupPanel()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "download"}}<h2>Backup e restauração</h2></header>
+    <p class="muted">Gere um backup cifrado no Google Drive ou restaure a partir do último backup.</p>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div class="row">
+      <button class="btn primary" @click="doBackup()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "download"}} Gerar backup agora
+      </button>
+    </div>
+    <div x-show="result" class="item-list" style="margin-top:12px">
+      <div class="item"><div class="grow"><div class="sub">Snapshot</div><div class="title" x-text="result && result.snapshot_file_id"></div></div></div>
+      <div class="item"><div class="grow"><div class="sub">GED enviados</div><div class="title" x-text="result && result.ged_uploaded"></div></div></div>
+      <div class="item"><div class="grow"><div class="sub">GED pulados (já no Drive)</div><div class="title" x-text="result && result.ged_skipped"></div></div></div>
+    </div>
+
+    <hr style="margin:18px 0;border:none;border-top:1px solid var(--border,#ddd)"/>
+    <strong style="color:var(--danger,#b00)">Restaurar (ação destrutiva)</strong>
+    <p class="muted">Substitui os dados atuais pelo último backup. A aplicação precisa ser reiniciada após restaurar.</p>
+    <!-- Dupla confirmação inline -->
+    <div class="stack">
+      <template x-if="restoreStep === 0">
+        <div class="row"><button class="btn danger" @click="restoreStep = 1" :disabled="loading">{{template "icon" "refresh"}} Restaurar do último backup</button></div>
+      </template>
+      <template x-if="restoreStep === 1">
+        <div class="row">
+          <span class="sub">Tem certeza? Isso sobrescreve os dados atuais.</span>
+          <button class="btn danger" @click="restoreStep = 2" :disabled="loading">Sim, continuar</button>
+          <button class="btn ghost" @click="restoreStep = 0" :disabled="loading">Cancelar</button>
+        </div>
+      </template>
+      <template x-if="restoreStep === 2">
+        <div class="stack">
+          <div class="field" style="max-width:360px">
+            <label for="rst-confirm">Digite <strong>RESTAURAR</strong> para confirmar</label>
+            <input id="rst-confirm" x-model="restoreConfirm" placeholder="RESTAURAR"/>
+          </div>
+          <div class="row">
+            <button class="btn danger" @click="doRestore()" :disabled="loading || restoreConfirm !== 'RESTAURAR'">{{template "icon" "refresh"}} Restaurar agora</button>
+            <button class="btn ghost" @click="restoreStep = 0; restoreConfirm = ''" :disabled="loading">Cancelar</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ AUDITORIA ═══════════════════════════════ -->
+  <section class="card" id="auditoria" x-data="auditPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "doc"}}<h2>Auditoria</h2></header>
+    <p class="muted">Registro das operações sensíveis (quem fez o quê e quando).</p>
+    <div class="row">
+      <button class="btn secondary" @click="load()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "refresh"}}
+        <span x-text="loading ? 'Atualizando…' : 'Atualizar'"></span>
+      </button>
+    </div>
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+    <div style="margin-top:12px;overflow-x:auto">
+      <template x-if="!loading && entries.length === 0">
+        <p class="empty">Nenhuma entrada de auditoria.</p>
+      </template>
+      <table class="table" x-show="entries.length" style="width:100%">
+        <thead><tr><th>Quando</th><th>Ator</th><th>Ação</th><th>Entidade</th></tr></thead>
+        <tbody>
+          <template x-for="(e, i) in entries" :key="i">
+            <tr>
+              <td x-text="Fmt.datetime(e.created_at)"></td>
+              <td x-text="e.actor"></td>
+              <td x-text="e.action"></td>
+              <td x-text="e.entity + (e.entity_id ? (' #' + e.entity_id.slice(-6)) : '')"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ APROVAÇÃO DE PACIENTES ═══════════════════════ -->
+  <section class="card" id="aprovacoes" x-data="approvalsPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>
+      {{template "icon" "users"}}
+      <h2>Aprovações de cadastro</h2>
+      <span class="chip attention" x-show="items.length" x-text="items.length" style="margin-left:8px"
+            :aria-label="items.length + ' cadastro(s) aguardando aprovação'"></span>
+    </header>
+    <p class="muted">Pacientes que se cadastraram pelo portal e aguardam sua liberação de acesso.</p>
+    <div class="row">
+      <button class="btn secondary" @click="load()" :disabled="loading">
+        <template x-if="loading"><span class="spinner"></span></template>
+        {{template "icon" "refresh"}}
+        <span x-text="loading ? 'Atualizando…' : 'Atualizar'"></span>
+      </button>
+    </div>
+
+    <template x-if="feedback">
+      <p class="feedback" :class="feedback.kind" role="status">
+        <svg class="icon" aria-hidden="true"><use :href="feedback.kind === 'ok' ? '#i-check' : '#i-info'"></use></svg>
+        <span x-text="feedback.text"></span>
+      </p>
+    </template>
+
+    <div id="lista-aprovacoes" role="region" aria-live="polite" style="margin-top:14px">
+      <template x-if="!loading && items.length === 0">
+        <p class="empty">Nenhum cadastro aguardando aprovação.</p>
+      </template>
+      <ul class="item-list">
+        <template x-for="p in items" :key="p.id">
+          <li class="item" style="align-items:flex-start;flex-direction:column">
+            <div class="row" style="width:100%">
+              {{template "icon" "user"}}
+              <div class="grow">
+                <div class="title" x-text="p.name"></div>
+                <div class="sub">
+                  <span x-text="p.email"></span> · <span x-text="p.phone"></span>
+                  · cadastrado em <span x-text="Fmt.short(p.created_at)"></span>
+                </div>
+              </div>
+              <div class="actions" x-show="confirmingId !== p.id">
+                <button class="btn primary" @click="askApprove(p.id)" :disabled="loading">{{template "icon" "check"}} Aprovar</button>
+                <button class="btn danger" @click="askReject(p.id)" :disabled="loading">{{template "icon" "x"}} Rejeitar</button>
+              </div>
+            </div>
+            <!-- Confirmação inline (sem window.confirm — R10.2) -->
+            <div class="row" style="width:100%;margin-top:8px" x-show="confirmingId === p.id" x-cloak>
+              <span class="sub" x-text="confirmAction === 'approve'
+                ? 'Confirmar aprovação? O acesso será liberado imediatamente.'
+                : 'Confirmar rejeição do cadastro?'"></span>
+              <span class="spacer"></span>
+              <button class="btn" :class="confirmAction === 'approve' ? 'primary' : 'danger'"
+                      @click="doConfirm(p.id)" :disabled="loading">
+                {{template "icon" "check"}} <span x-text="confirmAction === 'approve' ? 'Aprovar' : 'Rejeitar'"></span>
+              </button>
+              <button class="btn ghost" @click="cancelConfirm()" :disabled="loading">Cancelar</button>
             </div>
           </li>
         </template>
@@ -505,9 +1284,9 @@
           <li class="item">
             {{template "icon" "calendar"}}
             <div class="grow">
-              <div class="title" x-text="Fmt.datetime(a.slot_start)"></div>
+              <div class="title" x-text="Fmt.short(a.slot_start)"></div>
               <div class="sub">
-                até <span x-text="Fmt.datetime(a.slot_end)"></span>
+                até <span x-text="Fmt.short(a.slot_end)"></span>
                 · <span x-text="a.status"></span>
               </div>
             </div>
@@ -568,17 +1347,66 @@
       weekStart: null,      // segunda-feira da semana exibida (Date, meia-noite local)
       sessions: [],
       patients: {},         // id -> nome (para exibir no slot)
+      patientList: [],      // objetos completos (para o form de nova sessão)
+      locations: [],
       days: [],
+      showNew: false,
+      newForm: { patient_id: "", location_id: "", modality: "presencial", starts_at: "", ends_at: "" },
       init() { this.weekStart = mondayOf(new Date()); },
+      get approvedPatients() { return this.patientList.filter((p) => p.approval_status === "aprovado"); },
       async load() {
         if (!this.weekStart) this.weekStart = mondayOf(new Date());
-        // Carrega nomes de pacientes uma vez (para rotular os slots).
-        if (Object.keys(this.patients).length === 0) {
+        // Carrega pacientes e locais uma vez (para rotular slots e o form).
+        if (this.patientList.length === 0) {
           const pr = await this.run(() => Api.get("/v1/admin/patients"));
-          if (pr) (pr.data || []).forEach((p) => { this.patients[p.id] = p.name; });
+          if (pr) {
+            this.patientList = pr.data || [];
+            this.patientList.forEach((p) => { this.patients[p.id] = p.name; });
+          }
+        }
+        if (this.locations.length === 0) {
+          const lr = await this.run(() => Api.get("/v1/admin/locations"));
+          if (lr) this.locations = lr.data || [];
         }
         const res = await this.run(() => Api.get("/v1/admin/sessions"));
         if (res) { this.sessions = res.data || []; this.build(); }
+      },
+      // Formata um Date para o value de <input type=datetime-local> (hora local).
+      toLocalInput(d) {
+        const p = (n) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+      },
+      openNew() {
+        this.showNew = true;
+        this.newForm = { patient_id: "", location_id: "", modality: "presencial", starts_at: "", ends_at: "" };
+      },
+      openNewOn(day) {
+        this.showNew = true;
+        const start = new Date(day.date); start.setHours(9, 0, 0, 0);
+        const end = new Date(start); end.setHours(10, 0, 0, 0);
+        this.newForm = {
+          patient_id: "", location_id: "", modality: "presencial",
+          starts_at: this.toLocalInput(start), ends_at: this.toLocalInput(end),
+        };
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      },
+      syncModality() {
+        const l = this.locations.find((x) => x.id === this.newForm.location_id);
+        if (l && l.modality) this.newForm.modality = l.modality;
+      },
+      async createSession() {
+        if (!this.newForm.patient_id) { this.warn("Selecione o paciente."); return; }
+        if (!this.newForm.starts_at || !this.newForm.ends_at) { this.warn("Informe início e fim."); return; }
+        const body = {
+          patient_id: this.newForm.patient_id,
+          location_id: this.newForm.location_id,
+          modality: this.newForm.modality,
+          status: "agendada",
+          starts_at: new Date(this.newForm.starts_at).toISOString(),
+          ends_at: new Date(this.newForm.ends_at).toISOString(),
+        };
+        const res = await this.run(() => Api.post("/v1/admin/sessions", body));
+        if (res) { this.ok(res.message || "Sessão agendada."); this.showNew = false; await this.load(); }
       },
       build() {
         const start = new Date(this.weekStart);
@@ -630,11 +1458,13 @@
       id: null,
       tab: "dados",
       patient: null,
+      origins: [],
       editing: false,
-      edit: { name: "", phone: "", email: "", cpf: "" },
+      edit: { name: "", phone: "", email: "", cpf: "", origin_id: "" },
       anamnese: { content: "", updated_at: null },
       anamnesePreview: false,
       sessions: [],
+      plans: [],
       notes: [],
       notePreview: false,
       debts: [],
@@ -660,14 +1490,19 @@
         this.notePreview = false;
         this.patient = null;
         this.anamnese = { content: "", updated_at: null };
-        this.sessions = []; this.notes = []; this.debts = []; this.files = [];
-        this.payments = {}; this.costs = {}; this.expandedDebt = null;
+        this.sessions = []; this.notes = []; this.debts = []; this.files = []; this.plans = [];
+        this.payments = {}; this.costs = {}; this.expandedDebt = null; this.confirmingPlanId = null; this.payingDebt = null; this.confirmingNoteId = null;
         const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}`));
         if (res) this.patient = res.data;
+        if (this.origins.length === 0) {
+          const or = await this.run(() => Api.get("/v1/admin/origins"));
+          if (or) this.origins = or.data || [];
+        }
         // Pré-carrega sessões e débitos p/ os KPIs da aba Dados.
         await this.loadSessions();
         await this.loadDebts();
         await this.loadFiles();
+        await this.loadPlans();
       },
       reload() { this.loaded = {}; this.bootstrap(); },
 
@@ -677,6 +1512,7 @@
         this.loaded[tab] = true;
         if (tab === "anamnese") this.loadAnamnese();
         else if (tab === "sessoes") this.loadSessions();
+        else if (tab === "plano") this.loadPlans();
         else if (tab === "notas") this.loadNotes();
         else if (tab === "financeiro") this.loadDebts();
         else if (tab === "arquivos") this.loadFiles();
@@ -690,6 +1526,7 @@
           phone: this.patient.phone || "",
           email: this.patient.email || "",
           cpf: this.patient.cpf || "",
+          origin_id: this.patient.origin_id || "",
         };
         this.editing = true;
       },
@@ -726,6 +1563,45 @@
         if (res) { this.ok("Sessão cancelada."); await this.loadSessions(); }
       },
 
+      // Planos
+      planForm: { type: "pagamento_por_consulta", amount: "", starts_at: "", ends_at: "" },
+      confirmingPlanId: null,
+      get planTypes() {
+        return [
+          { value: "pagamento_por_consulta", label: "Pagamento por consulta", explain: "Gera cobrança a cada sessão realizada, conforme o valor definido na finalização." },
+          { value: "pagamento_por_mes", label: "Pagamento por mês", explain: "Cobrança mensal conforme as sessões do mês." },
+          { value: "plano_fechado_mensal", label: "Plano fechado mensal", explain: "Valor fixo por mês, independente do número de sessões." },
+          { value: "plano_fechado_trimestral", label: "Plano fechado trimestral", explain: "Valor fixo por trimestre, independente do número de sessões." },
+          { value: "atendimento_social", label: "Atendimento social", explain: "Sem cobrança (atendimento social)." },
+        ];
+      },
+      planLabel(t) { const f = this.planTypes.find((x) => x.value === t); return f ? f.label : t; },
+      planExplain() { const f = this.planTypes.find((x) => x.value === this.planForm.type); return f ? f.explain : ""; },
+      planNeedsAmount() { return this.planForm.type === "plano_fechado_mensal" || this.planForm.type === "plano_fechado_trimestral"; },
+      async loadPlans() {
+        const res = await this.run(() => Api.get(`/v1/admin/plans?patient_id=${this.id}`));
+        if (res) this.plans = res.data || [];
+      },
+      async createPlan() {
+        const body = { patient_id: this.id, type: this.planForm.type, amount: 0 };
+        if (this.planNeedsAmount()) body.amount = Money.toCents(this.planForm.amount);
+        // Datas de vigência em ISO-8601 (RFC3339) a partir do <input type=date>.
+        body.starts_at = this.planForm.starts_at ? new Date(this.planForm.starts_at + "T00:00:00").toISOString() : new Date().toISOString();
+        if (this.planNeedsAmount() && this.planForm.ends_at) {
+          body.ends_at = new Date(this.planForm.ends_at + "T00:00:00").toISOString();
+        }
+        const res = await this.run(() => Api.post("/v1/admin/plans", body));
+        if (res) {
+          this.ok(res.message || "Plano criado.");
+          this.planForm = { type: "pagamento_por_consulta", amount: "", starts_at: "", ends_at: "" };
+          await this.loadPlans();
+        }
+      },
+      async removePlan(id) {
+        const res = await this.run(() => Api.del(`/v1/admin/plans/${id}`));
+        if (res) { this.ok("Plano removido."); this.confirmingPlanId = null; await this.loadPlans(); }
+      },
+
       // Notas
       async loadNotes() {
         const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/notes`));
@@ -736,9 +1612,10 @@
         const res = await this.run(() => Api.post(`/v1/admin/patients/${this.id}/notes`, { content: this.noteForm.content }));
         if (res) { this.ok("Nota adicionada."); this.noteForm.content = ""; await this.loadNotes(); }
       },
+      confirmingNoteId: null,
       async deleteNote(nid) {
         const res = await this.run(() => Api.del(`/v1/admin/notes/${nid}`));
-        if (res) { this.ok("Nota removida."); await this.loadNotes(); }
+        if (res) { this.ok("Nota removida."); this.confirmingNoteId = null; await this.loadNotes(); }
       },
 
       // Débitos / pagamentos / recibos
@@ -746,12 +1623,18 @@
         const res = await this.run(() => Api.get(`/v1/admin/debts?patient_id=${this.id}`));
         if (res) this.debts = res.data || [];
       },
-      async payDebt(d) {
-        const amount = d.amount;
-        const method = window.prompt("Forma de pagamento (pix, dinheiro, cartao, transferencia):", "pix");
-        if (!method) return;
-        const res = await this.run(() => Api.post(`/v1/admin/debts/${d.id}/pay`, { amount, method }));
-        if (res) { this.ok("Pagamento registrado."); await this.loadDebts(); await this.loadPayments(d.id); }
+      payingDebt: null,
+      payForm: { amount: "", method: "pix" },
+      startPay(d) {
+        this.payingDebt = d.id;
+        // Pré-preenche com o saldo em aberto.
+        this.payForm = { amount: Money.fromCents(d.amount), method: "pix" };
+      },
+      async confirmPay(d) {
+        const amount = Money.toCents(this.payForm.amount);
+        if (amount <= 0) { this.warn("Informe um valor de pagamento válido."); return; }
+        const res = await this.run(() => Api.post(`/v1/admin/debts/${d.id}/pay`, { amount, method: this.payForm.method }));
+        if (res) { this.ok("Pagamento registrado."); this.payingDebt = null; await this.loadDebts(); await this.loadPayments(d.id); }
       },
       async togglePayments(did) {
         if (this.expandedDebt === did) { this.expandedDebt = null; return; }
@@ -810,17 +1693,290 @@
     return {
       ...panel(),
       items: [],
-      form: { name: "", phone: "", email: "", cpf: "" },
+      origins: [],
+      form: { name: "", phone: "", email: "", cpf: "", origin_id: "" },
       async load() {
         const res = await this.run(() => Api.get("/v1/admin/patients"));
         if (res) this.items = res.data || [];
+        const or = await this.run(() => Api.get("/v1/admin/origins"));
+        if (or) this.origins = or.data || [];
       },
       open(id) { Alpine.store("nav").openPatient(id); },
       async create() {
         const res = await this.run(() => Api.post("/v1/admin/patients", { ...this.form }));
         if (res) {
           this.ok(res.message || "Paciente cadastrado.");
-          this.form = { name: "", phone: "", email: "", cpf: "" };
+          this.form = { name: "", phone: "", email: "", cpf: "", origin_id: "" };
+          await this.load();
+        }
+      },
+    };
+  }
+
+  // ── Locais + disponibilidade ───────────────────────────────────────────
+  const WEEKDAYS = { 0: "Domingo", 1: "Segunda", 2: "Terça", 3: "Quarta", 4: "Quinta", 5: "Sexta", 6: "Sábado" };
+  function locationsPanel() {
+    return {
+      ...panel(),
+      items: [],
+      windows: {},          // locationId -> [janelas]
+      openWindowsId: null,
+      confirmingId: null,
+      form: { id: null, name: "", address: "", modality: "presencial", cost: "", cost_period: "por_sessao" },
+      winForm: { weekday: 1, start_time: "08:00", end_time: "09:00", capacity: 1 },
+      weekdayName(w) { return WEEKDAYS[w] || ("Dia " + w); },
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/locations"));
+        if (res) this.items = res.data || [];
+      },
+      resetForm() { this.form = { id: null, name: "", address: "", modality: "presencial", cost: "", cost_period: "por_sessao" }; },
+      edit(l) {
+        this.form = {
+          id: l.id, name: l.name || "", address: l.address || "",
+          modality: l.modality || "presencial",
+          cost: Money.fromCents(l.cost_amount), cost_period: l.cost_period || "por_sessao",
+        };
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      },
+      async save() {
+        if (!this.form.name.trim()) { this.warn("Dê um nome ao local."); return; }
+        const body = {
+          name: this.form.name, address: this.form.address, modality: this.form.modality,
+          cost_amount: Money.toCents(this.form.cost), cost_period: this.form.cost_period,
+        };
+        const res = this.form.id
+          ? await this.run(() => Api.put(`/v1/admin/locations/${this.form.id}`, body))
+          : await this.run(() => Api.post("/v1/admin/locations", body));
+        if (res) { this.ok(res.message || "Local salvo."); this.resetForm(); await this.load(); }
+      },
+      async remove(id) {
+        const res = await this.run(() => Api.del(`/v1/admin/locations/${id}`));
+        if (res) { this.ok("Local removido."); this.confirmingId = null; if (this.openWindowsId === id) this.openWindowsId = null; await this.load(); }
+      },
+      async toggleWindows(id) {
+        if (this.openWindowsId === id) { this.openWindowsId = null; return; }
+        this.openWindowsId = id;
+        await this.loadWindows(id);
+      },
+      async loadWindows(id) {
+        const res = await this.run(() => Api.get(`/v1/admin/locations/${id}/availability`));
+        if (res) this.windows[id] = res.data || [];
+      },
+      async addWindow(id) {
+        if (!this.winForm.start_time || !this.winForm.end_time) { this.warn("Informe início e fim."); return; }
+        const res = await this.run(() => Api.post(`/v1/admin/locations/${id}/availability`, { ...this.winForm }));
+        if (res) { this.ok("Horário adicionado."); await this.loadWindows(id); }
+      },
+      async removeWindow(id, avid) {
+        const res = await this.run(() => Api.del(`/v1/admin/locations/${id}/availability/${avid}`));
+        if (res) { this.ok("Horário removido."); await this.loadWindows(id); }
+      },
+    };
+  }
+
+  // ── Origens (canais de aquisição) ──────────────────────────────────────
+  function originsPanel() {
+    return {
+      ...panel(),
+      items: [],
+      confirmingId: null,
+      form: { id: null, name: "" },
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/origins"));
+        if (res) this.items = res.data || [];
+      },
+      resetForm() { this.form = { id: null, name: "" }; },
+      edit(o) { this.form = { id: o.id, name: o.name || "" }; window.scrollTo({ top: 0, behavior: "smooth" }); },
+      async save() {
+        if (!this.form.name.trim()) { this.warn("Informe o nome da origem."); return; }
+        const res = this.form.id
+          ? await this.run(() => Api.put(`/v1/admin/origins/${this.form.id}`, { name: this.form.name }))
+          : await this.run(() => Api.post("/v1/admin/origins", { name: this.form.name }));
+        if (res) { this.ok(res.message || "Origem salva."); this.resetForm(); await this.load(); }
+      },
+      async remove(id) {
+        const res = await this.run(() => Api.del(`/v1/admin/origins/${id}`));
+        if (res) { this.ok("Origem removida."); this.confirmingId = null; await this.load(); }
+      },
+    };
+  }
+
+  // ── Custos e ROI ───────────────────────────────────────────────────────
+  const COST_KINDS = { local: "Local", crp: "CRP", infra: "Infraestrutura", plataforma: "Plataforma" };
+  function costsPanel() {
+    return {
+      ...panel(),
+      categories: [],
+      items: [],
+      origins: [],
+      costReport: null,
+      roi: [],
+      confirmingItemId: null,
+      catForm: { kind: "plataforma", name: "" },
+      itemForm: { category_id: "", name: "", amount: "", period: "mensal", origin_id: "" },
+      period: { from: "", to: "" },
+      kindLabel(k) { return COST_KINDS[k] || k; },
+      async load() {
+        const cr = await this.run(() => Api.get("/v1/admin/costs/categories"));
+        if (cr) this.categories = cr.data || [];
+        const ir = await this.run(() => Api.get("/v1/admin/costs/items"));
+        if (ir) this.items = ir.data || [];
+        const or = await this.run(() => Api.get("/v1/admin/origins"));
+        if (or) this.origins = or.data || [];
+      },
+      async createCategory() {
+        if (!this.catForm.name.trim()) { this.warn("Dê um nome à categoria."); return; }
+        const res = await this.run(() => Api.post("/v1/admin/costs/categories", { ...this.catForm }));
+        if (res) { this.ok("Categoria criada."); this.catForm.name = ""; await this.load(); }
+      },
+      async createItem() {
+        if (!this.itemForm.category_id) { this.warn("Selecione a categoria."); return; }
+        if (!this.itemForm.name.trim()) { this.warn("Dê um nome ao item."); return; }
+        const body = {
+          category_id: this.itemForm.category_id, name: this.itemForm.name,
+          amount: Money.toCents(this.itemForm.amount), period: this.itemForm.period,
+          origin_id: this.itemForm.origin_id,
+        };
+        const res = await this.run(() => Api.post("/v1/admin/costs/items", body));
+        if (res) { this.ok("Item de custo criado."); this.itemForm = { category_id: "", name: "", amount: "", period: "mensal", origin_id: "" }; await this.load(); }
+      },
+      async removeItem(id) {
+        const res = await this.run(() => Api.del(`/v1/admin/costs/items/${id}`));
+        if (res) { this.ok("Item removido."); this.confirmingItemId = null; await this.load(); }
+      },
+      periodQuery() {
+        const q = [];
+        if (this.period.from) q.push("from=" + encodeURIComponent(new Date(this.period.from + "T00:00:00").toISOString()));
+        if (this.period.to) q.push("to=" + encodeURIComponent(new Date(this.period.to + "T00:00:00").toISOString()));
+        return q.length ? ("?" + q.join("&")) : "";
+      },
+      async loadReports() {
+        const qs = this.periodQuery();
+        const cr = await this.run(() => Api.get("/v1/admin/reports/costs" + qs));
+        if (cr) this.costReport = cr.data || null;
+        const rr = await this.run(() => Api.get("/v1/admin/reports/roi" + qs));
+        if (rr) this.roi = rr.data || [];
+      },
+    };
+  }
+
+  // ── Perfil do terapeuta ────────────────────────────────────────────────
+  function therapistPanel() {
+    return {
+      ...panel(),
+      form: { name: "", crp: "", email: "", bio: "", photo_id: "", location_ids: [] },
+      links: [],
+      locations: [],
+      origins: [],
+      bioPreview: false,
+      pendingPhoto: null,
+      linkForm: { label: "", url: "", origin_id: "" },
+      confirmingLinkId: null,
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/profile"));
+        if (res && res.data) {
+          this.form = {
+            name: res.data.name || "", crp: res.data.crp || "", email: res.data.email || "",
+            bio: res.data.bio || "", photo_id: res.data.photo_id || "",
+            location_ids: res.data.location_ids || [],
+          };
+        }
+        const lk = await this.run(() => Api.get("/v1/admin/profile/links"));
+        if (lk) this.links = lk.data || [];
+        const lr = await this.run(() => Api.get("/v1/admin/locations"));
+        if (lr) this.locations = lr.data || [];
+        const or = await this.run(() => Api.get("/v1/admin/origins"));
+        if (or) this.origins = or.data || [];
+      },
+      async save() {
+        const body = {
+          name: this.form.name, crp: this.form.crp, email: this.form.email,
+          bio: this.form.bio, location_ids: this.form.location_ids,
+        };
+        const res = await this.run(() => Api.put("/v1/admin/profile", body));
+        if (res) { this.ok(res.message || "Perfil salvo."); if (res.data) this.form.photo_id = res.data.photo_id || this.form.photo_id; }
+      },
+      photoChosen(ev) { this.pendingPhoto = ev.target.files[0] || null; },
+      async uploadPhoto() {
+        if (!this.pendingPhoto) return;
+        const fd = new FormData();
+        fd.append("file", this.pendingPhoto);
+        this.loading = true; this.clearFeedback();
+        try {
+          const resp = await fetch("/v1/admin/profile/photo", { method: "POST", credentials: "same-origin", body: fd });
+          if (!resp.ok) { const e = await resp.json().catch(() => ({})); this.warn((e && e.message) || "Falha ao enviar a foto."); return; }
+          const env = await resp.json();
+          this.ok("Foto atualizada.");
+          if (env.data) this.form.photo_id = env.data.photo_id || this.form.photo_id;
+          this.pendingPhoto = null;
+          const input = document.getElementById("th-foto"); if (input) input.value = "";
+        } catch (e) {
+          this.warn("Erro no upload: " + (e && e.message ? e.message : String(e)));
+        } finally { this.loading = false; }
+      },
+      async addLink() {
+        if (!this.linkForm.label.trim() || !this.linkForm.url.trim()) { this.warn("Informe rótulo e URL."); return; }
+        const res = await this.run(() => Api.post("/v1/admin/profile/links", { ...this.linkForm }));
+        if (res) { this.ok("Link adicionado."); this.linkForm = { label: "", url: "", origin_id: "" }; const lk = await this.run(() => Api.get("/v1/admin/profile/links")); if (lk) this.links = lk.data || []; }
+      },
+      async removeLink(id) {
+        const res = await this.run(() => Api.del(`/v1/admin/profile/links/${id}`));
+        if (res) { this.ok("Link removido."); this.confirmingLinkId = null; const lk = await this.run(() => Api.get("/v1/admin/profile/links")); if (lk) this.links = lk.data || []; }
+      },
+    };
+  }
+
+  // ── Backup / restore ───────────────────────────────────────────────────
+  function backupPanel() {
+    return {
+      ...panel(),
+      result: null,
+      restoreStep: 0,
+      restoreConfirm: "",
+      async doBackup() {
+        const res = await this.run(() => Api.post("/v1/admin/backup", {}));
+        if (res) { this.ok(res.message || "Backup concluído."); this.result = res.data || null; }
+      },
+      async doRestore() {
+        if (this.restoreConfirm !== "RESTAURAR") return;
+        const res = await this.run(() => Api.post("/v1/admin/restore", {}));
+        if (res) { this.ok(res.message || "Restauração concluída. Reinicie a aplicação."); this.restoreStep = 0; this.restoreConfirm = ""; }
+      },
+    };
+  }
+
+  // ── Auditoria ──────────────────────────────────────────────────────────
+  function auditPanel() {
+    return {
+      ...panel(),
+      entries: [],
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/audit-log"));
+        if (res) this.entries = res.data || [];
+      },
+    };
+  }
+
+  // ── Aprovação de pacientes (gate de acesso do portal) ──────────────────
+  function approvalsPanel() {
+    return {
+      ...panel(),
+      items: [],
+      confirmingId: null,
+      confirmAction: null, // 'approve' | 'reject'
+      async load() {
+        const res = await this.run(() => Api.get("/v1/admin/patients/pending"));
+        if (res) this.items = res.data || [];
+      },
+      askApprove(id) { this.confirmingId = id; this.confirmAction = "approve"; },
+      askReject(id) { this.confirmingId = id; this.confirmAction = "reject"; },
+      cancelConfirm() { this.confirmingId = null; this.confirmAction = null; },
+      async doConfirm(id) {
+        const action = this.confirmAction;
+        const res = await this.run(() => Api.post(`/v1/admin/patients/${id}/${action}`, {}));
+        if (res) {
+          this.ok(res.message || (action === "approve" ? "Paciente aprovado." : "Cadastro rejeitado."));
+          this.cancelConfirm();
           await this.load();
         }
       },
@@ -855,6 +2011,7 @@
       preview: false,
       sendingId: null,
       sendPatientId: "",
+      confirmingId: null,
       form: { id: null, name: "", body_md: "" },
       async load() {
         const res = await this.run(() => Api.get("/v1/admin/templates"));
@@ -891,9 +2048,8 @@
         window.scrollTo({ top: 0, behavior: "smooth" });
       },
       async remove(id) {
-        if (!window.confirm("Excluir este template?")) return;
         const res = await this.run(() => Api.del(`/v1/admin/templates/${id}`));
-        if (res) { this.ok("Template removido."); if (this.form.id === id) this.resetForm(); await this.load(); }
+        if (res) { this.ok("Template removido."); this.confirmingId = null; if (this.form.id === id) this.resetForm(); await this.load(); }
       },
       toggleSend(id) {
         this.sendingId = this.sendingId === id ? null : id;

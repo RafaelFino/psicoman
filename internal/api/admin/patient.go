@@ -24,9 +24,12 @@ func NewPatientHandlers(svc *service.PatientService, audit *service.AuditService
 func (h *PatientHandlers) Register(g *api.Group) {
 	g.Handle("POST", "/patients", h.create)
 	g.Handle("GET", "/patients", h.list)
+	g.Handle("GET", "/patients/pending", h.listPending)
 	g.Handle("GET", "/patients/{id}", h.get)
 	g.Handle("PUT", "/patients/{id}", h.update)
 	g.Handle("DELETE", "/patients/{id}", h.delete)
+	g.Handle("POST", "/patients/{id}/approve", h.approve)
+	g.Handle("POST", "/patients/{id}/reject", h.reject)
 }
 
 type patientBody struct {
@@ -45,6 +48,7 @@ func patientView(p *domain.Patient) map[string]any {
 		"email":             p.Email,
 		"cpf":               p.CPF,
 		"origin_id":         p.OriginID,
+		"approval_status":   p.ApprovalStatus,
 		"can_issue_receipt": p.CanIssueReceipt(),
 		"created_at":        p.CreatedAt,
 		"updated_at":        p.UpdatedAt,
@@ -79,6 +83,39 @@ func (h *PatientHandlers) list(w http.ResponseWriter, r *http.Request) {
 		views = append(views, patientView(p))
 	}
 	httpx.Respond(w, r, http.StatusOK, "Pacientes listados.", views)
+}
+
+func (h *PatientHandlers) listPending(w http.ResponseWriter, r *http.Request) {
+	ps, err := h.svc.ListPending(r.Context())
+	if err != nil {
+		respondServiceError(w, r, err)
+		return
+	}
+	views := make([]map[string]any, 0, len(ps))
+	for _, p := range ps {
+		views = append(views, patientView(p))
+	}
+	httpx.Respond(w, r, http.StatusOK, "Pacientes pendentes de aprovação.", views)
+}
+
+func (h *PatientHandlers) approve(w http.ResponseWriter, r *http.Request) {
+	p, err := h.svc.Approve(r.Context(), r.PathValue("id"))
+	if err != nil {
+		respondServiceError(w, r, err)
+		return
+	}
+	_ = h.audit.Record(r.Context(), httpx.Actor(r.Context()), domain.AuditActionApprove, "patient", p.ID, nil)
+	httpx.Respond(w, r, http.StatusOK, "Paciente aprovado. O acesso já está liberado.", patientView(p))
+}
+
+func (h *PatientHandlers) reject(w http.ResponseWriter, r *http.Request) {
+	p, err := h.svc.Reject(r.Context(), r.PathValue("id"))
+	if err != nil {
+		respondServiceError(w, r, err)
+		return
+	}
+	_ = h.audit.Record(r.Context(), httpx.Actor(r.Context()), domain.AuditActionReject, "patient", p.ID, nil)
+	httpx.Respond(w, r, http.StatusOK, "Cadastro rejeitado.", patientView(p))
 }
 
 func (h *PatientHandlers) get(w http.ResponseWriter, r *http.Request) {
