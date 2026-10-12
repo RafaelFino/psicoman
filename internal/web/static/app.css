@@ -1,25 +1,25 @@
 /* Psicoman — sistema de design.
    Moderno, responsivo, mobile-first. WCAG AA (contraste >= 4.5:1 em texto,
-   foco visível, alvos de toque >= 44px). Paleta clara e acolhedora com acento
-   teal/índigo e bom contraste. Tipografia Inter. */
+   foco visível, alvos de toque >= 44px). Paleta clara e acolhedora: azul royal
+   (primária) + lilás (acento) sobre fundos claros derivados. Tipografia Inter. */
 
 /* ── Fonte ──────────────────────────────────────────────────────────────── */
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 
 /* ── Tokens ─────────────────────────────────────────────────────────────── */
 :root {
-  --bg: #f1f5f9;            /* slate-100 */
-  --surface: #ffffff;
-  --surface-2: #f8fafc;     /* slate-50 */
+  --bg: #f5f4fb;            /* lilás/azul muito claro (fundo do app) */
+  --surface: #ffffff;       /* branco — superfícies principais */
+  --surface-2: #faf9fe;     /* branco levemente lilás (cartões suaves) */
   --text: #0f172a;          /* slate-900 — contraste ~15:1 sobre surface */
   --muted: #475569;         /* slate-600 — ~7:1 sobre surface */
   --subtle: #94a3b8;        /* slate-400 — para hints/placeholders */
 
-  --primary: #0d9488;       /* teal-600 — branco sobre ele ~4.8:1 */
-  --primary-strong: #0f766e;/* teal-700 */
-  --primary-soft: #ccfbf1;  /* teal-100 */
-  --accent: #4f46e5;        /* indigo-600 */
-  --accent-soft: #e0e7ff;   /* indigo-100 */
+  --primary: #3730a3;       /* azul royal (indigo-800) — branco sobre ele ~8:1 */
+  --primary-strong: #312e81;/* azul royal escuro (indigo-900) */
+  --primary-soft: #e0e7ff;  /* azul royal claro (indigo-100) */
+  --accent: #7c3aed;        /* lilás (violet-600) — branco sobre ele ~5:1 */
+  --accent-soft: #ede9fe;   /* lilás claro (violet-100) */
 
   --ok: #15803d;            /* green-700 */
   --ok-soft: #dcfce7;
@@ -39,7 +39,7 @@
   --shadow: 0 4px 16px rgba(15, 23, 42, .08);
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, .14);
   --topbar-h: 60px;
-  --ring: 0 0 0 3px rgba(79, 70, 229, .35);
+  --ring: 0 0 0 3px rgba(124, 58, 237, .35);  /* foco em lilás */
 }
 
 /* ── Reset / base ───────────────────────────────────────────────────────── */
@@ -344,7 +344,7 @@ input:focus, select:focus, textarea:focus {
 }
 .chip.ok { background: var(--ok-soft); color: var(--ok); border-color: #bbf7d0; }
 .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: #fde68a; }
-.chip.info { background: var(--accent-soft); color: var(--accent); border-color: #c7d2fe; }
+.chip.info { background: var(--accent-soft); color: var(--accent); border-color: #ddd6fe; }
 .chip.danger { background: var(--danger-soft); color: var(--danger); border-color: #fecaca; }
 
 /* ── Listas de itens ────────────────────────────────────────────────────── */
