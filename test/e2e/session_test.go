@@ -210,3 +210,117 @@ func TestSessionListByRange(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// TestSessionUpdate cobre a edição de uma sessão (PUT /v1/admin/sessions/{id}):
+// edição de sessão agendada (200, campos novos, paciente imutável), datas
+// inválidas (422), sessão em estado terminal (422) e inexistente (404).
+func TestSessionUpdate(t *testing.T) {
+	env := StartAdmin(t)
+	defer env.Stop()
+
+	pid := env.createPatient(t, "edita-sessao@example.com")
+
+	// Local presencial real (FK em session.location_id).
+	lresp := env.AdminPOST(t, "/v1/admin/locations", map[string]any{
+		"name": "Consultório Edição", "modality": "presencial", "cost_period": "mensal",
+	})
+	if lresp.StatusCode != http.StatusCreated {
+		t.Fatalf("criar local status = %d", lresp.StatusCode)
+	}
+	le := DecodeEnvelope(t, lresp)
+	var loc struct {
+		ID string `json:"id"`
+	}
+	le.DataAs(t, &loc)
+
+	start := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	mk := func(status string) string {
+		resp := env.AdminPOST(t, "/v1/admin/sessions", map[string]any{
+			"patient_id": pid, "modality": "online",
+			"starts_at": start.Format(time.RFC3339),
+			"ends_at":   start.Add(time.Hour).Format(time.RFC3339),
+			"status":    status,
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("criar sessão (%s) status = %d", status, resp.StatusCode)
+		}
+		e := DecodeEnvelope(t, resp)
+		var s struct {
+			ID string `json:"id"`
+		}
+		e.DataAs(t, &s)
+		return s.ID
+	}
+
+	// Edita uma sessão agendada: muda horário, local e modalidade.
+	id := mk("agendada")
+	newStart := start.Add(48 * time.Hour)
+	resp := env.AdminPUT(t, "/v1/admin/sessions/"+id, map[string]any{
+		"location_id": loc.ID,
+		"modality":    "presencial",
+		"starts_at":   newStart.Format(time.RFC3339),
+		"ends_at":     newStart.Add(50 * time.Minute).Format(time.RFC3339),
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT sessão agendada status = %d, quer 200", resp.StatusCode)
+	}
+	ue := DecodeEnvelope(t, resp)
+	var up struct {
+		ID         string `json:"id"`
+		PatientID  string `json:"patient_id"`
+		LocationID string `json:"location_id"`
+		Modality   string `json:"modality"`
+		StartsAt   string `json:"starts_at"`
+	}
+	ue.DataAs(t, &up)
+	if up.Modality != "presencial" {
+		t.Errorf("modalidade = %q, quer presencial", up.Modality)
+	}
+	if up.LocationID != loc.ID {
+		t.Errorf("local = %q, quer %q", up.LocationID, loc.ID)
+	}
+	if up.PatientID != pid {
+		t.Errorf("paciente mudou: %q != %q", up.PatientID, pid)
+	}
+	gotStart, _ := time.Parse(time.RFC3339, up.StartsAt)
+	if !gotStart.Equal(newStart) {
+		t.Errorf("starts_at = %v, quer %v", gotStart, newStart)
+	}
+
+	// Datas inválidas → 422.
+	resp = env.AdminPUT(t, "/v1/admin/sessions/"+id, map[string]any{
+		"modality": "online", "starts_at": "ontem", "ends_at": "amanha",
+	})
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("PUT datas inválidas status = %d, quer 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Sessão inexistente → 404.
+	resp = env.AdminPUT(t, "/v1/admin/sessions/nao-existe", map[string]any{
+		"modality":  "online",
+		"starts_at": newStart.Format(time.RFC3339),
+		"ends_at":   newStart.Add(time.Hour).Format(time.RFC3339),
+	})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("PUT inexistente status = %d, quer 404", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Sessão em estado terminal (cancelada) → 422.
+	idTerm := mk("agendada")
+	resp = env.AdminPOST(t, "/v1/admin/sessions/"+idTerm+"/cancel", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("cancelar status = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = env.AdminPUT(t, "/v1/admin/sessions/"+idTerm, map[string]any{
+		"modality":  "online",
+		"starts_at": newStart.Format(time.RFC3339),
+		"ends_at":   newStart.Add(time.Hour).Format(time.RFC3339),
+	})
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("PUT sessão terminal status = %d, quer 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
