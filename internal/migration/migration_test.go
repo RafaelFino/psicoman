@@ -133,3 +133,71 @@ func TestApprovalMigrationBackfill(t *testing.T) {
 		t.Errorf("novo registro ficou %q, quer pendente (default)", status)
 	}
 }
+
+// TestPlanDueDayMigration verifica a migration 0003 (patient-timeline R1.5):
+// aplicada sobre uma base com planos pré-existentes, os fechados ganham
+// due_day = 5 e os demais ficam no default 1; novos registros caem no default.
+func TestPlanDueDayMigration(t *testing.T) {
+	db := openTemp(t)
+	migs, err := load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if err := ensureTable(db.DB); err != nil {
+		t.Fatalf("ensureTable: %v", err)
+	}
+	// Aplica 0001 e 0002 (base legada, antes da coluna due_day existir).
+	for _, m := range migs {
+		if m.Version == "0001" || m.Version == "0002" {
+			if err := apply(db.DB, m); err != nil {
+				t.Fatalf("aplicando %s: %v", m.Version, err)
+			}
+		}
+	}
+	// Paciente + planos pré-existentes (sem due_day ainda).
+	_, err = db.Exec(`INSERT INTO patient (id, name, phone, email, approval_status, created_at, updated_at)
+		VALUES ('01PAC','Pac','1199','pac@example.com','aprovado','2026-01-01T09:00:00-03:00','2026-01-01T09:00:00-03:00')`)
+	if err != nil {
+		t.Fatalf("inserindo paciente: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO plan (id, patient_id, type, amount, starts_at, created_at, updated_at)
+		VALUES ('01FEC','01PAC','plano_fechado_mensal',50000,'2026-01-01T09:00:00-03:00','2026-01-01T09:00:00-03:00','2026-01-01T09:00:00-03:00'),
+		       ('01SES','01PAC','pagamento_por_consulta',0,'2026-01-01T09:00:00-03:00','2026-01-01T09:00:00-03:00','2026-01-01T09:00:00-03:00')`)
+	if err != nil {
+		t.Fatalf("inserindo planos: %v", err)
+	}
+
+	// Roda o Run completo (aplica 0003).
+	if err := Run(db.DB); err != nil {
+		t.Fatalf("Run com migration due_day: %v", err)
+	}
+
+	// Fechado pré-existente ⇒ due_day 5; por-sessão ⇒ default 1.
+	var dueFechado, dueSessao int
+	if err := db.QueryRow(`SELECT due_day FROM plan WHERE id='01FEC'`).Scan(&dueFechado); err != nil {
+		t.Fatalf("lendo due_day fechado: %v", err)
+	}
+	if dueFechado != 5 {
+		t.Errorf("plano fechado ficou due_day=%d, quer 5", dueFechado)
+	}
+	if err := db.QueryRow(`SELECT due_day FROM plan WHERE id='01SES'`).Scan(&dueSessao); err != nil {
+		t.Fatalf("lendo due_day sessão: %v", err)
+	}
+	if dueSessao != 1 {
+		t.Errorf("plano por sessão ficou due_day=%d, quer 1 (default)", dueSessao)
+	}
+
+	// Novo registro sem informar a coluna cai no default 1.
+	_, err = db.Exec(`INSERT INTO plan (id, patient_id, type, amount, starts_at, created_at, updated_at)
+		VALUES ('01NOVO','01PAC','plano_fechado_mensal',60000,'2026-02-01T09:00:00-03:00','2026-02-01T09:00:00-03:00','2026-02-01T09:00:00-03:00')`)
+	if err != nil {
+		t.Fatalf("inserindo plano novo: %v", err)
+	}
+	var dueNovo int
+	if err := db.QueryRow(`SELECT due_day FROM plan WHERE id='01NOVO'`).Scan(&dueNovo); err != nil {
+		t.Fatalf("lendo due_day novo: %v", err)
+	}
+	if dueNovo != 1 {
+		t.Errorf("novo plano ficou due_day=%d, quer 1 (default)", dueNovo)
+	}
+}

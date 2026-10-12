@@ -517,6 +517,17 @@
             <input id="pl-valor" x-model="planForm.amount" inputmode="decimal" placeholder="0,00"/>
           </div>
         </template>
+        <template x-if="planNeedsAmount()">
+          <div class="field">
+            <label for="pl-venc">Dia de vencimento</label>
+            <select id="pl-venc" x-model.number="planForm.due_day">
+              <template x-for="d in 28" :key="d">
+                <option :value="d" x-text="'Dia ' + d"></option>
+              </template>
+            </select>
+            <span class="hint">A cobrança do período vence neste dia (1 a 28).</span>
+          </div>
+        </template>
         <div class="field">
           <label for="pl-ini">Início da vigência</label>
           <input id="pl-ini" type="date" x-model="planForm.starts_at"/>
@@ -544,6 +555,7 @@
               <div class="title" x-text="planLabel(p.type)"></div>
               <div class="sub">
                 <template x-if="p.amount"><span x-text="Fmt.brl(p.amount) + ' · '"></span></template>
+                <template x-if="p.due_day"><span x-text="'vence dia ' + p.due_day + ' · '"></span></template>
                 <span x-text="'desde ' + Fmt.short(p.starts_at)"></span>
                 <template x-if="p.ends_at"><span x-text="' até ' + Fmt.short(p.ends_at)"></span></template>
               </div>
@@ -2030,7 +2042,7 @@
       },
 
       // Planos
-      planForm: { type: "pagamento_por_consulta", amount: "", starts_at: "", ends_at: "" },
+      planForm: { type: "pagamento_por_consulta", amount: "", due_day: 5, starts_at: "", ends_at: "" },
       confirmingPlanId: null,
       get planTypes() {
         return [
@@ -2049,8 +2061,11 @@
         if (res) this.plans = res.data || [];
       },
       async createPlan() {
-        const body = { patient_id: this.id, type: this.planForm.type, amount: 0 };
-        if (this.planNeedsAmount()) body.amount = Money.toCents(this.planForm.amount);
+        const body = { patient_id: this.id, type: this.planForm.type, amount: 0, due_day: 0 };
+        if (this.planNeedsAmount()) {
+          body.amount = Money.toCents(this.planForm.amount);
+          body.due_day = Number(this.planForm.due_day) || 1;
+        }
         // Datas de vigência em ISO-8601 (RFC3339) a partir do <input type=date>.
         body.starts_at = this.planForm.starts_at ? new Date(this.planForm.starts_at + "T00:00:00").toISOString() : new Date().toISOString();
         if (this.planNeedsAmount() && this.planForm.ends_at) {
@@ -2059,7 +2074,7 @@
         const res = await this.run(() => Api.post("/v1/admin/plans", body));
         if (res) {
           this.ok(res.message || "Plano criado.");
-          this.planForm = { type: "pagamento_por_consulta", amount: "", starts_at: "", ends_at: "" };
+          this.planForm = { type: "pagamento_por_consulta", amount: "", due_day: 5, starts_at: "", ends_at: "" };
           await this.loadPlans();
         }
       },

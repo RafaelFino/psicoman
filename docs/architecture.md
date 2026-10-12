@@ -106,7 +106,7 @@ erDiagram
 
 **session** — patient_id, location_id, modalidade, início/fim, status (`solicitada`|`agendada`|`realizada`|`cancelada`|`falta`), flags `bill` (haverá cobrança) e `consider_cost` (considerar custos), google_event_id, meet_url.
 
-**plan** — patient_id, tipo (`pagamento_por_consulta`|`pagamento_por_mes`|`plano_fechado_mensal`|`plano_fechado_trimestral`|`atendimento_social`), valor (centavos, quando fixo), vigência.
+**plan** — patient_id, tipo (`pagamento_por_consulta`|`pagamento_por_mes`|`plano_fechado_mensal`|`plano_fechado_trimestral`|`atendimento_social`), valor (centavos, quando fixo), `due_day` (dia de vencimento 1–28 dos planos fechados; 0 = não aplicável), vigência.
 
 **debt** — patient_id, session_id (nullable — nulo para débitos de plano fechado), billing_period (nullable — `YYYY-MM` ou `YYYY-Q` quando aplicável), amount, due_date, status (`aberto`|`pago`|`parcial`), `idempotency_key` (UNIQUE) para geração idempotente. Composição da chave de idempotência por tipo de plano:
   - `pagamento_por_consulta`/`pagamento_por_mes`: `idempotency_key = session_id`.
@@ -166,9 +166,9 @@ sequenceDiagram
         S-->>API: sessão agendada
     end
 
-    T->>API: marcar Realizada (bill=true, consider_cost=true)
+    T->>API: marcar Realizada (bill opcional, consider_cost)
     API->>S: Finalizar(flags)
-    Note over S,F: plano por sessão -> gera débito agora; plano fechado -> não gera aqui (ver 4.1.1)
+    Note over S,F: padrão = cobrar; bill=false é opt-out. Plano por sessão -> gera débito; fechado -> não gera aqui (ver 4.1.1)
     S->>F: gerar débito se aplicável (idempotency_key=session_id)
     F-->>S: débito (ou existente)
     S->>C: atribuir custo (direto/rateio)
@@ -178,12 +178,13 @@ sequenceDiagram
 
 - **Checagem de conflito:** antes de criar/mover um evento, o `SessionService` consulta o Calendar (`freebusy`) do terapeuta para o horário pretendido. Cobre também compromissos não criados pelo Psicoman. Conflito bloqueia a confirmação (HTTP 409, mensagem PT-BR).
 - **Edição de sessão (`SessionService.Update`, prontuario-ux):** altera data/hora, local e modalidade de uma sessão não-terminal (sem trocar o paciente); reusa `SessionRepo.Update` (sem mudança de schema), revalida invariantes e refaz a checagem de conflito quando `agendada`. Estados terminais (realizada/cancelada/falta) recusam edição de horário/local (HTTP 422). **Não reconcilia o Google Calendar** nesta onda (o `SessionCalendar` só expõe `CreateEvent`); a UI avisa para ajustar o convite manualmente. Decisão em [`decisions.md`](./decisions.md).
+- **Geração automática por sessão (opt-out):** a cobrança é o padrão de uma sessão `realizada` de plano por-sessão. O flag `bill` em `POST /sessions/{id}/finish` é opcional: ausente ⇒ cobra; `false` ⇒ opt-out explícito. Sem plano vigente, não gera (sem base de valor) e registra audit `debt_skip_no_plan` para o terapeuta notar o cadastro faltante.
 - **Idempotência do débito (planos por sessão):** `INSERT ... ON CONFLICT(idempotency_key) DO NOTHING`; segunda chamada não duplica.
 - **Rateio (custo `diario`/`mensal`/`anual`):** `custo_periodo / nº_sessões_realizadas_no_local_no_periodo`. Recalculado ao fechar o período; `session_cost` guarda o valor no momento + base usada para auditoria.
 
 ### 4.1.1 Fechamento de ciclo — planos fechados
 
-Para `plano_fechado_mensal`/`plano_fechado_trimestral`, o débito não nasce da finalização de uma sessão, e sim de um **job de fechamento de ciclo** (cron diário que verifica planos cuja vigência de período iniciou):
+Para `plano_fechado_mensal`/`plano_fechado_trimestral`, o débito não nasce da finalização de uma sessão, e sim de um **job de fechamento de ciclo** (cron diário que verifica planos cuja vigência de período iniciou). O gatilho é o **dia de vencimento** (`plan.due_day`, 1–28): o débito do período só é gerado quando a data de referência alcança o vencimento (`ref >= vencimento`), e o `due_date` do débito é a data real do vencimento (ano/mês do período + `due_day`), não `now + 7 dias`. No trimestral, o vencimento é ancorado no 1º mês do trimestre; a idempotência por `plan_id + billing_period` garante uma única cobrança por período mesmo rodando o cron diário várias vezes:
 
 ```mermaid
 sequenceDiagram

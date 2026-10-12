@@ -42,15 +42,23 @@ var _ SessionFinishedHook = (*BillingService)(nil)
 
 // OnSessionFinished é o gatilho por sessão (planos por consulta/mês). Para
 // planos fechados e social, não gera nada aqui. Idempotente por session_id.
+//
+// Semântica (patient-timeline R1.3): a geração é o padrão de uma sessão
+// realizada de plano por-sessão. O flag Bill == false é opt-out explícito
+// ("esta sessão não gera cobrança"); desmarcado, suprime a geração.
 func (s *BillingService) OnSessionFinished(ctx context.Context, sess *domain.Session) error {
-	// Sem flag de cobrança, não gera débito.
+	// Opt-out explícito: o terapeuta desmarcou a cobrança desta sessão.
 	if !sess.Bill {
 		return nil
 	}
 	plan, err := s.plans.GetActiveByPatient(ctx, sess.PatientID, sess.StartsAt)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			// Sem plano vigente: não há base para valor; não gera débito.
+			// Sem plano vigente: não há base para valor; não gera débito, mas
+			// registra a condição de forma observável (R1.2) — sem conteúdo
+			// clínico, só o fato de ter faltado o cadastro de plano.
+			_ = s.audit.Record(ctx, "sistema", domain.AuditActionDebtGenerate, "session", sess.ID,
+				map[string]any{"debt_skip_no_plan": true})
 			return nil
 		}
 		return err
@@ -102,6 +110,13 @@ func (s *BillingService) CloseCycles(ctx context.Context, ref time.Time) (int, e
 		if period == "" {
 			continue
 		}
+		// Gatilho por vencimento (R1.5): só cobra quando a data de referência
+		// alcança o dia de vencimento do período. Trimestral dispara pelo
+		// due_day do 1º mês do trimestre; a idempotência por período garante
+		// uma única cobrança por trimestre.
+		if !dueReached(plan, ref) {
+			continue
+		}
 		now := s.clock.Now()
 		d := &domain.Debt{
 			ID:             ulid.New(),
@@ -109,7 +124,7 @@ func (s *BillingService) CloseCycles(ctx context.Context, ref time.Time) (int, e
 			PlanID:         plan.ID,
 			BillingPeriod:  period,
 			Amount:         plan.Amount,
-			DueDate:        now.AddDate(0, 0, 7),
+			DueDate:        dueDateFor(plan, ref),
 			Status:         domain.DebtAberto,
 			IdempotencyKey: domain.CycleIdempotencyKey(plan.ID, period),
 			CreatedAt:      now,
@@ -138,6 +153,50 @@ func billingPeriodFor(plan *domain.Plan, ref time.Time) string {
 	default:
 		return ""
 	}
+}
+
+// dueDay devolve o dia de vencimento efetivo do plano (default 1 quando não
+// configurado), limitado a 1–28.
+func dueDay(plan *domain.Plan) int {
+	d := plan.DueDay
+	if d < 1 {
+		d = 1
+	}
+	if d > 28 {
+		d = 28
+	}
+	return d
+}
+
+// cycleStartMonth devolve o ano/mês de início do período de ref: o próprio mês
+// para mensal; o 1º mês do trimestre para trimestral. O vencimento é ancorado
+// nesse mês.
+func cycleStartMonth(plan *domain.Plan, ref time.Time) (year int, month time.Month) {
+	loc := clock.Location()
+	r := ref.In(loc)
+	if plan.Type == domain.PlanFechadoTrim {
+		// 1º mês do trimestre: jan/abr/jul/out.
+		firstMonth := ((int(r.Month())-1)/3)*3 + 1
+		return r.Year(), time.Month(firstMonth)
+	}
+	return r.Year(), r.Month()
+}
+
+// dueDateFor devolve a data real de vencimento do período (ano/mês do período +
+// due_day), no fuso do projeto.
+func dueDateFor(plan *domain.Plan, ref time.Time) time.Time {
+	year, month := cycleStartMonth(plan, ref)
+	return time.Date(year, month, dueDay(plan), 0, 0, 0, 0, clock.Location())
+}
+
+// dueReached indica se a data de referência já alcançou o dia de vencimento do
+// período (R1.5). Mensal: compara contra o due_day do próprio mês. Trimestral:
+// o gatilho é o due_day do 1º mês do trimestre.
+func dueReached(plan *domain.Plan, ref time.Time) bool {
+	r := ref.In(clock.Location())
+	due := dueDateFor(plan, ref)
+	// Mesma data ou depois do vencimento (comparando pelo dia).
+	return !r.Before(due)
 }
 
 // ListDebts devolve todos os débitos.

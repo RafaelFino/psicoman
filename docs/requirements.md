@@ -84,8 +84,8 @@ stateDiagram-v2
     Falta --> [*]
 ```
 
-- Ao mudar o estado (Realizada / Cancelada / Falta), o terapeuta decide **explicitamente** dois flags independentes:
-  - **Haverá cobrança?** → gera ou não débito financeiro.
+- Ao mudar o estado (Realizada / Cancelada / Falta), o terapeuta decide dois flags independentes:
+  - **Haverá cobrança?** → gera ou não débito financeiro. Desde a onda `patient-timeline` (R1.3), a cobrança é o **padrão** de uma sessão realizada de plano por-sessão: o flag funciona como **opt-out explícito** ("esta sessão não gera cobrança"). Não é mais preciso lembrar de marcá-lo para gerar o débito.
   - **Custos serão considerados?** → a sessão computa ou não custo de local/infra.
 - **Edição de sessão** (onda `prontuario-ux`): o terapeuta pode abrir uma sessão (na Agenda ou no Prontuário) e editar **data/hora, local e modalidade** (`PUT /v1/admin/sessions/{id}`). A edição **não troca o paciente** e é **bloqueada em estados terminais** (realizada/cancelada/falta); o registro clínico da sessão continua permitido. A edição é auditada. Quando a sessão tem evento no Google, a UI avisa para ajustar o convite manualmente (a reconciliação automática com o Calendar está fora de escopo desta onda — ver [`decisions.md`](./decisions.md)).
 - **Visão semanal fluida** (onda `prontuario-ux`): a agenda semanal (seg–sáb, sem domingo) acomoda muitos atendimentos no mesmo dia; a coluna do dia **cresce conforme a lotação** (referência ~10/dia), sem deformar os dias vizinhos. Cada cartão é clicável e abre o painel da sessão.
@@ -102,9 +102,10 @@ Planos/acordos por paciente:
 | `plano_fechado_trimestral` | Valor fixo trimestral |
 | `atendimento_social` | Sem pagamento fixo |
 
+- Planos fechados têm um **dia de vencimento** (`due_day`, 1–28), que ancora a cobrança do ciclo.
 - O **gatilho de geração do débito depende do tipo de plano**:
-  - `pagamento_por_consulta` / `pagamento_por_mes`: **por sessão** — encerrar uma sessão com o flag de cobrança marcado gera uma **entrada de valor a receber (débito)**, de forma **idempotente** (uma sessão não gera dois débitos).
-  - `plano_fechado_mensal` / `plano_fechado_trimestral`: **por ciclo de cobrança** — o débito do valor fixo é gerado automaticamente no início de cada período (mês/trimestre) vigente do plano, **independente do número de sessões realizadas**. A geração também é idempotente (um período não gera dois débitos para o mesmo plano).
+  - `pagamento_por_consulta` / `pagamento_por_mes`: **por sessão** — ao marcar a sessão como realizada, o sistema gera a **entrada de valor a receber (débito)** automaticamente (padrão), de forma **idempotente** (uma sessão não gera dois débitos). O terapeuta pode suprimir via opt-out (`bill=false`). Sem plano vigente, não gera e registra a condição de forma observável (audit `debt_skip_no_plan`).
+  - `plano_fechado_mensal` / `plano_fechado_trimestral`: **por ciclo de cobrança** — o débito do valor fixo é gerado automaticamente **a partir do dia de vencimento** do período vigente do plano, **independente do número de sessões realizadas**. O `due_date` do débito é a data real do vencimento. A geração é idempotente (um período não gera dois débitos para o mesmo plano), mesmo com o cron rodando diariamente após o vencimento. No trimestral, o vencimento é ancorado no 1º mês do trimestre.
   - `atendimento_social`: **nunca gera débito**, independente de qualquer flag marcado na sessão.
 - Ao encerrar uma sessão faturável, o terapeuta informa a forma de pagamento conforme o plano do paciente (ou cadastra uma nova).
 - O sistema gera um **PDF de cobrança**, armazenado no GED como lastro, com envio opcional por email ao paciente.

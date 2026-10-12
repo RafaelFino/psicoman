@@ -18,14 +18,14 @@ func NewPlanRepo(db *DB) *PlanRepo { return &PlanRepo{db: db.DB} }
 
 var _ service.PlanRepository = (*PlanRepo)(nil)
 
-const planSelect = `SELECT id, patient_id, type, amount, starts_at, ends_at, created_at, updated_at FROM plan`
+const planSelect = `SELECT id, patient_id, type, amount, due_day, starts_at, ends_at, created_at, updated_at FROM plan`
 
 // Create insere um plano.
 func (r *PlanRepo) Create(ctx context.Context, p *domain.Plan) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO plan (id, patient_id, type, amount, starts_at, ends_at, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.PatientID, p.Type, p.Amount, clock.Format(p.StartsAt),
+		`INSERT INTO plan (id, patient_id, type, amount, due_day, starts_at, ends_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.PatientID, p.Type, p.Amount, p.DueDay, clock.Format(p.StartsAt),
 		nullTime(p.EndsAt), clock.Format(p.CreatedAt), clock.Format(p.UpdatedAt))
 	return mapError(err)
 }
@@ -33,9 +33,9 @@ func (r *PlanRepo) Create(ctx context.Context, p *domain.Plan) error {
 // Update atualiza um plano.
 func (r *PlanRepo) Update(ctx context.Context, p *domain.Plan) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE plan SET type=?, amount=?, starts_at=?, ends_at=?, updated_at=?
+		`UPDATE plan SET type=?, amount=?, due_day=?, starts_at=?, ends_at=?, updated_at=?
 		 WHERE id=? AND deleted_at IS NULL`,
-		p.Type, p.Amount, clock.Format(p.StartsAt), nullTime(p.EndsAt),
+		p.Type, p.Amount, p.DueDay, clock.Format(p.StartsAt), nullTime(p.EndsAt),
 		clock.Format(p.UpdatedAt), p.ID)
 	if err != nil {
 		return mapError(err)
@@ -117,7 +117,7 @@ func scanPlanFrom(sc scanner) (*domain.Plan, error) {
 		startsAt           string
 		createdAt, updated string
 	)
-	if err := sc.Scan(&p.ID, &p.PatientID, &p.Type, &p.Amount, &startsAt, &endsAt,
+	if err := sc.Scan(&p.ID, &p.PatientID, &p.Type, &p.Amount, &p.DueDay, &startsAt, &endsAt,
 		&createdAt, &updated); err != nil {
 		return nil, err
 	}

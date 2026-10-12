@@ -6,6 +6,25 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-12 — Onda "patient-timeline" (Fase A): faturamento por sessão e ciclo por vencimento
+
+**Contexto.** Terceira onda de evoluções (spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md)). O terapeuta quer que o faturamento por sessão seja automático e que os planos fechados cobrem a partir de um dia de vencimento, não com `+7 dias` arbitrário. Esta entrada cobre a **Fase A** (R1); as demais fases registram suas decisões aqui conforme forem fechando.
+
+**Decisões.**
+1. **`Bill` vira opt-out explícito.** Toda sessão `realizada` de paciente com plano por-sessão gera o débito **por padrão**. O flag `Bill` deixa de ser pré-requisito: `Bill == false` passa a significar "esta sessão não gera cobrança" (opt-out deliberado). No contrato HTTP, o campo `bill` em `POST /sessions/{id}/finish` virou **opcional** (`*bool`): ausente ⇒ cobra; `false` ⇒ opt-out. `SessionService.Finish` marca `Bill = true` quando o flag não é informado. Spec R1.3 · D1.2.
+2. **Dia de vencimento no plano (`due_day`).** O `plan` ganha `due_day` (1–28, para evitar meses curtos; 0 = não aplicável a planos por sessão/social). Migration `0003_plan_due_day.sql` aditiva: default 1, e `due_day = 5` para os planos fechados pré-existentes (padrão coerente). Spec R1.5 · D1.1.
+3. **Ciclo dispara a partir do vencimento; `due_date` real.** `CloseCycles` só gera o débito do período quando `ref` alcança o `due_day` do período (`ref >= vencimento`). O `due_date` do débito passa a ser a data real do vencimento (ano/mês do período + `due_day`), não mais `now + 7 dias`. Trimestral dispara pelo `due_day` do **1º mês** do trimestre; a idempotência por `cycle:<plan_id>:<período>` garante uma única cobrança por período, mesmo rodando o cron diário várias vezes. Spec R1.2, R1.5 · D1.3.
+4. **Sem plano vigente ⇒ skip observável.** Finalizar uma sessão de paciente sem plano vigente não gera débito (sem base de valor) e registra um audit `debt_skip_no_plan` (sem conteúdo clínico), para o terapeuta perceber que faltou cadastrar o plano. Spec R1.2 · D1.2.
+
+**Consequências.**
+- Migration `0003_plan_due_day.sql` (aditiva, idempotente no boot).
+- Contrato: `due_day` em `POST /v1/admin/plans` e no `planView`; `bill` opcional em `POST /sessions/{id}/finish`. Swagger atualizado.
+- UI do plano: seletor de dia de vencimento (1–28) visível só nos planos fechados.
+- Testes: unit de validação do `due_day`; unit de billing (opt-out, skip sem plano, gatilho antes/depois do vencimento, `due_date` real, trimestral pelo 1º mês); migration 0003 em base com/sem dados; E2E de geração por padrão e opt-out.
+- Cron (`CloseCycles` diário) inalterado no agendamento; nada de geração preguiçosa nesta onda.
+
+---
+
 ## 2026-10-12 — Onda "prontuario-ux": prontuário unificado, edição de sessão, WhatsApp, paleta e calendário fluido
 
 **Contexto.** Pedido de produto do terapeuta focado em usabilidade do acompanhamento clínico e identidade visual. O detalhe do paciente fragmentava o conteúdo clínico em abas separadas (Anamnese, Sessões, Notas) e não permitia abrir uma sessão para editá-la nem registrar o relatório daquela sessão; o telefone era texto puro (sem link e sem padronização); o tema branco+verde/teal soava genérico; e a agenda semanal não acomodava bem um dia com ~10 pacientes. Detalhado na spec [`prontuario-ux`](../.kiro/specs/prontuario-ux/requirements.md).

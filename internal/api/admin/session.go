@@ -188,8 +188,9 @@ func (h *SessionHandlers) schedule(w http.ResponseWriter, r *http.Request) {
 }
 
 type finishBody struct {
-	Bill         bool `json:"bill"`
-	ConsiderCost bool `json:"consider_cost"`
+	// Bill é opcional: ausente ⇒ padrão (cobrar); false ⇒ opt-out explícito.
+	Bill         *bool `json:"bill"`
+	ConsiderCost bool  `json:"consider_cost"`
 }
 
 func (h *SessionHandlers) finish(w http.ResponseWriter, r *http.Request) {

@@ -249,14 +249,17 @@ func (s *SessionService) MarkNoShow(ctx context.Context, id string) (*domain.Ses
 	return s.simpleTransition(ctx, id, domain.SessionFalta)
 }
 
-// FinishInput são os flags explícitos da finalização.
+// FinishInput são os flags explícitos da finalização. Bill é opcional (ponteiro)
+// para distinguir "não informado" (padrão = cobrar) de opt-out explícito
+// (false) — ver patient-timeline R1.3.
 type FinishInput struct {
-	Bill         bool
+	Bill         *bool
 	ConsiderCost bool
 }
 
 // Finish move a sessão para "realizada", grava os flags e dispara os hooks
-// (financeiro/custos). Os flags são decididos explicitamente pelo terapeuta.
+// (financeiro/custos). O padrão de uma sessão realizada é gerar cobrança
+// (Bill = true); o terapeuta só desmarca para opt-out explícito.
 func (s *SessionService) Finish(ctx context.Context, id string, in FinishInput) (*domain.Session, error) {
 	sess, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -266,7 +269,8 @@ func (s *SessionService) Finish(ctx context.Context, id string, in FinishInput) 
 		return nil, NewValidation("A sessão não pode ser finalizada a partir do estado atual.")
 	}
 	sess.Status = domain.SessionRealizada
-	sess.Bill = in.Bill
+	// Padrão: cobrar. Bill == nil (não informado) ⇒ true; false ⇒ opt-out.
+	sess.Bill = in.Bill == nil || *in.Bill
 	sess.ConsiderCost = in.ConsiderCost
 	sess.UpdatedAt = s.clock.Now()
 	if err := s.repo.Update(ctx, sess); err != nil {
