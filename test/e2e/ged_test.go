@@ -39,7 +39,7 @@ func TestGEDUploadDownloadDedup(t *testing.T) {
 
 	// Cria paciente.
 	resp := env.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Paciente GED", "phone": "1199", "email": "ged@example.com",
+		"name": "Paciente GED", "phone": "11999990001", "email": "ged@example.com",
 	})
 	pe := DecodeEnvelope(t, resp)
 	var p struct {

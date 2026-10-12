@@ -1,0 +1,16 @@
+# Contexto de build enxuto: só o necessário para compilar.
+.git
+bin/
+data/
+data-dev/
+docs/
+*.md
+.kiro/
+scripts/
+config.dev.yaml
+config.local.yaml
+config.yaml
+docker-compose.yml
+Dockerfile
+.dockerignore
+.golangci.yml

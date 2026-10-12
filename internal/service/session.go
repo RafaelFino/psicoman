@@ -16,6 +16,8 @@ type SessionRepository interface {
 	Get(ctx context.Context, id string) (*domain.Session, error)
 	List(ctx context.Context) ([]*domain.Session, error)
 	ListByPatient(ctx context.Context, patientID string) ([]*domain.Session, error)
+	// ListByRange devolve as sessões cujo início está em [from, to).
+	ListByRange(ctx context.Context, from, to time.Time) ([]*domain.Session, error)
 	SoftDelete(ctx context.Context, id string) error
 }
 
@@ -149,6 +151,48 @@ func (s *SessionService) Create(ctx context.Context, in SessionCreateInput) (*do
 	return sess, nil
 }
 
+// SessionUpdateInput são os campos editáveis de uma sessão. Nunca inclui o
+// paciente: uma sessão pertence a um paciente e trocá-lo é criar outra sessão.
+type SessionUpdateInput struct {
+	LocationID string
+	Modality   string
+	StartsAt   time.Time
+	EndsAt     time.Time
+}
+
+// Update altera os dados de agendamento (data/hora, local e modalidade) de uma
+// sessão existente, sem trocar o paciente. A edição de horário/local é bloqueada
+// em estados terminais (realizada/cancelada/falta); o registro clínico (notas
+// vinculadas) segue por outra rota e continua permitido. Não reconcilia o
+// Google Calendar nesta onda (ver docs/decisions.md 2026-10-12): a UI avisa o
+// terapeuta para ajustar o convite manualmente quando a sessão tem evento.
+func (s *SessionService) Update(ctx context.Context, id string, in SessionUpdateInput) (*domain.Session, error) {
+	sess, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sess.IsTerminal() {
+		return nil, NewValidation("Esta sessão já foi concluída e não pode ser reagendada.")
+	}
+	sess.LocationID = in.LocationID
+	sess.Modality = in.Modality
+	sess.StartsAt = in.StartsAt
+	sess.EndsAt = in.EndsAt
+	sess.UpdatedAt = s.clock.Now()
+	if err := sess.Validate(); err != nil {
+		return nil, NewValidation(err.Error())
+	}
+	if sess.Status == domain.SessionAgendada {
+		if err := s.ensureNoConflict(ctx, sess); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.repo.Update(ctx, sess); err != nil {
+		return nil, err
+	}
+	return sess, nil
+}
+
 // Schedule confirma uma sessão solicitada, movendo-a para "agendada" após
 // checar conflito de agenda.
 func (s *SessionService) Schedule(ctx context.Context, id string) (*domain.Session, error) {
@@ -249,6 +293,12 @@ func (s *SessionService) List(ctx context.Context) ([]*domain.Session, error) {
 // ListByPatient devolve as sessões de um paciente.
 func (s *SessionService) ListByPatient(ctx context.Context, patientID string) ([]*domain.Session, error) {
 	return s.repo.ListByPatient(ctx, patientID)
+}
+
+// ListByRange devolve as sessões cujo início está no intervalo [from, to).
+// Serve às visões de agenda (semana/mês) sem trazer o histórico inteiro.
+func (s *SessionService) ListByRange(ctx context.Context, from, to time.Time) ([]*domain.Session, error) {
+	return s.repo.ListByRange(ctx, from, to)
 }
 
 func (s *SessionService) simpleTransition(ctx context.Context, id, next string) (*domain.Session, error) {

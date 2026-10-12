@@ -73,7 +73,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	patientRepo := sqlite.NewPatientRepo(db)
 	svc := service.NewPatientService(patientRepo)
 	if _, err := svc.Create(context.Background(), service.CreateInput{
-		Name: "Backup Teste", Phone: "1199", Email: "backup@example.com",
+		Name: "Backup Teste", Phone: "11999990001", Email: "backup@example.com",
 	}); err != nil {
 		t.Fatalf("criar paciente: %v", err)
 	}

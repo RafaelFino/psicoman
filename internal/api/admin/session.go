@@ -26,6 +26,7 @@ func (h *SessionHandlers) Register(g *api.Group) {
 	g.Handle("POST", "/sessions", h.create)
 	g.Handle("GET", "/sessions", h.list)
 	g.Handle("GET", "/sessions/{id}", h.get)
+	g.Handle("PUT", "/sessions/{id}", h.update)
 	g.Handle("POST", "/sessions/{id}/schedule", h.schedule)
 	g.Handle("POST", "/sessions/{id}/finish", h.finish)
 	g.Handle("POST", "/sessions/{id}/cancel", h.cancel)
@@ -83,10 +84,66 @@ func (h *SessionHandlers) create(w http.ResponseWriter, r *http.Request) {
 	httpx.Respond(w, r, http.StatusCreated, "Sessão criada.", sessionView(s))
 }
 
+type sessionUpdateBody struct {
+	LocationID string `json:"location_id"`
+	Modality   string `json:"modality"`
+	StartsAt   string `json:"starts_at"` // RFC3339
+	EndsAt     string `json:"ends_at"`   // RFC3339
+}
+
+// update edita os dados de agendamento de uma sessão (data/hora, local,
+// modalidade). Não troca o paciente. Bloqueado em estados terminais no serviço.
+func (h *SessionHandlers) update(w http.ResponseWriter, r *http.Request) {
+	var b sessionUpdateBody
+	if err := httpx.DecodeJSON(r, &b); err != nil {
+		httpx.RespondError(w, r, err)
+		return
+	}
+	starts, err1 := time.Parse(time.RFC3339, b.StartsAt)
+	ends, err2 := time.Parse(time.RFC3339, b.EndsAt)
+	if err1 != nil || err2 != nil {
+		httpx.RespondError(w, r, httpx.ErrValidation("Os horários devem estar no formato ISO-8601 (RFC3339)."))
+		return
+	}
+	s, err := h.svc.Update(r.Context(), r.PathValue("id"), service.SessionUpdateInput{
+		LocationID: b.LocationID, Modality: b.Modality, StartsAt: starts, EndsAt: ends,
+	})
+	if err != nil {
+		respondServiceError(w, r, err)
+		return
+	}
+	_ = h.audit.Record(r.Context(), httpx.Actor(r.Context()), domain.AuditActionUpdate, "session", s.ID,
+		map[string]any{"starts_at": s.StartsAt, "ends_at": s.EndsAt, "location_id": s.LocationID, "modality": s.Modality})
+	httpx.Respond(w, r, http.StatusOK, "Sessão atualizada.", sessionView(s))
+}
+
 func (h *SessionHandlers) list(w http.ResponseWriter, r *http.Request) {
-	// Filtro opcional por paciente.
-	if pid := r.URL.Query().Get("patient_id"); pid != "" {
+	q := r.URL.Query()
+	// Filtro opcional por paciente (usado no detalhe do paciente).
+	if pid := q.Get("patient_id"); pid != "" {
 		ss, err := h.svc.ListByPatient(r.Context(), pid)
+		if err != nil {
+			respondServiceError(w, r, err)
+			return
+		}
+		h.respondList(w, r, ss)
+		return
+	}
+	// Filtro opcional por intervalo [from, to) — serve às visões de agenda
+	// (semana/mês). Ambos devem vir juntos, em ISO-8601 (RFC3339).
+	fromStr, toStr := q.Get("from"), q.Get("to")
+	if fromStr != "" || toStr != "" {
+		if fromStr == "" || toStr == "" {
+			httpx.RespondError(w, r, httpx.ErrValidation("Informe os dois limites do intervalo: from e to."))
+			return
+		}
+		from, err1 := time.Parse(time.RFC3339, fromStr)
+		to, err2 := time.Parse(time.RFC3339, toStr)
+		if err1 != nil || err2 != nil {
+			httpx.RespondError(w, r, httpx.ErrValidation("Os limites from e to devem estar no formato ISO-8601 (RFC3339)."))
+			return
+		}
+		ss, err := h.svc.ListByRange(r.Context(), from, to)
 		if err != nil {
 			respondServiceError(w, r, err)
 			return

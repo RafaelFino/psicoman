@@ -68,6 +68,9 @@ func (p *Patient) Validate() error {
 	if strings.TrimSpace(p.Phone) == "" {
 		return errors.New("O telefone é obrigatório.")
 	}
+	if !plausiblePhone(p.Phone) {
+		return errors.New("O telefone precisa ter DDD e número (ex.: 11 91234-5678).")
+	}
 	if strings.TrimSpace(p.Email) == "" {
 		return errors.New("O email é obrigatório.")
 	}
@@ -85,6 +88,53 @@ func (p *Patient) Validate() error {
 
 // CanIssueReceipt indica se o paciente pode receber recibo/Receita Saúde.
 func (p *Patient) CanIssueReceipt() bool { return p.CPF != "" }
+
+// onlyDigits devolve apenas os dígitos de s (descarta +, (), -, espaços, etc.).
+func onlyDigits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// NormalizePhone devolve o telefone em forma canônica: só dígitos, com DDI do
+// Brasil (55) quando ausente. Preserva números que já cheguem com DDI 55 e
+// comprimento compatível; descarta máscara/pontuação. Retorna "" se não houver
+// dígitos. A validação de plausibilidade fica no Validate (plausiblePhone).
+//
+// Exemplos:
+//
+//	"11999990001"      -> "5511999990001"  (celular 11 díg -> +55)
+//	"(11) 99999-0001"  -> "5511999990001"  (máscara)
+//	"5511999990001"    -> "5511999990001"  (já com DDI)
+//	"+55 11 3333-4444" -> "551133334444"   (fixo 10 díg + DDI)
+//	"123"              -> "123"            (ambíguo; rejeitado no Validate)
+func NormalizePhone(phone string) string {
+	digits := onlyDigits(phone)
+	if digits == "" {
+		return ""
+	}
+	// Já tem DDI 55 + (DDD 2 + 8/9 dígitos) => 12 ou 13 dígitos.
+	if strings.HasPrefix(digits, "55") && (len(digits) == 12 || len(digits) == 13) {
+		return digits
+	}
+	// Número nacional (DDD + 8/9) => 10 ou 11 dígitos: prefixa 55.
+	if len(digits) == 10 || len(digits) == 11 {
+		return "55" + digits
+	}
+	// Caso ambíguo: devolve só os dígitos; o Validate decide se é aceitável.
+	return digits
+}
+
+// plausiblePhone indica se o telefone (idealmente já canônico) tem comprimento
+// de um número brasileiro com DDI: 12 (fixo) ou 13 (celular) dígitos.
+func plausiblePhone(phone string) bool {
+	n := len(onlyDigits(phone))
+	return n == 12 || n == 13
+}
 
 // NormalizeCPF remove formatação do CPF (mantém só dígitos).
 func NormalizeCPF(cpf string) string {

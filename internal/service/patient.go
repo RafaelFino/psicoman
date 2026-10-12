@@ -48,7 +48,7 @@ func (s *PatientService) Create(ctx context.Context, in CreateInput) (*domain.Pa
 	p := &domain.Patient{
 		ID:             ulid.New(),
 		Name:           in.Name,
-		Phone:          in.Phone,
+		Phone:          domain.NormalizePhone(in.Phone),
 		Email:          in.Email,
 		CPF:            domain.NormalizeCPF(in.CPF),
 		OriginID:       in.OriginID,
@@ -85,7 +85,7 @@ func (s *PatientService) Update(ctx context.Context, in UpdateInput) (*domain.Pa
 		return nil, s.mapErr(err)
 	}
 	existing.Name = in.Name
-	existing.Phone = in.Phone
+	existing.Phone = domain.NormalizePhone(in.Phone)
 	existing.Email = in.Email
 	existing.CPF = domain.NormalizeCPF(in.CPF)
 	existing.OriginID = in.OriginID
@@ -124,7 +124,7 @@ func (s *PatientService) RegisterFromPortal(ctx context.Context, in PortalRegist
 			existing.Name = in.Name
 		}
 		if in.Phone != "" {
-			existing.Phone = in.Phone
+			existing.Phone = domain.NormalizePhone(in.Phone)
 		}
 		if cpf := domain.NormalizeCPF(in.CPF); cpf != "" {
 			existing.CPF = cpf
@@ -149,7 +149,7 @@ func (s *PatientService) RegisterFromPortal(ctx context.Context, in PortalRegist
 	p := &domain.Patient{
 		ID:             ulid.New(),
 		Name:           in.Name,
-		Phone:          in.Phone,
+		Phone:          domain.NormalizePhone(in.Phone),
 		Email:          in.Email,
 		CPF:            domain.NormalizeCPF(in.CPF),
 		ApprovalStatus: domain.PatientPending,

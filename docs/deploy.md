@@ -27,7 +27,7 @@ flowchart TB
     Admin --> Google[Google Calendar/Meet/Gmail/Drive]
 ```
 
-- Os binários escutam **apenas em `127.0.0.1`** (loopback). Quem expõe para a
+- Os binários escutam **apenas em `0.0.0.0`** (loopback). Quem expõe para a
   internet, com TLS, é o Pangolin.
 - O **admin** fica atrás do Pangolin **com controle de acesso**; o **portal**
   fica atrás do Pangolin **só com TLS** (a autenticação do paciente é feita pela
@@ -172,7 +172,7 @@ A diferença crucial:
 Configuração recomendada (nomes exatos variam conforme a versão do Pangolin):
 
 1. **Recurso/serviço admin**
-   - Destino (upstream): `http://127.0.0.1:8080` (ou a porta escolhida no deploy).
+   - Destino (upstream): `http://0.0.0.0:8080` (ou a porta escolhida no deploy).
    - Domínio público: `admin.seudominio.com.br` (TLS gerenciado pelo Pangolin).
    - Controle de acesso: **ativado**. Configure o provedor de identidade do
      Pangolin de forma que ele **injete o header com o e-mail do terapeuta**
@@ -182,14 +182,14 @@ Configuração recomendada (nomes exatos variam conforme a versão do Pangolin):
      aplicação valida.
 
 2. **Recurso/serviço portal**
-   - Destino: `http://127.0.0.1:8081`.
+   - Destino: `http://0.0.0.0:8081`.
    - Domínio público: `portal.seudominio.com.br`.
    - Controle de acesso: **desativado** (só TLS). O portal cuida da própria auth.
 
 3. **DNS**: aponte `admin.seudominio.com.br` e `portal.seudominio.com.br` para o
    Pangolin, conforme a documentação do seu gateway.
 
-> Importante: como os binários escutam só em `127.0.0.1`, eles **não** ficam
+> Importante: como os binários escutam só em `0.0.0.0`, eles **não** ficam
 > acessíveis diretamente da internet. Todo o tráfego externo passa
 > obrigatoriamente pelo Pangolin.
 
@@ -208,7 +208,7 @@ Ele vai:
 1. Verificar os pré-requisitos.
 2. Perguntar tudo o que a aplicação precisa (com valores padrão sensatos):
    - usuário de serviço, diretórios de instalação e de dados;
-   - hosts/portas do admin e do portal (mantenha em `127.0.0.1`);
+   - hosts/portas do admin e do portal (mantenha em `0.0.0.0`);
    - e-mail do terapeuta e **secret** do admin (pode gerar automaticamente);
    - nomes dos headers do Pangolin;
    - Client ID / Secret do Google, redirect URL, Calendar ID, pasta de backup;
@@ -228,9 +228,9 @@ Pangolin. Anote-o com cuidado; ele não é exibido de novo.
 
 ```bash
 # Localmente na VM:
-curl -s http://127.0.0.1:8080/healthz   # {"status":"ok"}
-curl -s http://127.0.0.1:8080/readyz    # {"status":"ready"} (ou degraded se Google pendente)
-curl -s http://127.0.0.1:8081/healthz
+curl -s http://0.0.0.0:8080/healthz   # {"status":"ok"}
+curl -s http://0.0.0.0:8080/readyz    # {"status":"ready"} (ou degraded se Google pendente)
+curl -s http://0.0.0.0:8081/healthz
 
 # Pelo domínio (após configurar o Pangolin):
 curl -s https://admin.seudominio.com.br/healthz

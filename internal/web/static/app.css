@@ -1,25 +1,25 @@
 /* Psicoman — sistema de design.
    Moderno, responsivo, mobile-first. WCAG AA (contraste >= 4.5:1 em texto,
-   foco visível, alvos de toque >= 44px). Paleta clara e acolhedora com acento
-   teal/índigo e bom contraste. Tipografia Inter. */
+   foco visível, alvos de toque >= 44px). Paleta clara e acolhedora: azul royal
+   (primária) + lilás (acento) sobre fundos claros derivados. Tipografia Inter. */
 
 /* ── Fonte ──────────────────────────────────────────────────────────────── */
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 
 /* ── Tokens ─────────────────────────────────────────────────────────────── */
 :root {
-  --bg: #f1f5f9;            /* slate-100 */
-  --surface: #ffffff;
-  --surface-2: #f8fafc;     /* slate-50 */
+  --bg: #f5f4fb;            /* lilás/azul muito claro (fundo do app) */
+  --surface: #ffffff;       /* branco — superfícies principais */
+  --surface-2: #faf9fe;     /* branco levemente lilás (cartões suaves) */
   --text: #0f172a;          /* slate-900 — contraste ~15:1 sobre surface */
   --muted: #475569;         /* slate-600 — ~7:1 sobre surface */
   --subtle: #94a3b8;        /* slate-400 — para hints/placeholders */
 
-  --primary: #0d9488;       /* teal-600 — branco sobre ele ~4.8:1 */
-  --primary-strong: #0f766e;/* teal-700 */
-  --primary-soft: #ccfbf1;  /* teal-100 */
-  --accent: #4f46e5;        /* indigo-600 */
-  --accent-soft: #e0e7ff;   /* indigo-100 */
+  --primary: #3730a3;       /* azul royal (indigo-800) — branco sobre ele ~8:1 */
+  --primary-strong: #312e81;/* azul royal escuro (indigo-900) */
+  --primary-soft: #e0e7ff;  /* azul royal claro (indigo-100) */
+  --accent: #7c3aed;        /* lilás (violet-600) — branco sobre ele ~5:1 */
+  --accent-soft: #ede9fe;   /* lilás claro (violet-100) */
 
   --ok: #15803d;            /* green-700 */
   --ok-soft: #dcfce7;
@@ -39,7 +39,7 @@
   --shadow: 0 4px 16px rgba(15, 23, 42, .08);
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, .14);
   --topbar-h: 60px;
-  --ring: 0 0 0 3px rgba(79, 70, 229, .35);
+  --ring: 0 0 0 3px rgba(124, 58, 237, .35);  /* foco em lilás */
 }
 
 /* ── Reset / base ───────────────────────────────────────────────────────── */
@@ -344,7 +344,8 @@ input:focus, select:focus, textarea:focus {
 }
 .chip.ok { background: var(--ok-soft); color: var(--ok); border-color: #bbf7d0; }
 .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: #fde68a; }
-.chip.info { background: var(--accent-soft); color: var(--accent); border-color: #c7d2fe; }
+.chip.info { background: var(--accent-soft); color: var(--accent); border-color: #ddd6fe; }
+.chip.danger { background: var(--danger-soft); color: var(--danger); border-color: #fecaca; }
 
 /* ── Listas de itens ────────────────────────────────────────────────────── */
 .item-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -447,17 +448,24 @@ pre.code {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
+  /* Cada coluna cresce conforme a lotação do dia (estilo Google Calendar):
+     alinhar pelo topo evita que um dia cheio estique os vizinhos (R5.1). */
+  align-items: start;
 }
 .week-day {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px;
-  min-height: 120px;
+  /* Altura mínima só para o dia vazio ter presença; o conteúdo manda e a
+     coluna cresce para baixo sem travar nem cortar (R5.1). */
+  min-height: 96px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
+/* Lista de sessões do dia: cresce naturalmente; a página rola (R5.1). */
+.week-day .day-slots { display: flex; flex-direction: column; gap: 8px; }
 .week-day.is-today { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
 .week-day .day-head {
   display: flex;
@@ -477,15 +485,17 @@ pre.code {
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
+  min-height: 44px;          /* alvo de toque confortável (WCAG AA, R5.1) */
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);
   cursor: pointer;
   text-align: left;
   font: inherit;
-  transition: border-color .12s, transform .05s;
+  transition: border-color .12s, transform .05s, box-shadow .12s;
 }
-.slot:hover { border-color: var(--primary); }
+.slot:hover { border-color: var(--primary); box-shadow: 0 1px 4px rgba(55, 48, 163, .12); }
+.slot:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .slot:active { transform: translateY(1px); }
 .slot .slot-time { font-weight: 700; font-size: .82rem; color: var(--primary-strong); }
 .slot .slot-name { font-size: .82rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -498,6 +508,109 @@ pre.code {
 @media (max-width: 720px) {
   .week-grid { grid-template-columns: 1fr; }
   .week-day { min-height: auto; }
+}
+
+/* ── Alternância de visão da agenda (semana / mês) ──────────────────────── */
+.view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  min-height: 40px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: .88rem;
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.switch-btn:hover { color: var(--text); }
+.switch-btn.active { background: var(--surface); color: var(--primary-strong); box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,.08)); }
+.switch-btn .icon { width: 1.05em; height: 1.05em; }
+
+/* ── Agenda mensal (grade dom–sáb, visão de planejamento) ───────────────── */
+/* Mobile-first: no celular a grade fica compacta; expande em telas maiores. */
+.month-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.month-wd {
+  text-align: center;
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.month-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 56px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .12s, background .12s;
+}
+.month-cell:hover { border-color: var(--primary); background: var(--primary-soft); }
+.month-cell:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.month-cell.is-outside { opacity: .4; }
+.month-cell.is-today { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+.month-cell.has-sessions { background: var(--surface-2); }
+.month-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.month-num { font-size: .82rem; font-weight: 700; color: var(--text); }
+.month-cell.is-today .month-num { color: var(--primary-strong); }
+.month-count {
+  font-size: .62rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+}
+.month-dots { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.month-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.month-dot.st-solicitada { background: var(--warn); }
+.month-dot.st-agendada { background: var(--accent); }
+.month-dot.st-realizada { background: var(--ok); }
+.month-dot.st-falta { background: var(--danger); }
+.month-more { font-size: .62rem; font-weight: 700; color: var(--muted); }
+
+/* Tablet/desktop: células mais altas e números maiores. */
+@media (min-width: 721px) {
+  .month-weekdays, .month-grid { gap: 8px; }
+  .month-wd { font-size: .75rem; }
+  .month-cell { min-height: 92px; padding: 8px; }
+  .month-num { font-size: .95rem; }
+  .month-dot { width: 8px; height: 8px; }
 }
 
 /* ── Abas (detalhe do paciente) ─────────────────────────────────────────── */
@@ -601,3 +714,53 @@ textarea.tall { min-height: 180px; resize: vertical; line-height: 1.5; }
 .table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border, #e5e7eb); }
 .table th { color: var(--muted); font-weight: 600; }
 .table tbody tr:hover { background: var(--surface-2, #f8fafc); }
+
+/* ── Prontuário: timeline cronológica (prontuario-ux R1) ────────────────── */
+.timeline { display: flex; flex-direction: column; gap: 18px; }
+.tl-day { display: flex; flex-direction: column; gap: 8px; }
+.tl-date {
+  margin: 0;
+  font-size: .9rem;
+  font-weight: 700;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--primary-soft);
+}
+.tl-item { border-left: 4px solid var(--border); }
+.tl-item.st-agendada { border-left-color: var(--accent); }
+.tl-item.st-solicitada { border-left-color: var(--warn); }
+.tl-item.st-realizada { border-left-color: var(--ok); }
+.tl-item.st-cancelada, .tl-item.st-falta { border-left-color: var(--danger); }
+.tl-item.tl-nota { border-left-color: var(--accent-soft); }
+.tl-registros { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.tl-registro {
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.tl-sem-registro { margin: 8px 0 0; font-style: italic; }
+
+/* ── Modal / painel sobreposto (painel da sessão) ───────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(15, 23, 42, .45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 24px 16px; overflow-y: auto;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, .25);
+  width: 100%; max-width: 640px;
+  padding: 20px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+@media (max-width: 720px) {
+  .modal-backdrop { padding: 12px 8px; }
+  .modal { padding: 14px; border-radius: 12px; }
+}

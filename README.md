@@ -16,11 +16,11 @@ O escopo descrito na documentação corresponde ao **MVP**. Ideias futuras discu
 
 **Dentro do escopo:**
 - Perfil do terapeuta (nome, CRP, contatos, foto, bio, locais de atendimento, links de plataformas como Doctoralia/Zenklub/Terapy).
-- Cadastro de pacientes (com origem de aquisição, email e CPF únicos) e locais de atendimento.
-- Agenda integrada ao Google Calendar, com checagem de conflito (freebusy) antes de confirmar, Google Meet e notificações delegadas ao Google.
-- Ciclo de vida de sessões (agendada → realizada / cancelada / falta) com controle explícito de cobrança e custo.
+- Cadastro de pacientes (com origem de aquisição, email e CPF únicos) e locais de atendimento. Telefone normalizado (DDI 55) e exibido como link de WhatsApp no admin.
+- Agenda integrada ao Google Calendar, com checagem de conflito (freebusy) antes de confirmar, Google Meet e notificações delegadas ao Google. Visão semanal fluida (o dia cresce com a lotação).
+- Ciclo de vida de sessões (agendada → realizada / cancelada / falta) com controle explícito de cobrança e custo, e edição de sessão (data/hora, local, modalidade).
 - Planos e pagamentos com gatilho de débito por tipo de plano (por sessão, por fechamento de ciclo, ou nunca no caso do atendimento social), geração idempotente, PDF de cobrança, quitação com comprovantes.
-- Prontuário: anamnese, notas de sessão, notas livres e templates em Markdown.
+- Prontuário unificado: linha do tempo por data com sessões e seus registros + notas livres; anamnese à parte; templates em Markdown.
 - Controle de custos (local, CRP, infra, plataformas), rateio por sessão e ROI por canal de origem.
 - Relatórios financeiros e de custos.
 - Portal do paciente (self-service): login social Google (com vínculo por email a cadastro pré-existente), agenda aberta, pedido de agendamento, acompanhamento de sessões e débitos — com TLS e rate limiting próprios nas rotas públicas.
@@ -165,6 +165,19 @@ A spec passou por uma revisão de coerência antes do início da implementação
 - **Plano de execução**: o grafo de dependências do `tasks.md` estava incompleto (a Task 20 declarava depender de várias tasks sem que o grafo cobrisse todos os caminhos); corrigido e a matriz de rastreabilidade requisito→task atualizada.
 
 Não foram encontrados outros bloqueadores. A spec está consistente entre `requirements.md`, `architecture.md` e `tasks.md`, e pronta para o início da implementação.
+
+## Teste local (Docker)
+
+Para subir o sistema inteiro (admin + portal) num container local, com dados de
+demonstração e limpeza completa depois:
+
+```bash
+make stack-up      # sobe a stack em modo dev e aplica a carga inicial
+make stack-down    # derruba e limpa tudo (containers, volume e imagem)
+```
+
+Admin em http://localhost:8080/app/ e portal em http://localhost:8081/app/.
+Detalhes (seed, logs, variações) em [`docs/stack-local.md`](./docs/stack-local.md).
 
 ## Deploy
 

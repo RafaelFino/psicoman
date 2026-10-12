@@ -76,7 +76,7 @@ func TestOriginAndPatientOrigin(t *testing.T) {
 	}
 
 	pe := DecodeEnvelope(t, env.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Com Origem", "phone": "1199", "email": "origem@example.com", "origin_id": origin.ID,
+		"name": "Com Origem", "phone": "11999990001", "email": "origem@example.com", "origin_id": origin.ID,
 	}))
 	var p struct {
 		ID       string `json:"id"`
@@ -94,7 +94,7 @@ func TestPlansByType(t *testing.T) {
 	defer env.Stop()
 
 	pe := DecodeEnvelope(t, env.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Planos", "phone": "1199", "email": "planos@example.com",
+		"name": "Planos", "phone": "11999990001", "email": "planos@example.com",
 	}))
 	var p struct {
 		ID string `json:"id"`
@@ -145,7 +145,7 @@ func TestCreateSessionFromAgenda(t *testing.T) {
 	defer adminEnv.Stop()
 
 	pe := DecodeEnvelope(t, adminEnv.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Agendar", "phone": "1199", "email": "agendar@example.com",
+		"name": "Agendar", "phone": "11999990001", "email": "agendar@example.com",
 	}))
 	var p struct {
 		ID string `json:"id"`

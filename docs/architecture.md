@@ -92,6 +92,7 @@ erDiagram
 
 **patient** — nome, telefone, email (obrigatórios, `email` UNIQUE); cpf (opcional, `cpf` UNIQUE quando não nulo); origin_id; `approval_status` (`pendente`|`aprovado`|`rejeitado`); created_at/updated_at.
 - Regra: emissão de recibo/Receita Saúde exige `cpf` não nulo.
+- Regra: **telefone canônico** (prontuario-ux) — `domain.NormalizePhone` canoniza para só dígitos com DDI `55` (espelha `NormalizeCPF`), aplicado no `PatientService` em `Create`/`Update`/`RegisterFromPortal` antes do `Validate`; o `Validate` exige comprimento plausível (12–13 dígitos). Vale para admin e portal. Dado legado sem DDI continua exibível; é normalizado na próxima edição (migração de dados do legado fica como melhoria opcional).
 - Regra: cadastro via portal com email já existente vincula ao `patient` existente (upsert por email), nunca duplica.
 - Regra: gate de aprovação (mvp-audit1 R1) — auto-cadastro nasce `pendente`, cadastro pelo admin nasce `aprovado`; vínculo por email não rebaixa. Coluna `approval_status` adicionada pela migration `0002_patient_approval` (default `pendente`; backfill `aprovado` para os pré-existentes).
 
@@ -176,6 +177,7 @@ sequenceDiagram
 ```
 
 - **Checagem de conflito:** antes de criar/mover um evento, o `SessionService` consulta o Calendar (`freebusy`) do terapeuta para o horário pretendido. Cobre também compromissos não criados pelo Psicoman. Conflito bloqueia a confirmação (HTTP 409, mensagem PT-BR).
+- **Edição de sessão (`SessionService.Update`, prontuario-ux):** altera data/hora, local e modalidade de uma sessão não-terminal (sem trocar o paciente); reusa `SessionRepo.Update` (sem mudança de schema), revalida invariantes e refaz a checagem de conflito quando `agendada`. Estados terminais (realizada/cancelada/falta) recusam edição de horário/local (HTTP 422). **Não reconcilia o Google Calendar** nesta onda (o `SessionCalendar` só expõe `CreateEvent`); a UI avisa para ajustar o convite manualmente. Decisão em [`decisions.md`](./decisions.md).
 - **Idempotência do débito (planos por sessão):** `INSERT ... ON CONFLICT(idempotency_key) DO NOTHING`; segunda chamada não duplica.
 - **Rateio (custo `diario`/`mensal`/`anual`):** `custo_periodo / nº_sessões_realizadas_no_local_no_periodo`. Recalculado ao fechar o período; `session_cost` guarda o valor no momento + base usada para auditoria.
 
@@ -233,6 +235,14 @@ sequenceDiagram
 
 Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin aplica controle de acesso apenas no admin.
 
+### 4.6 UI do admin (SSR + Alpine) — prontuario-ux
+
+- **Prontuário unificado:** no detalhe do paciente (`internal/web/templates/admin_app.html`, componente Alpine `patientDetail`), uma aba única **Prontuário** substitui as abas "Sessões" e "Notas". A timeline é montada no cliente (`timeline()`): sessões (com registros vinculados aninhados por `session_id`) + notas livres (`is_free`), ordenadas por data desc e agrupadas por dia; Markdown via `Md.toHtml`. A **Anamnese** permanece separada.
+- **Painel da sessão:** overlay (`.modal`) com edição (`PUT /sessions/{id}`), transições de estado quando aplicável e registros vinculados (`POST /patients/{id}/notes` com `session_id`). Aberto a partir do Prontuário ou da **Agenda** (store `nav.openSession(patientId, sessionId)` → `patientDetail` foca a sessão ao carregar).
+- **Calendário semanal fluido:** `.week-grid` com `align-items: start` — a coluna do dia cresce conforme a lotação sem deformar os vizinhos (seg–sáb, sem domingo). Cartões (`.slot`) ≥ 44px e clicáveis (abrem o painel da sessão).
+- **Paleta:** tokens em `:root` de `internal/web/static/app.css` — **azul royal** (primária) + **lilás** (acento) sobre fundos claros; cores de estado (ok/atenção/perigo) preservadas. A troca propaga por todas as classes que usam `var(--primary)`/`var(--accent)`.
+- **WhatsApp:** helper `Wa` (`api.js`) monta `https://wa.me/<numero>` a partir do telefone canônico; exibido como link nos pontos de telefone do admin (cabeçalho, aba Dados, listas de pacientes), com fallback "—".
+
 - **Admin:** atrás do Pangolin **com** autenticação. O middleware valida header de email (Pangolin) == email admin do config, e header secret == secret do config. Falha → 401/403 com mensagem PT-BR + audit log.
 - **Portal:** atrás do Pangolin **sem** controle de acesso (só TLS/HTTPS). A autenticação é da aplicação: OAuth Google login → sessão assinada (cookie httpOnly/JWT). Handlers filtram por email verificado; nenhum acesso a dados clínicos. Como o Pangolin não filtra acesso aqui, as rotas públicas (cadastro, pedido de agendamento) têm rate limiting próprio.
 - **Gate de aprovação do portal (defense in depth):** as rotas de recurso do portal passam por um middleware `ApprovalGate` encadeado **depois** do autenticador de sessão — resolve o paciente pelo email da sessão e nega (HTTP 403) enquanto não estiver `aprovado`. As rotas `GET /me`, `GET /approval-status` e `POST /logout` ficam fora do gate (só exigem sessão). Complementa o rate limiting, não o substitui.
@@ -263,6 +273,7 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 | CRUD | `/v1/admin/locations` | Locais |
 | CRUD | `/v1/admin/plans` | Planos por paciente |
 | GET/POST | `/v1/admin/sessions` | Sessões e transições de estado (checa conflito via freebusy do Calendar antes de confirmar) |
+| GET/PUT | `/v1/admin/sessions/{id}` | Obter / editar sessão (data/hora, local, modalidade; não troca paciente; bloqueado em estado terminal; auditado) |
 | POST | `/v1/admin/sessions/{id}/finish` | Finalizar (flags bill/consider_cost) |
 | GET/POST | `/v1/admin/appointment-requests` | Pedidos pendentes / confirmar |
 | CRUD | `/v1/admin/debts` | Débitos; PDF de cobrança |

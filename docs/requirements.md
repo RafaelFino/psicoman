@@ -40,6 +40,7 @@ Requisitos:
 
 - Obrigatórios: **nome, telefone, email**.
 - **CPF opcional** — sem CPF **não é possível emitir recibo nem Receita Saúde** (a operação é bloqueada com mensagem em PT-BR).
+- O **telefone é normalizado na entrada** (admin e portal) para forma canônica: só dígitos, com DDI do Brasil (`55`) quando ausente. Números implausíveis (sem DDD/número) são rejeitados com mensagem em PT-BR. No admin, o telefone é exibido como **link para o WhatsApp** (`wa.me`), abrindo a conversa em nova aba (onda `prontuario-ux`).
 - Cada paciente tem **ID único (ULID)** referenciado em todo o sistema.
 - Cada paciente tem uma **origem** (canal de aquisição: Doctoralia, indicação, etc.), base para o cálculo de ROI.
 - Cadastro pode ser iniciado pelo terapeuta (completo) ou pelo próprio paciente no portal (dados básicos); o terapeuta complementa os dados clínicos.
@@ -86,6 +87,8 @@ stateDiagram-v2
 - Ao mudar o estado (Realizada / Cancelada / Falta), o terapeuta decide **explicitamente** dois flags independentes:
   - **Haverá cobrança?** → gera ou não débito financeiro.
   - **Custos serão considerados?** → a sessão computa ou não custo de local/infra.
+- **Edição de sessão** (onda `prontuario-ux`): o terapeuta pode abrir uma sessão (na Agenda ou no Prontuário) e editar **data/hora, local e modalidade** (`PUT /v1/admin/sessions/{id}`). A edição **não troca o paciente** e é **bloqueada em estados terminais** (realizada/cancelada/falta); o registro clínico da sessão continua permitido. A edição é auditada. Quando a sessão tem evento no Google, a UI avisa para ajustar o convite manualmente (a reconciliação automática com o Calendar está fora de escopo desta onda — ver [`decisions.md`](./decisions.md)).
+- **Visão semanal fluida** (onda `prontuario-ux`): a agenda semanal (seg–sáb, sem domingo) acomoda muitos atendimentos no mesmo dia; a coluna do dia **cresce conforme a lotação** (referência ~10/dia), sem deformar os dias vizinhos. Cada cartão é clicável e abre o painel da sessão.
 
 ### 3.4 Planos e Pagamentos
 
@@ -124,6 +127,7 @@ Cadastro de custos: **local** (§3.2), **CRP** (anual), **infraestrutura** (Goog
 - **Notas livres**: sem vínculo com sessão (lembretes). Notas de sessão e livres sempre ordenadas por **data de criação**.
 - **GED segregado por paciente**, isolando documentos.
 - **Templates em Markdown** para enviar ao paciente (ex: anamnese); o envio usa sempre a versão **formatada**.
+- **Prontuário unificado** (onda `prontuario-ux`): no detalhe do paciente, uma aba única **Prontuário** reúne, numa **linha do tempo por data** (mais recente no topo), as **sessões** com seus **registros clínicos vinculados** e as **notas livres**. Substitui as abas antigas "Sessões" e "Notas"; a **Anamnese** permanece separada (documento único). O topo traz um resumo (total de sessões, realizadas, faltas, último registro). O ato de **agendar** continua na Agenda; o Prontuário trata do **registro clínico**. Ao abrir uma sessão no Prontuário, é possível editá-la (§3.3) e adicionar/remover registros vinculados.
 
 ### 3.7 Integração Google
 
@@ -191,7 +195,7 @@ O terapeuta tem uma tela para inserir e editar seus próprios dados. Como cada i
 ### 4.5 Interface (UX)
 
 - Moderna, limpa, leve, acolhedora e empática. Usuários com pouco conhecimento técnico: zero jargão, fluxos curtos, feedback claro em PT-BR.
-- Paleta suave, tipografia legível, espaçamento generoso, ícones simples, **acessibilidade WCAG AA** (navegação por teclado, contraste, labels, foco visível).
+- Paleta suave, tipografia legível, espaçamento generoso, ícones simples, **acessibilidade WCAG AA** (navegação por teclado, contraste, labels, foco visível). A identidade visual usa **azul royal** (primária) e **lilás** (acento) sobre fundos claros derivados e branco (onda `prontuario-ux`).
 - **Responsiva (mobile-first)**: portal do paciente prioriza mobile; admin funciona bem em desktop e mobile.
 
 > Stack de front-end e realização técnica: `architecture.md §9`.

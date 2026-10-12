@@ -51,15 +51,18 @@ CONFIG_PATH="${INSTALL_DIR}/config.yaml"
 
 # Extrai host:port do config para validar /readyz (parse simples de YAML plano).
 yaml_get() { awk -v k="$1" '$1==k":"{gsub(/"/,"",$2); print $2}' "${CONFIG_PATH}" | head -1; }
+# host de bind 0.0.0.0 (todas as interfaces) não é navegável: para o
+# health-check local, mapeia para 127.0.0.1.
+local_host() { case "$1" in 0.0.0.0|""|::) echo "127.0.0.1";; *) echo "$1";; esac; }
 if [[ -z "${ADMIN_URL}" ]]; then
   ah="$(awk '/^admin:/{a=1} a&&/host:/{gsub(/"/,"",$2);print $2;exit}' "${CONFIG_PATH}")"
   ap="$(awk '/^admin:/{a=1} a&&/port:/{print $2;exit}' "${CONFIG_PATH}")"
-  ADMIN_URL="http://${ah:-127.0.0.1}:${ap:-8080}"
+  ADMIN_URL="http://$(local_host "${ah:-127.0.0.1}"):${ap:-8080}"
 fi
 if [[ -z "${PORTAL_URL}" ]]; then
   ph="$(awk '/^portal:/{p=1} p&&/host:/{gsub(/"/,"",$2);print $2;exit}' "${CONFIG_PATH}")"
   pp="$(awk '/^portal:/{p=1} p&&/port:/{print $2;exit}' "${CONFIG_PATH}")"
-  PORTAL_URL="http://${ph:-127.0.0.1}:${pp:-8081}"
+  PORTAL_URL="http://$(local_host "${ph:-127.0.0.1}"):${pp:-8081}"
 fi
 
 DB_PATH="$(awk '/^paths:/{p=1} p&&/sqlite:/{gsub(/"/,"",$2);print $2;exit}' "${CONFIG_PATH}")"

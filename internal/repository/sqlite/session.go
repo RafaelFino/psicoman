@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
@@ -71,6 +72,16 @@ func (r *SessionRepo) List(ctx context.Context) ([]*domain.Session, error) {
 // ListByPatient devolve as sessões de um paciente.
 func (r *SessionRepo) ListByPatient(ctx context.Context, patientID string) ([]*domain.Session, error) {
 	return r.query(ctx, sessionSelect+` WHERE patient_id=? AND deleted_at IS NULL ORDER BY starts_at DESC`, patientID)
+}
+
+// ListByRange devolve as sessões ativas cujo início está em [from, to),
+// em ordem cronológica crescente (conveniente para a renderização da agenda).
+// Os limites são comparados em ISO-8601 (mesmo formato persistido), o que
+// preserva a ordem lexicográfica = cronológica.
+func (r *SessionRepo) ListByRange(ctx context.Context, from, to time.Time) ([]*domain.Session, error) {
+	return r.query(ctx,
+		sessionSelect+` WHERE starts_at >= ? AND starts_at < ? AND deleted_at IS NULL ORDER BY starts_at ASC`,
+		clock.Format(from), clock.Format(to))
 }
 
 // SoftDelete marca uma sessão como removida.

@@ -8,15 +8,31 @@
 
   <!-- ══════════════════════════════ AGENDA ══════════════════════════════ -->
   <section class="card" id="agenda" x-data="agendaPanel()" x-init="load()" x-show="!$store.nav.patientId">
-    <header>{{template "icon" "calendar"}}<h2>Agenda da semana</h2></header>
-    <p class="muted">Sessões de segunda a sábado. Clique numa sessão para abrir o paciente.</p>
+    <header>{{template "icon" "calendar"}}<h2 x-text="view === 'mes' ? 'Agenda do mês' : 'Agenda da semana'"></h2></header>
+    <p class="muted" x-text="view === 'mes'
+        ? 'Visão geral do mês para planejamento. Clique num dia para abrir a semana.'
+        : 'Sessões de segunda a sábado. Clique numa sessão para abrir o paciente.'"></p>
+
+    <!-- Alternância entre as visões (semana detalhada / mês geral) -->
+    <div class="view-switch" role="tablist" aria-label="Visão da agenda">
+      <button class="switch-btn" :class="{ active: view === 'semana' }" role="tab"
+              :aria-selected="view === 'semana' ? 'true' : 'false'" @click="setView('semana')" :disabled="loading">
+        {{template "icon" "calendar"}} Semana
+      </button>
+      <button class="switch-btn" :class="{ active: view === 'mes' }" role="tab"
+              :aria-selected="view === 'mes' ? 'true' : 'false'" @click="setView('mes')" :disabled="loading">
+        {{template "icon" "calendar"}} Mês
+      </button>
+    </div>
 
     <div class="agenda-toolbar">
-      <button class="btn secondary icon-only" @click="prevWeek()" :disabled="loading" aria-label="Semana anterior">
+      <button class="btn secondary icon-only" @click="prev()" :disabled="loading"
+              :aria-label="view === 'mes' ? 'Mês anterior' : 'Semana anterior'">
         {{template "icon" "chevron-left"}}
       </button>
-      <button class="btn secondary" @click="thisWeek()" :disabled="loading">Hoje</button>
-      <button class="btn secondary icon-only" @click="nextWeek()" :disabled="loading" aria-label="Próxima semana">
+      <button class="btn secondary" @click="today()" :disabled="loading">Hoje</button>
+      <button class="btn secondary icon-only" @click="next()" :disabled="loading"
+              :aria-label="view === 'mes' ? 'Próximo mês' : 'Próxima semana'">
         {{template "icon" "chevron-right"}}
       </button>
       <span class="range" x-text="rangeLabel()"></span>
@@ -81,7 +97,8 @@
       </div>
     </div>
 
-    <div class="week-grid" role="region" aria-live="polite">
+    <!-- Visão SEMANAL (detalhada, seg–sáb) -->
+    <div class="week-grid" role="region" aria-live="polite" x-show="view === 'semana'">
       <template x-for="day in days" :key="day.iso">
         <div class="week-day" :class="{ 'is-today': day.isToday }">
           <div class="day-head">
@@ -93,17 +110,47 @@
             <span class="day-empty">—</span>
           </template>
           <template x-for="s in day.slots" :key="s.id">
-            <button class="slot" :class="'st-' + s.status" @click="openPatient(s.patient_id)">
+            <button class="slot" :class="'st-' + s.status" @click="openSession(s)"
+                    :aria-label="'Abrir sessão de ' + patientName(s.patient_id) + ' às ' + fmtTime(s.starts_at)">
               <span class="slot-time" x-text="fmtTime(s.starts_at)"></span>
               <span class="slot-name" x-text="patientName(s.patient_id)"></span>
               <span class="slot-meta">
                 <svg class="icon" aria-hidden="true"><use :href="s.modality === 'online' ? '#i-video' : '#i-pin'"></use></svg>
-                <span x-text="s.status"></span>
+                <span class="chip" :class="statusChip(s.status)" x-text="Fmt.sessionStatus(s.status)"></span>
               </span>
             </button>
           </template>
         </div>
       </template>
+    </div>
+
+    <!-- Visão MENSAL (geral, calendário dom–sáb para planejamento) -->
+    <div class="month-view" x-show="view === 'mes'" x-cloak>
+      <div class="month-weekdays" aria-hidden="true">
+        <template x-for="wd in weekdayLabels" :key="wd">
+          <span class="month-wd" x-text="wd"></span>
+        </template>
+      </div>
+      <div class="month-grid" role="region" aria-live="polite">
+        <template x-for="cell in monthCells" :key="cell.iso">
+          <div class="month-cell"
+               :class="{ 'is-today': cell.isToday, 'is-outside': !cell.inMonth, 'has-sessions': cell.slots.length > 0 }"
+               role="button" tabindex="0"
+               :aria-label="cell.num + ', ' + cell.slots.length + ' sessão(ões). Abrir semana.'"
+               @click="openWeekOf(cell)" @keydown.enter="openWeekOf(cell)" @keydown.space.prevent="openWeekOf(cell)">
+            <div class="month-cell-head">
+              <span class="month-num" x-text="cell.num"></span>
+              <span class="month-count" x-show="cell.slots.length > 0" x-text="cell.slots.length"></span>
+            </div>
+            <div class="month-dots" x-show="cell.slots.length > 0">
+              <template x-for="s in cell.slots.slice(0, 4)" :key="s.id">
+                <span class="month-dot" :class="'st-' + s.status" :title="fmtTime(s.starts_at) + ' · ' + patientName(s.patient_id)"></span>
+              </template>
+              <span class="month-more" x-show="cell.slots.length > 4" x-text="'+' + (cell.slots.length - 4)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </section>
 
@@ -117,7 +164,12 @@
         <h2 x-text="patient ? patient.name : 'Paciente'"></h2>
         <div class="sub" x-show="patient">
           <span x-text="patient && patient.email"></span> ·
-          <span x-text="patient && patient.phone"></span>
+          <template x-if="patient && patient.phone">
+            <a :href="Wa.link(patient.phone)" target="_blank" rel="noopener"
+               :title="'Abrir conversa no WhatsApp: ' + Wa.pretty(patient.phone)"
+               x-text="Wa.pretty(patient.phone)"></a>
+          </template>
+          <template x-if="!(patient && patient.phone)"><span>—</span></template>
           <template x-if="patient && patient.can_issue_receipt">
             <span class="chip ok" style="margin-left:6px">{{template "icon" "doc"}} Recibo</span>
           </template>
@@ -139,9 +191,8 @@
     <nav class="tabs" aria-label="Seções do paciente">
       <button class="tab" :class="{ active: tab === 'dados' }" @click="tab = 'dados'">{{template "icon" "user"}} Dados</button>
       <button class="tab" :class="{ active: tab === 'anamnese' }" @click="go('anamnese')">{{template "icon" "note"}} Anamnese</button>
-      <button class="tab" :class="{ active: tab === 'sessoes' }" @click="go('sessoes')">{{template "icon" "heart"}} Sessões</button>
+      <button class="tab" :class="{ active: tab === 'prontuario' }" @click="go('prontuario')">{{template "icon" "heart"}} Prontuário</button>
       <button class="tab" :class="{ active: tab === 'plano' }" @click="go('plano')">{{template "icon" "wallet"}} Plano</button>
-      <button class="tab" :class="{ active: tab === 'notas' }" @click="go('notas')">{{template "icon" "edit"}} Notas</button>
       <button class="tab" :class="{ active: tab === 'financeiro' }" @click="go('financeiro')">{{template "icon" "wallet"}} Débitos</button>
       <button class="tab" :class="{ active: tab === 'custos' }" @click="go('custos')">{{template "icon" "chart"}} Custos</button>
       <button class="tab" :class="{ active: tab === 'arquivos' }" @click="go('arquivos')">{{template "icon" "doc"}} Arquivos</button>
@@ -160,7 +211,14 @@
       <div class="item-list" x-show="patient && !editing">
         <div class="item"><div class="grow"><div class="sub">Nome</div><div class="title" x-text="patient && patient.name"></div></div></div>
         <div class="item"><div class="grow"><div class="sub">Email</div><div class="title" x-text="patient && patient.email"></div></div></div>
-        <div class="item"><div class="grow"><div class="sub">Telefone</div><div class="title" x-text="patient && patient.phone"></div></div></div>
+        <div class="item"><div class="grow"><div class="sub">Telefone</div><div class="title">
+          <template x-if="patient && patient.phone">
+            <a :href="Wa.link(patient.phone)" target="_blank" rel="noopener"
+               :title="'Abrir conversa no WhatsApp: ' + Wa.pretty(patient.phone)"
+               x-text="Wa.pretty(patient.phone)"></a>
+          </template>
+          <template x-if="!(patient && patient.phone)"><span>—</span></template>
+        </div></div></div>
         <div class="item"><div class="grow"><div class="sub">CPF</div><div class="title" x-text="(patient && patient.cpf) || '—'"></div></div></div>
         <div class="item"><div class="grow"><div class="sub">Cadastrado em</div><div class="title" x-text="Fmt.datetime(patient && patient.created_at)"></div></div></div>
       </div>
@@ -225,37 +283,220 @@
       </div>
     </div>
 
-    <!-- Sessões / agendamentos -->
-    <div x-show="tab === 'sessoes'" class="stack">
-      <template x-if="!loading && sessions.length === 0">
-        <p class="empty">Nenhuma sessão registrada para este paciente.</p>
+    <!-- Prontuário: diário cronológico (sessões + registros + notas livres) -->
+    <div x-show="tab === 'prontuario'" class="stack">
+      <!-- Resumo do acompanhamento (R1.3) -->
+      <div class="kpis" x-show="patient">
+        <div class="kpi"><span class="n" x-text="sessions.length"></span><span class="k">Sessões</span></div>
+        <div class="kpi ok"><span class="n" x-text="realizadas()"></span><span class="k">Realizadas</span></div>
+        <div class="kpi"><span class="n" x-text="faltas()"></span><span class="k">Faltas</span></div>
+        <div class="kpi"><span class="n" x-text="ultimoRegistroLabel()"></span><span class="k">Último registro</span></div>
+      </div>
+
+      <!-- Nova nota livre (sem vínculo com sessão) -->
+      <div class="field wide">
+        <label>Nova anotação (nota livre)</label>
+        <div class="md-editor">
+          <div class="md-tabs">
+            <button type="button" class="md-tab" :class="{ active: !notePreview }" @click="notePreview = false">{{template "icon" "edit"}} Escrever</button>
+            <button type="button" class="md-tab" :class="{ active: notePreview }" @click="notePreview = true">{{template "icon" "doc"}} Visualizar</button>
+            <span class="hint">Markdown: # título, **negrito**, *itálico*, - lista, `código`</span>
+          </div>
+          <textarea x-show="!notePreview" x-model="noteForm.content" placeholder="Anotação livre do acompanhamento (Markdown)…"></textarea>
+          <div x-show="notePreview" class="md-preview md-body" x-html="Md.toHtml(noteForm.content)"></div>
+        </div>
+      </div>
+      <div class="row end">
+        <button class="btn primary" @click="addNote()" :disabled="loading">{{template "icon" "plus"}} Adicionar anotação</button>
+      </div>
+
+      <!-- Estado vazio acolhedor (R1.2) -->
+      <template x-if="!loading && timeline().length === 0">
+        <p class="empty">Este prontuário ainda está em branco. Que tal registrar a primeira anotação do acompanhamento?</p>
       </template>
-      <ul class="item-list">
-        <template x-for="s in sessions" :key="s.id">
-          <li class="item">
-            <svg class="icon icon-lg" aria-hidden="true" style="color:var(--primary)"><use :href="s.modality === 'online' ? '#i-video' : '#i-pin'"></use></svg>
-            <div class="grow">
-              <div class="title" x-text="Fmt.short(s.starts_at)"></div>
-              <div class="sub">
-                <span x-text="s.modality"></span> · <span x-text="s.status"></span>
-                <template x-if="s.bill"><span class="chip info" style="margin-left:6px">cobrar</span></template>
+
+      <!-- Timeline agrupada por dia, do mais recente ao mais antigo (R1.2) -->
+      <div class="timeline">
+        <template x-for="dia in timeline()" :key="dia.key">
+          <section class="tl-day">
+            <h3 class="tl-date"><svg class="icon" aria-hidden="true"><use href="#i-note"></use></svg> <span x-text="dia.label"></span></h3>
+            <ul class="item-list">
+              <template x-for="item in dia.itens" :key="item.key">
+                <li class="item tl-item" style="align-items:flex-start"
+                    :class="item.tipo === 'sessao' ? ('st-' + item.sessao.status) : 'tl-nota'">
+                  <!-- Marco de sessão -->
+                  <template x-if="item.tipo === 'sessao'">
+                    <div class="grow" style="width:100%">
+                      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px">
+                        <div class="grow">
+                          <div class="title">
+                            <svg class="icon" aria-hidden="true" style="color:var(--primary)"><use :href="item.sessao.modality === 'online' ? '#i-video' : '#i-pin'"></use></svg>
+                            <span x-text="Fmt.short(item.sessao.starts_at)"></span>
+                          </div>
+                          <div class="sub">
+                            <span x-text="item.sessao.modality"></span> ·
+                            <span class="chip" :class="statusChip(item.sessao.status)" x-text="Fmt.sessionStatus(item.sessao.status)"></span>
+                            <template x-if="item.sessao.bill"><span class="chip info" style="margin-left:6px">cobrar</span></template>
+                          </div>
+                        </div>
+                        <button class="btn secondary" @click="openSession(item.sessao)" :disabled="loading">{{template "icon" "edit"}} Abrir</button>
+                      </div>
+                      <!-- Registros vinculados à sessão (R2.4) -->
+                      <template x-if="item.registros.length > 0">
+                        <ul class="tl-registros">
+                          <template x-for="n in item.registros" :key="n.id">
+                            <li class="tl-registro">
+                              <div class="md-body" x-html="Md.toHtml(n.content)"></div>
+                              <div class="sub" x-text="Fmt.datetime(n.created_at)"></div>
+                            </li>
+                          </template>
+                        </ul>
+                      </template>
+                      <template x-if="item.registros.length === 0">
+                        <p class="sub tl-sem-registro">Sem registros desta sessão. Abra a sessão para escrever o relatório.</p>
+                      </template>
+                    </div>
+                  </template>
+                  <!-- Nota livre -->
+                  <template x-if="item.tipo === 'nota'">
+                    <div class="grow">
+                      <div class="md-body" x-html="Md.toHtml(item.nota.content)"></div>
+                      <div class="sub" style="margin-top:6px" x-text="Fmt.datetime(item.nota.created_at)"></div>
+                    </div>
+                  </template>
+                  <!-- Remover (nota livre ou registro) -->
+                  <template x-if="item.tipo === 'nota'">
+                    <div class="actions" x-show="confirmingNoteId !== item.nota.id">
+                      <button class="btn danger" @click="confirmingNoteId = item.nota.id" :disabled="loading" aria-label="Remover anotação">{{template "icon" "trash"}}</button>
+                    </div>
+                  </template>
+                  <template x-if="item.tipo === 'nota' && confirmingNoteId === item.nota.id">
+                    <div class="actions" x-cloak>
+                      <span class="sub">Remover?</span>
+                      <button class="btn danger" @click="deleteNote(item.nota.id)" :disabled="loading">Remover</button>
+                      <button class="btn ghost" @click="confirmingNoteId = null" :disabled="loading">Cancelar</button>
+                    </div>
+                  </template>
+                </li>
+              </template>
+            </ul>
+          </section>
+        </template>
+      </div>
+    </div>
+
+    <!-- Painel da sessão (edição + registros) — overlay (R2.1–2.4) -->
+    <template x-if="sessionPanel">
+      <div class="modal-backdrop" @click.self="closeSession()">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="Sessão">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <h3 style="margin:0">Sessão · <span x-text="Fmt.short(sessionPanel.starts_at)"></span></h3>
+            <button class="btn ghost" @click="closeSession()" aria-label="Fechar">{{template "icon" "x"}}</button>
+          </div>
+          <div class="sub" style="margin:6px 0 12px">
+            <span class="chip" :class="statusChip(sessionPanel.status)" x-text="Fmt.sessionStatus(sessionPanel.status)"></span>
+          </div>
+
+          <!-- Transições de estado (quando aplicável) -->
+          <template x-if="sessionPanel.status === 'agendada'">
+            <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap">
+              <button class="btn primary" @click="finishSessionPanel()" :disabled="loading">{{template "icon" "check"}} Finalizar</button>
+              <button class="btn secondary" @click="noShowSessionPanel()" :disabled="loading">Falta</button>
+              <button class="btn danger" @click="cancelSessionPanel()" :disabled="loading">{{template "icon" "x"}} Cancelar</button>
+              <template x-if="sessionPanel.meet_url">
+                <a class="btn secondary" :href="sessionPanel.meet_url" target="_blank" rel="noopener">{{template "icon" "video"}} Meet</a>
+              </template>
+            </div>
+          </template>
+
+          <!-- Edição dos dados da sessão (bloqueada em estado terminal) -->
+          <template x-if="!sessionIsTerminal(sessionPanel.status)">
+            <div class="stack">
+              <h4 style="margin:0">Editar dados</h4>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="s-ini">Início</label>
+                  <input id="s-ini" type="datetime-local" x-model="sessionEdit.starts_at"/>
+                </div>
+                <div class="field">
+                  <label for="s-fim">Fim</label>
+                  <input id="s-fim" type="datetime-local" x-model="sessionEdit.ends_at"/>
+                </div>
+                <div class="field">
+                  <label for="s-mod">Modalidade</label>
+                  <select id="s-mod" x-model="sessionEdit.modality">
+                    <option value="presencial">Presencial</option>
+                    <option value="online">Online</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="s-loc">Local</label>
+                  <select id="s-loc" x-model="sessionEdit.location_id">
+                    <option value="">— Sem local —</option>
+                    <template x-for="l in locations" :key="l.id">
+                      <option :value="l.id" x-text="l.name"></option>
+                    </template>
+                  </select>
+                </div>
+              </div>
+              <template x-if="sessionPanel.meet_url">
+                <p class="hint">Esta sessão tem convite no Google. Se mudar o horário, ajuste o convite no Google manualmente.</p>
+              </template>
+              <div class="row end">
+                <button class="btn primary" @click="saveSession()" :disabled="loading">{{template "icon" "check"}} Salvar sessão</button>
               </div>
             </div>
-            <div class="actions">
-              <template x-if="s.status === 'agendada'">
-                <button class="btn primary" @click="finishSession(s.id)" :disabled="loading">{{template "icon" "check"}} Finalizar</button>
-              </template>
-              <template x-if="s.status === 'agendada'">
-                <button class="btn danger" @click="cancelSession(s.id)" :disabled="loading">{{template "icon" "x"}} Cancelar</button>
-              </template>
-              <template x-if="s.meet_url">
-                <a class="btn secondary" :href="s.meet_url" target="_blank" rel="noopener">{{template "icon" "video"}} Meet</a>
-              </template>
+          </template>
+          <template x-if="sessionIsTerminal(sessionPanel.status)">
+            <p class="hint">Esta sessão já foi concluída e não pode ser reagendada. Você ainda pode registrar relatórios abaixo.</p>
+          </template>
+
+          <!-- Registros vinculados à sessão -->
+          <div class="stack" style="margin-top:14px">
+            <h4 style="margin:0">Registros desta sessão</h4>
+            <div class="field wide">
+              <div class="md-editor">
+                <div class="md-tabs">
+                  <button type="button" class="md-tab" :class="{ active: !sessionNotePreview }" @click="sessionNotePreview = false">{{template "icon" "edit"}} Escrever</button>
+                  <button type="button" class="md-tab" :class="{ active: sessionNotePreview }" @click="sessionNotePreview = true">{{template "icon" "doc"}} Visualizar</button>
+                  <span class="hint">Relatório/nota desta sessão (Markdown)</span>
+                </div>
+                <textarea x-show="!sessionNotePreview" x-model="sessionNoteForm.content" placeholder="Relatório desta sessão (Markdown)…"></textarea>
+                <div x-show="sessionNotePreview" class="md-preview md-body" x-html="Md.toHtml(sessionNoteForm.content)"></div>
+              </div>
             </div>
-          </li>
-        </template>
-      </ul>
-    </div>
+            <div class="row end">
+              <button class="btn primary" @click="addSessionNote()" :disabled="loading">{{template "icon" "plus"}} Adicionar registro</button>
+            </div>
+
+            <template x-if="sessionNotes().length === 0">
+              <p class="empty">Nenhum registro desta sessão ainda. Escreva o primeiro relatório acima.</p>
+            </template>
+            <ul class="item-list">
+              <template x-for="n in sessionNotes()" :key="n.id">
+                <li class="item" style="align-items:flex-start">
+                  <span class="icon" style="color:var(--primary);margin-top:2px"><use href="#i-note"></use></span>
+                  <div class="grow">
+                    <div class="md-body" x-html="Md.toHtml(n.content)"></div>
+                    <div class="sub" style="margin-top:6px" x-text="Fmt.datetime(n.created_at)"></div>
+                  </div>
+                  <div class="actions" x-show="confirmingNoteId !== n.id">
+                    <button class="btn danger" @click="confirmingNoteId = n.id" :disabled="loading" aria-label="Remover registro">{{template "icon" "trash"}}</button>
+                  </div>
+                  <template x-if="confirmingNoteId === n.id">
+                    <div class="actions" x-cloak>
+                      <span class="sub">Remover?</span>
+                      <button class="btn danger" @click="deleteNote(n.id)" :disabled="loading">Remover</button>
+                      <button class="btn ghost" @click="confirmingNoteId = null" :disabled="loading">Cancelar</button>
+                    </div>
+                  </template>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </template>
 
     <!-- Plano de pagamento -->
     <div x-show="tab === 'plano'" class="stack">
@@ -314,47 +555,6 @@
               <span class="sub">Remover?</span>
               <button class="btn danger" @click="removePlan(p.id)" :disabled="loading">Remover</button>
               <button class="btn ghost" @click="confirmingPlanId = null" :disabled="loading">Cancelar</button>
-            </div>
-          </li>
-        </template>
-      </ul>
-    </div>
-
-    <!-- Notas (Markdown) -->
-    <div x-show="tab === 'notas'" class="stack">
-      <div class="field wide">
-        <label>Nova nota</label>
-        <div class="md-editor">
-          <div class="md-tabs">
-            <button type="button" class="md-tab" :class="{ active: !notePreview }" @click="notePreview = false">{{template "icon" "edit"}} Escrever</button>
-            <button type="button" class="md-tab" :class="{ active: notePreview }" @click="notePreview = true">{{template "icon" "doc"}} Visualizar</button>
-            <span class="hint">Markdown suportado</span>
-          </div>
-          <textarea x-show="!notePreview" x-model="noteForm.content" placeholder="Anotação do controle terapêutico (Markdown)…"></textarea>
-          <div x-show="notePreview" class="md-preview md-body" x-html="Md.toHtml(noteForm.content)"></div>
-        </div>
-      </div>
-      <div class="row end">
-        <button class="btn primary" @click="addNote()" :disabled="loading">{{template "icon" "plus"}} Adicionar nota</button>
-      </div>
-      <template x-if="!loading && notes.length === 0">
-        <p class="empty">Nenhuma nota registrada.</p>
-      </template>
-      <ul class="item-list">
-        <template x-for="n in notes" :key="n.id">
-          <li class="item" style="align-items:flex-start">
-            <span class="icon" style="color:var(--primary);margin-top:2px"><use href="#i-note"></use></span>
-            <div class="grow">
-              <div class="md-body" x-html="Md.toHtml(n.content)"></div>
-              <div class="sub" style="margin-top:6px" x-text="Fmt.datetime(n.created_at)"></div>
-            </div>
-            <div class="actions" x-show="confirmingNoteId !== n.id">
-              <button class="btn danger" @click="confirmingNoteId = n.id" :disabled="loading" aria-label="Remover nota">{{template "icon" "trash"}}</button>
-            </div>
-            <div class="actions" x-show="confirmingNoteId === n.id" x-cloak>
-              <span class="sub">Remover nota?</span>
-              <button class="btn danger" @click="deleteNote(n.id)" :disabled="loading">Remover</button>
-              <button class="btn ghost" @click="confirmingNoteId = null" :disabled="loading">Cancelar</button>
             </div>
           </li>
         </template>
@@ -546,7 +746,15 @@
             <span class="icon icon-lg" style="color:var(--primary)"><use href="#i-user"></use></span>
             <div class="grow">
               <div class="title" x-text="p.name"></div>
-              <div class="sub" x-text="p.email + ' · ' + p.phone"></div>
+              <div class="sub">
+                <span x-text="p.email"></span> ·
+                <template x-if="p.phone">
+                  <a :href="Wa.link(p.phone)" target="_blank" rel="noopener" @click.stop
+                     :title="'Abrir conversa no WhatsApp: ' + Wa.pretty(p.phone)"
+                     x-text="Wa.pretty(p.phone)"></a>
+                </template>
+                <template x-if="!p.phone"><span>—</span></template>
+              </div>
             </div>
             <template x-if="p.can_issue_receipt">
               <span class="chip ok">{{template "icon" "doc"}} Recibo</span>
@@ -1229,7 +1437,13 @@
               <div class="grow">
                 <div class="title" x-text="p.name"></div>
                 <div class="sub">
-                  <span x-text="p.email"></span> · <span x-text="p.phone"></span>
+                  <span x-text="p.email"></span> ·
+                  <template x-if="p.phone">
+                    <a :href="Wa.link(p.phone)" target="_blank" rel="noopener"
+                       :title="'Abrir conversa no WhatsApp: ' + Wa.pretty(p.phone)"
+                       x-text="Wa.pretty(p.phone)"></a>
+                  </template>
+                  <template x-if="!p.phone"><span>—</span></template>
                   · cadastrado em <span x-text="Fmt.short(p.created_at)"></span>
                 </div>
               </div>
@@ -1333,29 +1547,56 @@
   document.addEventListener("alpine:init", () => {
     Alpine.store("nav", {
       patientId: null,
-      openPatient(id) { this.patientId = id; window.scrollTo({ top: 0, behavior: "smooth" }); },
-      closePatient() { this.patientId = null; },
+      focusSessionId: null, // sessão a abrir no painel ao carregar o paciente
+      openPatient(id) { this.focusSessionId = null; this.patientId = id; window.scrollTo({ top: 0, behavior: "smooth" }); },
+      // Abre o paciente e sinaliza a sessão a focar (painel da sessão — R2.1).
+      openSession(patientId, sessionId) {
+        this.focusSessionId = sessionId;
+        this.patientId = patientId;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      },
+      closePatient() { this.patientId = null; this.focusSessionId = null; },
     });
   });
 
   function adminApp() { return {}; }
 
-  // ── Agenda semanal (segunda a sábado) ──────────────────────────────────
+  // ── Agenda (visão semanal detalhada + visão mensal geral) ───────────────
+  // Ambas consomem o MESMO endpoint GET /v1/admin/sessions?from=&to=, variando
+  // apenas o intervalo pedido ao backend (semana seg–sáb ou grade do mês).
   function agendaPanel() {
     return {
       ...panel(),
+      view: "semana",       // "semana" | "mes"
       weekStart: null,      // segunda-feira da semana exibida (Date, meia-noite local)
+      monthRef: null,       // 1º dia do mês exibido (Date, meia-noite local)
       sessions: [],
       patients: {},         // id -> nome (para exibir no slot)
       patientList: [],      // objetos completos (para o form de nova sessão)
       locations: [],
-      days: [],
+      days: [],             // células da visão semanal
+      monthCells: [],       // células da visão mensal (grade dom–sáb)
+      weekdayLabels: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"],
       showNew: false,
       newForm: { patient_id: "", location_id: "", modality: "presencial", starts_at: "", ends_at: "" },
-      init() { this.weekStart = mondayOf(new Date()); },
+      init() { this.weekStart = mondayOf(new Date()); this.monthRef = firstOfMonth(new Date()); },
       get approvedPatients() { return this.patientList.filter((p) => p.approval_status === "aprovado"); },
+
+      // Intervalo [from, to) pedido ao backend conforme a visão corrente.
+      rangeParams() {
+        if (this.view === "mes") {
+          const from = monthGridStart(this.monthRef);        // domingo da 1ª semana
+          const to = new Date(from); to.setDate(to.getDate() + 42); // 6 semanas
+          return { from, to };
+        }
+        const from = new Date(this.weekStart);
+        const to = new Date(from); to.setDate(to.getDate() + 6); // seg..sáb (6 dias)
+        return { from, to };
+      },
+
       async load() {
         if (!this.weekStart) this.weekStart = mondayOf(new Date());
+        if (!this.monthRef) this.monthRef = firstOfMonth(new Date());
         // Carrega pacientes e locais uma vez (para rotular slots e o form).
         if (this.patientList.length === 0) {
           const pr = await this.run(() => Api.get("/v1/admin/patients"));
@@ -1368,8 +1609,16 @@
           const lr = await this.run(() => Api.get("/v1/admin/locations"));
           if (lr) this.locations = lr.data || [];
         }
-        const res = await this.run(() => Api.get("/v1/admin/sessions"));
+        const { from, to } = this.rangeParams();
+        const qs = `from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`;
+        const res = await this.run(() => Api.get(`/v1/admin/sessions?${qs}`));
         if (res) { this.sessions = res.data || []; this.build(); }
+      },
+
+      setView(v) {
+        if (this.view === v) return;
+        this.view = v;
+        this.load();
       },
       // Formata um Date para o value de <input type=datetime-local> (hora local).
       toLocalInput(d) {
@@ -1409,8 +1658,12 @@
         if (res) { this.ok(res.message || "Sessão agendada."); this.showNew = false; await this.load(); }
       },
       build() {
+        if (this.view === "mes") this.buildMonth();
+        else this.buildWeek();
+      },
+
+      buildWeek() {
         const start = new Date(this.weekStart);
-        const end = new Date(start); end.setDate(end.getDate() + 6); // seg..sáb (6 dias)
         const today = new Date(); today.setHours(0, 0, 0, 0);
         const names = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
         const days = [];
@@ -1436,10 +1689,64 @@
         days.forEach((d) => d.slots.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)));
         this.days = days;
       },
-      prevWeek() { this.weekStart.setDate(this.weekStart.getDate() - 7); this.weekStart = new Date(this.weekStart); this.load(); },
-      nextWeek() { this.weekStart.setDate(this.weekStart.getDate() + 7); this.weekStart = new Date(this.weekStart); this.load(); },
-      thisWeek() { this.weekStart = mondayOf(new Date()); this.load(); },
+
+      buildMonth() {
+        const gridStart = monthGridStart(this.monthRef); // domingo da 1ª linha
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const refMonth = this.monthRef.getMonth();
+        const cells = [];
+        for (let i = 0; i < 42; i++) { // 6 semanas × 7 dias
+          const d = new Date(gridStart); d.setDate(gridStart.getDate() + i);
+          cells.push({
+            iso: d.toISOString().slice(0, 10),
+            num: d.getDate(),
+            date: d,
+            inMonth: d.getMonth() === refMonth,
+            isToday: d.getTime() === today.getTime(),
+            slots: [],
+          });
+        }
+        const byIso = {};
+        cells.forEach((c) => { byIso[c.iso] = c; });
+        this.sessions
+          .filter((s) => s.status !== "cancelada")
+          .forEach((s) => {
+            const iso = new Date(s.starts_at).toISOString().slice(0, 10);
+            if (byIso[iso]) byIso[iso].slots.push(s);
+          });
+        cells.forEach((c) => c.slots.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)));
+        this.monthCells = cells;
+      },
+
+      // Navegação unificada: avança/retrocede semana ou mês conforme a visão.
+      prev() {
+        if (this.view === "mes") { this.monthRef.setMonth(this.monthRef.getMonth() - 1); this.monthRef = new Date(this.monthRef); }
+        else { this.weekStart.setDate(this.weekStart.getDate() - 7); this.weekStart = new Date(this.weekStart); }
+        this.load();
+      },
+      next() {
+        if (this.view === "mes") { this.monthRef.setMonth(this.monthRef.getMonth() + 1); this.monthRef = new Date(this.monthRef); }
+        else { this.weekStart.setDate(this.weekStart.getDate() + 7); this.weekStart = new Date(this.weekStart); }
+        this.load();
+      },
+      today() {
+        if (this.view === "mes") this.monthRef = firstOfMonth(new Date());
+        else this.weekStart = mondayOf(new Date());
+        this.load();
+      },
+
+      // Clique num dia do mês: foca a semana daquele dia na visão semanal.
+      openWeekOf(cell) {
+        this.weekStart = mondayOf(cell.date);
+        this.view = "semana";
+        this.load();
+      },
+
       rangeLabel() {
+        if (this.view === "mes") {
+          if (!this.monthRef) return "";
+          return this.monthRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+        }
         if (!this.weekStart) return "";
         const end = new Date(this.weekStart); end.setDate(end.getDate() + 5);
         const f = (d) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
@@ -1448,6 +1755,11 @@
       fmtTime(iso) { return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); },
       patientName(id) { return this.patients[id] || "Paciente"; },
       openPatient(id) { Alpine.store("nav").openPatient(id); },
+      // Clique no cartão abre o painel daquela sessão no detalhe do paciente (R2.1).
+      openSession(s) { Alpine.store("nav").openSession(s.patient_id, s.id); },
+      statusChip(status) {
+        return ({ realizada: "ok", agendada: "info", solicitada: "info", falta: "warn", cancelada: "danger" })[status] || "info";
+      },
     };
   }
 
@@ -1464,6 +1776,7 @@
       anamnese: { content: "", updated_at: null },
       anamnesePreview: false,
       sessions: [],
+      locations: [],
       plans: [],
       notes: [],
       notePreview: false,
@@ -1492,6 +1805,7 @@
         this.anamnese = { content: "", updated_at: null };
         this.sessions = []; this.notes = []; this.debts = []; this.files = []; this.plans = [];
         this.payments = {}; this.costs = {}; this.expandedDebt = null; this.confirmingPlanId = null; this.payingDebt = null; this.confirmingNoteId = null;
+        this.sessionPanel = null; this.sessionNotePreview = false;
         const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}`));
         if (res) this.patient = res.data;
         if (this.origins.length === 0) {
@@ -1503,6 +1817,21 @@
         await this.loadDebts();
         await this.loadFiles();
         await this.loadPlans();
+        // Veio da Agenda pedindo para abrir uma sessão específica (R2.1)?
+        const focusId = Alpine.store("nav").focusSessionId;
+        if (focusId) {
+          Alpine.store("nav").focusSessionId = null;
+          await this.openProntuarioSession(focusId);
+        }
+      },
+
+      // Abre a aba Prontuário e o painel da sessão indicada (vindo da Agenda).
+      async openProntuarioSession(sessionId) {
+        this.go("prontuario");
+        await this.loadNotes();
+        await this.loadLocations();
+        const s = this.sessions.find((x) => x.id === sessionId);
+        if (s) this.openSession(s);
       },
       reload() { this.loaded = {}; this.bootstrap(); },
 
@@ -1511,11 +1840,156 @@
         if (this.loaded[tab]) return;
         this.loaded[tab] = true;
         if (tab === "anamnese") this.loadAnamnese();
-        else if (tab === "sessoes") this.loadSessions();
+        else if (tab === "prontuario") this.loadProntuario();
         else if (tab === "plano") this.loadPlans();
-        else if (tab === "notas") this.loadNotes();
         else if (tab === "financeiro") this.loadDebts();
         else if (tab === "arquivos") this.loadFiles();
+      },
+
+      // ── Prontuário (R1): timeline por dia (sessões + notas livres) ────────
+      // Carrega sessões, notas e locais (para o seletor do painel de edição).
+      async loadProntuario() {
+        await this.loadSessions();
+        await this.loadNotes();
+        await this.loadLocations();
+      },
+      async loadLocations() {
+        if (this.locations.length) return;
+        const res = await this.run(() => Api.get("/v1/admin/locations"));
+        if (res) this.locations = res.data || [];
+      },
+      faltas() { return this.sessions.filter((s) => s.status === "falta").length; },
+      // Chip de status coerente com a semântica de cores (R5.3/R4).
+      statusChip(status) {
+        return ({
+          realizada: "ok", agendada: "info", solicitada: "info",
+          falta: "warn", cancelada: "danger",
+        })[status] || "info";
+      },
+      // Data/hora do registro ou sessão mais recente, p/ o KPI de resumo.
+      ultimoRegistroLabel() {
+        const datas = [];
+        for (const s of this.sessions) if (s.starts_at) datas.push(s.starts_at);
+        for (const n of this.notes) if (n.created_at) datas.push(n.created_at);
+        if (datas.length === 0) return "—";
+        datas.sort((a, b) => new Date(b) - new Date(a));
+        return Fmt.short(datas[0]);
+      },
+      // Monta a timeline: itens (sessão com registros aninhados + notas livres),
+      // ordenados por data desc e agrupados por dia (chave YYYY-MM-DD local).
+      timeline() {
+        const itens = [];
+        for (const s of this.sessions) {
+          itens.push({
+            tipo: "sessao",
+            key: "s-" + s.id,
+            data: s.starts_at,
+            sessao: s,
+            registros: this.notes
+              .filter((n) => n.session_id === s.id)
+              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
+          });
+        }
+        for (const n of this.notes) {
+          if (n.is_free) itens.push({ tipo: "nota", key: "n-" + n.id, data: n.created_at, nota: n });
+        }
+        itens.sort((a, b) => new Date(b.data) - new Date(a.data));
+        // Agrupa por dia preservando a ordem desc.
+        const dias = [];
+        const idx = {};
+        for (const it of itens) {
+          const d = new Date(it.data);
+          const key = isNaN(d.getTime()) ? "sem-data" : d.toISOString().slice(0, 10);
+          if (idx[key] === undefined) {
+            idx[key] = dias.length;
+            dias.push({ key, label: this.diaLabel(it.data), itens: [] });
+          }
+          dias[idx[key]].itens.push(it);
+        }
+        return dias;
+      },
+      diaLabel(iso) {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return "Sem data";
+        const dia = d.toLocaleDateString("pt-BR", { weekday: "long" });
+        const cap = dia.charAt(0).toUpperCase() + dia.slice(1);
+        const data = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+        return cap + ", " + data;
+      },
+
+      // ── Painel da sessão (R2.1–2.4) ───────────────────────────────────────
+      sessionPanel: null,
+      sessionEdit: { starts_at: "", ends_at: "", modality: "presencial", location_id: "" },
+      sessionNoteForm: { content: "" },
+      sessionNotePreview: false,
+      sessionIsTerminal(status) { return status === "realizada" || status === "cancelada" || status === "falta"; },
+      // Converte ISO-8601 -> "YYYY-MM-DDTHH:MM" (valor de <input datetime-local>).
+      toLocalInput(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return "";
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      },
+      openSession(s) {
+        this.sessionPanel = s;
+        this.sessionNoteForm = { content: "" };
+        this.sessionNotePreview = false;
+        this.confirmingNoteId = null;
+        this.sessionEdit = {
+          starts_at: this.toLocalInput(s.starts_at),
+          ends_at: this.toLocalInput(s.ends_at),
+          modality: s.modality || "presencial",
+          location_id: s.location_id || "",
+        };
+      },
+      closeSession() { this.sessionPanel = null; },
+      sessionNotes() {
+        if (!this.sessionPanel) return [];
+        return this.notes
+          .filter((n) => n.session_id === this.sessionPanel.id)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      },
+      async saveSession() {
+        if (!this.sessionPanel) return;
+        if (!this.sessionEdit.starts_at || !this.sessionEdit.ends_at) { this.warn("Informe início e fim."); return; }
+        const body = {
+          location_id: this.sessionEdit.location_id,
+          modality: this.sessionEdit.modality,
+          starts_at: new Date(this.sessionEdit.starts_at).toISOString(),
+          ends_at: new Date(this.sessionEdit.ends_at).toISOString(),
+        };
+        const res = await this.run(() => Api.put(`/v1/admin/sessions/${this.sessionPanel.id}`, body));
+        if (res) {
+          this.ok(res.message || "Sessão atualizada.");
+          await this.loadSessions();
+          this.sessionPanel = res.data; // reflete os novos dados no painel
+        }
+      },
+      async addSessionNote() {
+        if (!this.sessionPanel) return;
+        if (!this.sessionNoteForm.content.trim()) { this.warn("Escreva o registro da sessão."); return; }
+        const res = await this.run(() => Api.post(`/v1/admin/patients/${this.id}/notes`, {
+          session_id: this.sessionPanel.id,
+          content: this.sessionNoteForm.content,
+        }));
+        if (res) { this.ok("Registro adicionado."); this.sessionNoteForm.content = ""; await this.loadNotes(); }
+      },
+      // Transições a partir do painel: aplicam e refletem o novo estado.
+      async finishSessionPanel() {
+        if (!this.sessionPanel) return;
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/finish`, { bill: true, consider_cost: true }));
+        if (res) { this.ok("Sessão finalizada."); this.sessionPanel = res.data; await this.loadSessions(); await this.loadDebts(); }
+      },
+      async cancelSessionPanel() {
+        if (!this.sessionPanel) return;
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/cancel`, {}));
+        if (res) { this.ok("Sessão cancelada."); this.sessionPanel = res.data; await this.loadSessions(); }
+      },
+      async noShowSessionPanel() {
+        if (!this.sessionPanel) return;
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/no-show`, {}));
+        if (res) { this.ok("Sessão marcada como falta."); this.sessionPanel = res.data; await this.loadSessions(); }
       },
 
       // Edição de dados do paciente
@@ -1553,14 +2027,6 @@
       async loadSessions() {
         const res = await this.run(() => Api.get(`/v1/admin/sessions?patient_id=${this.id}`));
         if (res) this.sessions = (res.data || []).sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
-      },
-      async finishSession(sid) {
-        const res = await this.run(() => Api.post(`/v1/admin/sessions/${sid}/finish`, { bill: true, consider_cost: true }));
-        if (res) { this.ok("Sessão finalizada."); await this.loadSessions(); await this.loadDebts(); }
-      },
-      async cancelSession(sid) {
-        const res = await this.run(() => Api.post(`/v1/admin/sessions/${sid}/cancel`, {}));
-        if (res) { this.ok("Sessão cancelada."); await this.loadSessions(); }
       },
 
       // Planos
@@ -2083,6 +2549,13 @@
     return d;
   }
   function dayFloor(date) { const d = new Date(date); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  function firstOfMonth(date) { const d = new Date(date); d.setHours(0, 0, 0, 0); d.setDate(1); return d; }
+  // Domingo que inicia a grade mensal (pode cair no mês anterior).
+  function monthGridStart(monthRef) {
+    const d = firstOfMonth(monthRef);
+    d.setDate(1 - d.getDay()); // getDay 0=dom → recua até o domingo
+    return d;
+  }
 </script>
 {{template "foot" .}}
 {{end}}

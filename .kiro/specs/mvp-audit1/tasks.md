@@ -156,13 +156,13 @@ Convenções:
 
 ## Fase E — Fechamento (R10.4, R10.5)
 
-- [ ] **E1. Navegação e acessibilidade final** (dep: todas de UI)
+- [x] **E1. Navegação e acessibilidade final** (dep: todas de UI)
   - Menu do admin agrupado com todas as áreas; datas curtas nas listas; revisão de teclado/foco/labels nos controles novos.
   - **Aceite:** todas as telas alcançáveis pelo menu; navegação por teclado funcional.
   - **Testes:** revisão manual de acessibilidade; smoke geral.
   - **Refs:** R10.4, R10.5 · D3.4, D3.5.
 
-- [ ] **E2. Regressão, docs finais e fechamento da onda** (dep: todas)
+- [x] **E2. Regressão, docs finais e fechamento da onda** (dep: todas)
   - `make check` (build + fmt + vet + unit + E2E) verde; parse dos templates; limpeza de artefatos temporários.
   - Revisão final de coerência: `docs/requirements.md`, `docs/architecture.md`, `README.md`, Swagger e `docs/decisions.md` refletindo toda a onda.
   - Atualizar `docs/release-notes.md` com a entrada visual da onda `mvp-audit1` (Novidades/Melhorias/Correções/Notas de migração).

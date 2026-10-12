@@ -6,6 +6,29 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-12 — Onda "prontuario-ux": prontuário unificado, edição de sessão, WhatsApp, paleta e calendário fluido
+
+**Contexto.** Pedido de produto do terapeuta focado em usabilidade do acompanhamento clínico e identidade visual. O detalhe do paciente fragmentava o conteúdo clínico em abas separadas (Anamnese, Sessões, Notas) e não permitia abrir uma sessão para editá-la nem registrar o relatório daquela sessão; o telefone era texto puro (sem link e sem padronização); o tema branco+verde/teal soava genérico; e a agenda semanal não acomodava bem um dia com ~10 pacientes. Detalhado na spec [`prontuario-ux`](../.kiro/specs/prontuario-ux/requirements.md).
+
+**Decisões.**
+1. **Prontuário unificado.** O detalhe do paciente ganha uma aba única "Prontuário" (timeline por data: sessões com seus registros + notas livres), substituindo as abas "Sessões" e "Notas". A "Anamnese" permanece separada (documento único). O ato de agendar continua na Agenda; o Prontuário trata do registro clínico. Reusa `domain.Note.SessionID` (já existente). Spec R1, R2.4.
+2. **Edição de sessão (`PUT /v1/admin/sessions/{id}`).** Nova operação para editar data/hora, local e modalidade. Não troca o paciente. Bloqueada em estados terminais (realizada/cancelada/falta); auditada. A persistência (`SessionRepo.Update`) já cobria esses campos — sem mudança de schema. Spec R2.2.
+3. **Edição de sessão NÃO reconcilia o Google Calendar nesta onda.** O `SessionCalendar` atual só expõe `CreateEvent`; implementar `UpdateEvent`/remoção remota amplia escopo e risco. A edição altera o registro local e a UI avisa o terapeuta para ajustar o convite no Google manualmente quando o horário mudar. `UpdateEvent` fica como melhoria futura.
+4. **Registros vinculados à sessão.** A UI passa a enviar `session_id` ao criar nota a partir de uma sessão (contrato já existente em `POST /v1/admin/patients/{id}/notes`), correlacionando relatório ↔ sessão no Prontuário. Spec R2.3.
+5. **Normalização de telefone no domínio.** `domain.NormalizePhone` canoniza para só dígitos com DDI `55`, aplicada no serviço de paciente (admin e portal), espelhando `NormalizeCPF`. O telefone vira link `https://wa.me/<numero>` (WhatsApp Web) no admin. Decisão: normalizar na entrada (não só a massa de testes), para o dado chegar correto. Spec R3.
+6. **Nova paleta.** Azul royal como primária e lilás como acento, sobre fundos claros derivados e branco; cores de estado (ok/atenção/perigo) preservadas. Troca centralizada nos tokens `:root` de `app.css`. Spec R4.
+7. **Calendário semanal fluido (dia cresce com a lotação), não grade por horas.** Escolhido o modelo em que a coluna do dia cresce conforme o número de sessões (fluido para ~10/dia), mantendo seg–sáb (sem domingo). A grade por eixo de horas (estilo Google com linha do tempo vertical) fica fora de escopo por custo/complexidade, dado o público leigo. Spec R5.
+
+**Consequências.**
+- Novo endpoint `PUT /v1/admin/sessions/{id}` (Swagger a atualizar); `sessionView` inalterado.
+- `domain.NormalizePhone` + validação de plausibilidade do telefone; valor persistido de `phone` passa a ser canônico (comportamento, não shape).
+- UI do admin: aba "Prontuário" (remove "Sessões"/"Notas"), painel de sessão com edição + registros, telefone como link WhatsApp, nova paleta, semana fluida.
+- `scripts/seed.sh` passa a criar várias sessões no mesmo dia (exercita calendário lotado e links).
+- Esta onda integra o mesmo PR grande para `main` que a `mvp-audit1` (push ao final, confirmado com o Fino).
+- Execução planejada em fases (A–F) com commits por fase; ver [`tasks.md`](../.kiro/specs/prontuario-ux/tasks.md).
+
+---
+
 ## 2026-09-06 — Padrão de documentação e política de branch por onda
 
 **Contexto.** Os documentos estavam com nomes inconsistentes (`DEPLOY.md`, `DECISIONS.md` em maiúsculas; `requirements.md`/`architecture.md` em minúsculas) e espalhados entre a raiz e `docs/`. Faltava também um lugar para notas de versão legíveis e uma política clara de branch para trabalhos longos.
@@ -24,7 +47,7 @@ Ordem: mais recente no topo.
 **Contexto.** Após o MVP, uma auditoria de **requisitos × interface** revelou que várias funcionalidades existiam no backend sem tela usável (locais, origens, planos, custos/ROI, perfil do terapeuta, backup, auditoria) e que o portal do paciente expunha JSON cru e usava diálogos nativos do navegador — ruim para o público-alvo (usuários leigos). Além disso, o portal fica exposto na internet atrás do Pangolin sem controle de acesso, dependendo apenas do login social.
 
 **Decisões.**
-1. **Gate de aprovação de paciente (segurança).** Todo paciente que se auto-cadastra pelo portal nasce `pendente` e não acessa nenhum recurso até o terapeuta aprovar. Enforcement no servidor (middleware `RequireApproved`, HTTP 403), não só na UI. Pacientes cadastrados pelo terapeuta nascem `aprovado`; vínculo por email não rebaixa quem já é aprovado. Detalhado na spec [`mvp-audit1`](../.kiro/specs/mvp-audit1/requirements.md) R1.
+1. **Gate de aprovação de paciente (segurança).** Todo paciente que se auto-cadastra pelo portal nasce `pendente` e não acessa nenhum recurso até o terapeuta aprovar. Enforcement no servidor (middleware `ApprovalGate`, HTTP 403), não só na UI. Pacientes cadastrados pelo terapeuta nascem `aprovado`; vínculo por email não rebaixa quem já é aprovado. Detalhado na spec [`mvp-audit1`](../.kiro/specs/mvp-audit1/requirements.md) R1.
 2. **Fechar os gaps de UI** identificados (locais, origem, planos, agendar sessão direto, custos/ROI, perfil, backup/restore, auditoria) — spec `mvp-audit1` R2–R9.
 3. **Usabilidade para leigos** como requisito de primeira classe: portal sem JSON, fim de `window.prompt/confirm`, copy de login coerente, navegação clara, datas curtas, WCAG AA — spec `mvp-audit1` R10.
 4. **Processo de entrega** formalizado em steering: toda mudança atualiza docs + testes no mesmo ciclo; commit ao fim de cada grupo de tasks e push só no fim da onda; decisões relevantes registradas aqui.

@@ -1,0 +1,39 @@
+# Psicoman — configuração para a STACK LOCAL em Docker (teste/navegabilidade).
+# MODO DEV: autenticação do admin e do portal DESLIGADA. NUNCA use em produção.
+#
+# Os dois serviços (admin e portal) compartilham o mesmo arquivo e o mesmo
+# volume de dados (/data), então operam sobre o mesmo banco SQLite.
+
+dev_mode: true
+
+admin:
+  host: "0.0.0.0"
+  port: 8080
+
+portal:
+  host: "0.0.0.0"
+  port: 8081
+
+paths:
+  sqlite: "/data/psicoman.db"
+  ged_root: "/data/ged"
+  log_dir: "/data/logs"
+
+# Em dev as credenciais do admin não são obrigatórias, mas o secret é usado
+# como chave HMAC do cookie de sessão do portal — precisa existir e ser igual
+# entre os dois serviços.
+admin_auth:
+  email: "dev@local"
+  secret: "psicoman-dev-secret-nao-use-em-producao"
+
+# Chave de cifragem AES-256-GCM (base64 de 32 bytes). Valor FIXO de teste.
+# NUNCA reutilize esta chave fora do ambiente local.
+crypto:
+  key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+
+log:
+  level: "info"
+
+rate_limit:
+  requests_per_minute: 120
+  burst: 60

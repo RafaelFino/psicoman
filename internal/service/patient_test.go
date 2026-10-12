@@ -96,7 +96,7 @@ func newPatientSvc() *PatientService { return NewPatientService(newFakePatientRe
 
 func TestCreateAdminStartsApproved(t *testing.T) {
 	svc := newPatientSvc()
-	p, err := svc.Create(context.Background(), CreateInput{Name: "Ana", Phone: "1199", Email: "ana@x.com"})
+	p, err := svc.Create(context.Background(), CreateInput{Name: "Ana", Phone: "11999990001", Email: "ana@x.com"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -105,9 +105,38 @@ func TestCreateAdminStartsApproved(t *testing.T) {
 	}
 }
 
+func TestCreateNormalizesPhone(t *testing.T) {
+	svc := newPatientSvc()
+	p, err := svc.Create(context.Background(), CreateInput{Name: "Dani", Phone: "(11) 99999-0001", Email: "dani@x.com"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if p.Phone != "5511999990001" {
+		t.Errorf("telefone persistido = %q, quer 5511999990001 (canônico)", p.Phone)
+	}
+}
+
+func TestRegisterFromPortalNormalizesPhone(t *testing.T) {
+	svc := newPatientSvc()
+	p, err := svc.RegisterFromPortal(context.Background(), PortalRegisterInput{Name: "Edu", Phone: "11 98888-7777", Email: "edu@x.com"})
+	if err != nil {
+		t.Fatalf("RegisterFromPortal: %v", err)
+	}
+	if p.Phone != "5511988887777" {
+		t.Errorf("telefone persistido = %q, quer 5511988887777 (canônico)", p.Phone)
+	}
+}
+
+func TestCreateRejectsImplausiblePhone(t *testing.T) {
+	svc := newPatientSvc()
+	if _, err := svc.Create(context.Background(), CreateInput{Name: "X", Phone: "123", Email: "x@x.com"}); err == nil {
+		t.Error("telefone implausível deveria ser rejeitado no Create")
+	}
+}
+
 func TestRegisterFromPortalStartsPending(t *testing.T) {
 	svc := newPatientSvc()
-	p, err := svc.RegisterFromPortal(context.Background(), PortalRegisterInput{Name: "Bia", Phone: "1188", Email: "bia@x.com"})
+	p, err := svc.RegisterFromPortal(context.Background(), PortalRegisterInput{Name: "Bia", Phone: "11988880002", Email: "bia@x.com"})
 	if err != nil {
 		t.Fatalf("RegisterFromPortal: %v", err)
 	}
@@ -119,12 +148,12 @@ func TestRegisterFromPortalStartsPending(t *testing.T) {
 func TestRegisterFromPortalDoesNotDowngradeApproved(t *testing.T) {
 	svc := newPatientSvc()
 	// Terapeuta cadastra (aprovado).
-	created, err := svc.Create(context.Background(), CreateInput{Name: "Caio", Phone: "1177", Email: "caio@x.com"})
+	created, err := svc.Create(context.Background(), CreateInput{Name: "Caio", Phone: "11977770003", Email: "caio@x.com"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	// Paciente se auto-cadastra pelo portal com o mesmo email.
-	linked, err := svc.RegisterFromPortal(context.Background(), PortalRegisterInput{Name: "Caio", Phone: "1177", Email: "caio@x.com"})
+	linked, err := svc.RegisterFromPortal(context.Background(), PortalRegisterInput{Name: "Caio", Phone: "11977770003", Email: "caio@x.com"})
 	if err != nil {
 		t.Fatalf("RegisterFromPortal (vínculo): %v", err)
 	}
@@ -140,7 +169,7 @@ func TestApproveAndReject(t *testing.T) {
 	ctx := context.Background()
 	t.Run("aprova pendente", func(t *testing.T) {
 		svc := newPatientSvc()
-		p, _ := svc.RegisterFromPortal(ctx, PortalRegisterInput{Name: "D", Phone: "1", Email: "d@x.com"})
+		p, _ := svc.RegisterFromPortal(ctx, PortalRegisterInput{Name: "D", Phone: "11900000004", Email: "d@x.com"})
 		got, err := svc.Approve(ctx, p.ID)
 		if err != nil {
 			t.Fatalf("Approve: %v", err)
@@ -151,7 +180,7 @@ func TestApproveAndReject(t *testing.T) {
 	})
 	t.Run("rejeita pendente", func(t *testing.T) {
 		svc := newPatientSvc()
-		p, _ := svc.RegisterFromPortal(ctx, PortalRegisterInput{Name: "E", Phone: "1", Email: "e@x.com"})
+		p, _ := svc.RegisterFromPortal(ctx, PortalRegisterInput{Name: "E", Phone: "11900000005", Email: "e@x.com"})
 		got, err := svc.Reject(ctx, p.ID)
 		if err != nil {
 			t.Fatalf("Reject: %v", err)
@@ -162,14 +191,14 @@ func TestApproveAndReject(t *testing.T) {
 	})
 	t.Run("rejeitar aprovado falha", func(t *testing.T) {
 		svc := newPatientSvc()
-		p, _ := svc.Create(ctx, CreateInput{Name: "F", Phone: "1", Email: "f@x.com"})
+		p, _ := svc.Create(ctx, CreateInput{Name: "F", Phone: "11900000006", Email: "f@x.com"})
 		if _, err := svc.Reject(ctx, p.ID); err == nil {
 			t.Error("não deveria poder rejeitar um cadastro aprovado")
 		}
 	})
 	t.Run("aprovar já aprovado é idempotente", func(t *testing.T) {
 		svc := newPatientSvc()
-		p, _ := svc.Create(ctx, CreateInput{Name: "G", Phone: "1", Email: "g@x.com"})
+		p, _ := svc.Create(ctx, CreateInput{Name: "G", Phone: "11900000007", Email: "g@x.com"})
 		if _, err := svc.Approve(ctx, p.ID); err != nil {
 			t.Errorf("aprovar já aprovado deveria ser no-op, veio %v", err)
 		}
@@ -179,9 +208,9 @@ func TestApproveAndReject(t *testing.T) {
 func TestListPending(t *testing.T) {
 	ctx := context.Background()
 	svc := newPatientSvc()
-	_, _ = svc.RegisterFromPortal(ctx, PortalRegisterInput{Name: "P1", Phone: "1", Email: "p1@x.com"})
-	_, _ = svc.RegisterFromPortal(ctx, PortalRegisterInput{Name: "P2", Phone: "1", Email: "p2@x.com"})
-	_, _ = svc.Create(ctx, CreateInput{Name: "A1", Phone: "1", Email: "a1@x.com"})
+	_, _ = svc.RegisterFromPortal(ctx, PortalRegisterInput{Name: "P1", Phone: "11900000008", Email: "p1@x.com"})
+	_, _ = svc.RegisterFromPortal(ctx, PortalRegisterInput{Name: "P2", Phone: "11900000009", Email: "p2@x.com"})
+	_, _ = svc.Create(ctx, CreateInput{Name: "A1", Phone: "11900000010", Email: "a1@x.com"})
 	pend, err := svc.ListPending(ctx)
 	if err != nil {
 		t.Fatalf("ListPending: %v", err)

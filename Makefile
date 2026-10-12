@@ -10,7 +10,8 @@ DEV_CONFIG ?= config.dev.yaml
 
 .PHONY: help all build build-admin build-portal test test-unit e2e \
         fmt fmt-check vet lint check tidy migrate \
-        run-admin run-portal run-local deploy update clean
+        run-admin run-portal run-local deploy update clean \
+        stack-up stack-down stack-seed stack-logs
 
 ## help: lista os alvos disponíveis
 help:
@@ -119,6 +120,22 @@ $(DEV_CONFIG):
 	  'log:' \
 	  '  level: "debug"' \
 	  > $(DEV_CONFIG)
+
+## stack-up: sobe a STACK LOCAL em Docker (admin+portal, dev) e aplica o seed
+stack-up:
+	./scripts/stack-up.sh
+
+## stack-seed: aplica (ou reaplica) a carga inicial na stack já no ar
+stack-seed:
+	./scripts/seed.sh
+
+## stack-logs: segue os logs da stack local (Ctrl-C para sair)
+stack-logs:
+	docker compose logs -f
+
+## stack-down: derruba a stack local e LIMPA TUDO (containers, volume, imagem)
+stack-down:
+	./scripts/stack-down.sh
 
 ## deploy: instalação interativa (ver docs/deploy.md)
 deploy:

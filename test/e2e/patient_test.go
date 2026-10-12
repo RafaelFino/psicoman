@@ -112,7 +112,7 @@ func TestPatientEmailUnique(t *testing.T) {
 	env := StartAdmin(t)
 	defer env.Stop()
 
-	body := map[string]any{"name": "A", "phone": "1199", "email": "dup@example.com"}
+	body := map[string]any{"name": "A", "phone": "11999990001", "email": "dup@example.com"}
 	resp := env.AdminPOST(t, "/v1/admin/patients", body)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("primeiro create status = %d", resp.StatusCode)
@@ -132,7 +132,7 @@ func TestPatientCPFUnique(t *testing.T) {
 	defer env.Stop()
 
 	resp := env.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "A", "phone": "1199", "email": "a@example.com", "cpf": "529.982.247-25",
+		"name": "A", "phone": "11999990001", "email": "a@example.com", "cpf": "529.982.247-25",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("primeiro create status = %d", resp.StatusCode)
@@ -141,10 +141,80 @@ func TestPatientCPFUnique(t *testing.T) {
 
 	// Outro paciente, mesmo CPF → 409.
 	resp = env.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "B", "phone": "1188", "email": "b@example.com", "cpf": "52998224725",
+		"name": "B", "phone": "11988880002", "email": "b@example.com", "cpf": "52998224725",
 	})
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("cpf duplicado status = %d, quer 409", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+// TestPatientPhoneNormalized cobre R3.1: o telefone é persistido em forma
+// canônica (só dígitos, com DDI 55) tanto no cadastro pelo admin quanto no
+// auto-cadastro pelo portal; números implausíveis são rejeitados (422).
+func TestPatientPhoneNormalized(t *testing.T) {
+	env := StartAdmin(t)
+	defer env.Stop()
+
+	// Admin: telefone mascarado -> canônico na resposta.
+	resp := env.AdminPOST(t, "/v1/admin/patients", map[string]any{
+		"name": "Fone Admin", "phone": "(11) 99999-0001", "email": "fone-admin@example.com",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, quer 201", resp.StatusCode)
+	}
+	e := DecodeEnvelope(t, resp)
+	var p struct {
+		Phone string `json:"phone"`
+	}
+	e.DataAs(t, &p)
+	if p.Phone != "5511999990001" {
+		t.Errorf("telefone admin = %q, quer 5511999990001 (canônico)", p.Phone)
+	}
+
+	// Telefone implausível -> 422.
+	resp = env.AdminPOST(t, "/v1/admin/patients", map[string]any{
+		"name": "Fone Ruim", "phone": "123", "email": "fone-ruim@example.com",
+	})
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("telefone implausível status = %d, quer 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+// TestPortalRegisterPhoneNormalized cobre R3.1 no portal: o auto-cadastro
+// persiste o telefone canônico, visível pelo admin.
+func TestPortalRegisterPhoneNormalized(t *testing.T) {
+	adminEnv, portalEnv := StartAdminAndPortal(t)
+	defer adminEnv.Stop()
+	defer portalEnv.Stop()
+
+	pc := portalEnv.NewPortalClient(t)
+	resp := pc.PUT(t, "/v1/portal/register", map[string]any{
+		"credential": "fone-portal@example.com", "name": "Fone Portal", "phone": "11 98888-7777",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register status = %d, quer 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Admin vê o telefone canônico na fila de pendentes.
+	le := DecodeEnvelope(t, adminEnv.AdminGET(t, "/v1/admin/patients/pending"))
+	var pendings []struct {
+		Email string `json:"email"`
+		Phone string `json:"phone"`
+	}
+	le.DataAs(t, &pendings)
+	found := false
+	for _, pp := range pendings {
+		if pp.Email == "fone-portal@example.com" {
+			found = true
+			if pp.Phone != "5511988887777" {
+				t.Errorf("telefone portal = %q, quer 5511988887777 (canônico)", pp.Phone)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("paciente do portal não apareceu na fila de pendentes")
+	}
 }
