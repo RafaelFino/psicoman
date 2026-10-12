@@ -204,6 +204,33 @@ if [ -n "$P_BRUNO" ] && [ -n "$LOC_ONLINE" ]; then
     "sessão solicitada: Bruno — em 2 dias 19:00 (Online)"
 fi
 
+# --- 8) Dia lotado (exercita o calendário semanal fluido — R5.1) -----------
+# Cria ~9 sessões no MESMO dia em horários sequenciais, rodando pelos três
+# pacientes, com status variados para exibir cores distintas na agenda. Escolhe
+# um offset que caia num dia útil (seg–sáb), já que o consultório não atende
+# domingo. 'date %u' => 1=seg … 7=dom.
+busy_offset=3
+for try in 3 4 5 6 7 8; do
+  wd=$(date -u -d "+${try} day" '+%u' 2>/dev/null || date -u -v+"${try}"d '+%u')
+  if [ "$wd" != "7" ]; then busy_offset="$try"; break; fi
+done
+info "Dia lotado em +${busy_offset} dia(s) (seg–sáb) para testar a agenda semanal"
+if [ -n "$P_ANA" ] && [ -n "$P_BRUNO" ] && [ -n "$P_CARLA" ] && [ -n "$LOC_CENTRO" ]; then
+  busy_pts=("$P_ANA" "$P_BRUNO" "$P_CARLA")
+  busy_status=("agendada" "agendada" "solicitada" "agendada" "solicitada" "agendada" "agendada" "solicitada" "agendada")
+  h=9
+  for i in 0 1 2 3 4 5 6 7 8; do
+    pt="${busy_pts[$((i % 3))]}"
+    st="${busy_status[$i]}"
+    sh=$(printf '%02d:00' "$h"); eh=$(printf '%02d:00' "$((h + 1))")
+    post "$ADMIN/sessions" \
+      "{\"patient_id\":\"$pt\",\"location_id\":\"$LOC_CENTRO\",\"modality\":\"presencial\",\"starts_at\":\"$(iso "$busy_offset" "$sh")\",\"ends_at\":\"$(iso "$busy_offset" "$eh")\",\"status\":\"$st\"}" \
+      "sessão ($st): dia lotado ${sh}"
+    h=$((h + 1))
+  done
+  info "9 sessões criadas no dia +${busy_offset} (09:00–17:00) — abra a Agenda da semana"
+fi
+
 # --- resumo ----------------------------------------------------------------
 info ""
 info "Carga concluída. Para navegar:"

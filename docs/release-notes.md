@@ -4,6 +4,26 @@ O que muda a cada onda de trabalho, em linguagem para quem usa o sistema. Detalh
 
 ---
 
+## 2026-10-12 — Prontuário num lugar só, WhatsApp e visual novo (onda `prontuario-ux`)
+
+Deixa o acompanhamento clínico mais fácil de ler e registrar, aproxima o contato com o paciente e renova a cara do sistema. Detalhe técnico em [`decisions.md`](./decisions.md).
+
+**Novidades**
+- **Prontuário unificado.** No paciente, uma aba única **Prontuário** reúne, numa linha do tempo por data (do mais recente para o mais antigo), as sessões e tudo o que você anotou — relatórios de cada sessão e anotações livres, lado a lado. Substitui as antigas abas "Sessões" e "Notas". A Anamnese continua separada, como um documento à parte.
+- **Abrir e editar uma sessão.** Clique numa sessão (na Agenda ou no Prontuário) para abrir um painel: ajuste data/hora, local e modalidade, finalize/cancele/marque falta, e escreva os relatórios daquela sessão. Os relatórios aparecem agrupados sob a sessão certa no Prontuário.
+- **Telefone com WhatsApp.** O telefone do paciente vira um link que abre a conversa no WhatsApp, direto do painel. Os números passam a ser guardados num formato padronizado (com DDD e país), para o link funcionar sempre.
+- **Resumo rápido do acompanhamento.** No topo do Prontuário: total de sessões, realizadas, faltas e a data do último registro.
+
+**Melhorias**
+- **Agenda da semana que respira.** Um dia cheio (vários atendimentos) agora cresce para baixo sem espremer os outros dias, como num calendário de verdade. Continua de segunda a sábado, e cada cartão abre a sessão com um clique.
+- **Visual novo.** Nova identidade em **azul royal** e **lilás** sobre fundos claros, mais sóbria e acolhedora, mantendo as cores de aviso (verde/âmbar/vermelho) onde elas ajudam a entender rápido.
+
+**Notas de migração/operação**
+- A padronização do telefone vale para novos cadastros e para quando você editar um paciente. Cadastros antigos continuam aparecendo normalmente; o número é ajustado automaticamente na próxima vez que você salvar aquele paciente.
+- Ao mudar o horário de uma sessão que tem convite no Google, ajuste o convite no Google manualmente — o sistema avisa isso na tela.
+
+---
+
 ## 2026-10-12 — Controle de acesso do portal e telas que faltavam (onda `mvp-audit1`)
 
 Fecha a lacuna entre o que o sistema já fazia por dentro e o que você consegue fazer pela tela, e protege o portal com um aceite explícito do terapeuta. Detalhe técnico em [`decisions.md`](./decisions.md).
