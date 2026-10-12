@@ -397,15 +397,44 @@
             <span class="chip" :class="statusChip(sessionPanel.status)" x-text="Fmt.sessionStatus(sessionPanel.status)"></span>
           </div>
 
-          <!-- Transições de estado (quando aplicável) -->
-          <template x-if="sessionPanel.status === 'agendada'">
-            <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap">
-              <button class="btn primary" @click="finishSessionPanel()" :disabled="loading">{{template "icon" "check"}} Finalizar</button>
-              <button class="btn secondary" @click="noShowSessionPanel()" :disabled="loading">Falta</button>
-              <button class="btn danger" @click="cancelSessionPanel()" :disabled="loading">{{template "icon" "x"}} Cancelar</button>
-              <template x-if="sessionPanel.meet_url">
-                <a class="btn secondary" :href="sessionPanel.meet_url" target="_blank" rel="noopener">{{template "icon" "video"}} Meet</a>
-              </template>
+          <!-- Metadados de cancelamento (quando houver) -->
+          <template x-if="sessionPanel.status === 'cancelada' && sessionPanel.canceled_by">
+            <p class="sub" style="margin:0 0 12px">
+              Cancelada por <strong x-text="sessionPanel.canceled_by === 'paciente' ? 'paciente' : 'terapeuta'"></strong>
+              <template x-if="sessionPanel.cancel_reason"><span x-text="' · ' + sessionPanel.cancel_reason"></span></template>
+            </p>
+          </template>
+
+          <!-- Transições de estado (sessão agendada ou confirmada) -->
+          <template x-if="sessionPanel.status === 'agendada' || sessionPanel.status === 'confirmada'">
+            <div class="stack" style="margin-bottom:12px">
+              <div class="row" style="gap:8px;flex-wrap:wrap">
+                <template x-if="sessionPanel.status === 'agendada'">
+                  <button class="btn secondary" @click="confirmSessionPanel()" :disabled="loading">{{template "icon" "check"}} Confirmar</button>
+                </template>
+                <button class="btn primary" @click="finishSessionPanel()" :disabled="loading">{{template "icon" "check"}} Finalizar</button>
+                <button class="btn secondary" @click="noShowSessionPanel()" :disabled="loading">Falta</button>
+                <template x-if="sessionPanel.meet_url">
+                  <a class="btn secondary" :href="sessionPanel.meet_url" target="_blank" rel="noopener">{{template "icon" "video"}} Meet</a>
+                </template>
+              </div>
+              <!-- Cancelamento com autor + motivo -->
+              <div class="form-grid">
+                <div class="field">
+                  <label for="s-cancel-by">Cancelar — quem cancelou?</label>
+                  <select id="s-cancel-by" x-model="cancelForm.canceled_by">
+                    <option value="paciente">Paciente</option>
+                    <option value="terapeuta">Terapeuta</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="s-cancel-reason">Motivo (opcional)</label>
+                  <input id="s-cancel-reason" x-model="cancelForm.cancel_reason" placeholder="Ex.: imprevisto do paciente"/>
+                </div>
+              </div>
+              <div class="row end">
+                <button class="btn danger" @click="cancelSessionPanel()" :disabled="loading">{{template "icon" "x"}} Cancelar sessão</button>
+              </div>
             </div>
           </template>
 
@@ -1770,7 +1799,7 @@
       // Clique no cartão abre o painel daquela sessão no detalhe do paciente (R2.1).
       openSession(s) { Alpine.store("nav").openSession(s.patient_id, s.id); },
       statusChip(status) {
-        return ({ realizada: "ok", agendada: "info", solicitada: "info", falta: "warn", cancelada: "danger" })[status] || "info";
+        return ({ realizada: "ok", agendada: "info", confirmada: "info", solicitada: "info", falta: "warn", cancelada: "danger" })[status] || "info";
       },
     };
   }
@@ -1874,7 +1903,7 @@
       // Chip de status coerente com a semântica de cores (R5.3/R4).
       statusChip(status) {
         return ({
-          realizada: "ok", agendada: "info", solicitada: "info",
+          realizada: "ok", agendada: "info", confirmada: "info", solicitada: "info",
           falta: "warn", cancelada: "danger",
         })[status] || "info";
       },
@@ -1932,6 +1961,7 @@
       // ── Painel da sessão (R2.1–2.4) ───────────────────────────────────────
       sessionPanel: null,
       sessionEdit: { starts_at: "", ends_at: "", modality: "presencial", location_id: "" },
+      cancelForm: { canceled_by: "paciente", cancel_reason: "" },
       sessionNoteForm: { content: "" },
       sessionNotePreview: false,
       sessionIsTerminal(status) { return status === "realizada" || status === "cancelada" || status === "falta"; },
@@ -1948,6 +1978,7 @@
         this.sessionNoteForm = { content: "" };
         this.sessionNotePreview = false;
         this.confirmingNoteId = null;
+        this.cancelForm = { canceled_by: "paciente", cancel_reason: "" };
         this.sessionEdit = {
           starts_at: this.toLocalInput(s.starts_at),
           ends_at: this.toLocalInput(s.ends_at),
@@ -1988,6 +2019,11 @@
         if (res) { this.ok("Registro adicionado."); this.sessionNoteForm.content = ""; await this.loadNotes(); }
       },
       // Transições a partir do painel: aplicam e refletem o novo estado.
+      async confirmSessionPanel() {
+        if (!this.sessionPanel) return;
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/confirm`, {}));
+        if (res) { this.ok("Sessão confirmada."); this.sessionPanel = res.data; await this.loadSessions(); }
+      },
       async finishSessionPanel() {
         if (!this.sessionPanel) return;
         const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/finish`, { bill: true, consider_cost: true }));
@@ -1995,7 +2031,10 @@
       },
       async cancelSessionPanel() {
         if (!this.sessionPanel) return;
-        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/cancel`, {}));
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/cancel`, {
+          canceled_by: this.cancelForm.canceled_by,
+          cancel_reason: this.cancelForm.cancel_reason,
+        }));
         if (res) { this.ok("Sessão cancelada."); this.sessionPanel = res.data; await this.loadSessions(); }
       },
       async noShowSessionPanel() {

@@ -86,11 +86,13 @@
     },
     "/v1/admin/sessions/{id}": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-      "get": { "tags": ["admin"], "summary": "Obter sessão", "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" } } },
+      "get": { "tags": ["admin"], "summary": "Obter sessão (view inclui confirmed_at, canceled_by, cancel_reason, canceled_at quando houver)", "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" } } },
       "put": { "tags": ["admin"], "summary": "Editar sessão (data/hora, local, modalidade; não troca o paciente; bloqueado em estado terminal)", "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" }, "409": { "description": "Conflito de agenda" }, "422": { "description": "Validação (datas inválidas ou sessão já concluída)" } } }
     },
     "/v1/admin/sessions/{id}/finish": { "post": { "tags": ["admin"], "summary": "Finalizar sessão (bill opcional: ausente=cobra por padrão, false=opt-out; consider_cost)", "responses": { "200": { "description": "OK" } } } },
     "/v1/admin/sessions/{id}/schedule": { "post": { "tags": ["admin"], "summary": "Confirmar/agendar sessão", "responses": { "200": { "description": "OK" }, "409": { "description": "Conflito" } } } },
+    "/v1/admin/sessions/{id}/confirm": { "post": { "tags": ["admin"], "summary": "Confirmar sessão (agendada → confirmada; grava confirmed_at)", "responses": { "200": { "description": "OK" }, "422": { "description": "Transição inválida" } } } },
+    "/v1/admin/sessions/{id}/cancel": { "post": { "tags": ["admin"], "summary": "Cancelar sessão (corpo {canceled_by: paciente|terapeuta obrigatório, cancel_reason opcional})", "responses": { "200": { "description": "OK" }, "422": { "description": "Autor ausente/ inválido ou transição inválida" } } } },
     "/v1/admin/appointment-requests": { "get": { "tags": ["admin"], "summary": "Pedidos pendentes", "responses": { "200": { "description": "OK" } } } },
     "/v1/admin/appointment-requests/{id}/confirm": { "post": { "tags": ["admin"], "summary": "Confirmar pedido (cria evento)", "responses": { "201": { "description": "Criado" }, "409": { "description": "Conflito" } } } },
     "/v1/admin/debts": { "get": { "tags": ["admin"], "summary": "Listar débitos (?patient_id)", "responses": { "200": { "description": "OK" } } } },

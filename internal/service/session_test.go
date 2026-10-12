@@ -188,3 +188,73 @@ func TestSessionUpdateNotFound(t *testing.T) {
 		t.Fatal("esperava ErrNotFound para sessão inexistente")
 	}
 }
+
+func TestSessionConfirm(t *testing.T) {
+	svc, repo, _ := newSessionSvcWith(t)
+	mustSession(t, repo, domain.SessionAgendada)
+
+	got, err := svc.Confirm(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatalf("Confirm: %v", err)
+	}
+	if got.Status != domain.SessionConfirmada {
+		t.Errorf("status = %q, quer confirmada", got.Status)
+	}
+	if got.ConfirmedAt.IsZero() {
+		t.Error("confirmed_at não gravado")
+	}
+	// Persistido.
+	stored, _ := repo.Get(context.Background(), "sess-1")
+	if stored.Status != domain.SessionConfirmada || stored.ConfirmedAt.IsZero() {
+		t.Error("confirmação não persistida")
+	}
+}
+
+func TestSessionConfirmInvalidState(t *testing.T) {
+	svc, repo, _ := newSessionSvcWith(t)
+	mustSession(t, repo, domain.SessionRealizada)
+	if _, err := svc.Confirm(context.Background(), "sess-1"); err == nil {
+		t.Fatal("confirmar sessão realizada deveria falhar")
+	}
+}
+
+func TestSessionCancelRequiresAuthor(t *testing.T) {
+	svc, repo, _ := newSessionSvcWith(t)
+	mustSession(t, repo, domain.SessionAgendada)
+
+	// Sem autor → erro de validação.
+	if _, err := svc.Cancel(context.Background(), "sess-1", "", "qualquer"); err == nil {
+		t.Fatal("cancelar sem autor deveria falhar")
+	}
+	// Autor inválido → erro.
+	if _, err := svc.Cancel(context.Background(), "sess-1", "sistema", ""); err == nil {
+		t.Fatal("autor inválido deveria falhar")
+	}
+}
+
+func TestSessionCancelWithMetadata(t *testing.T) {
+	svc, repo, _ := newSessionSvcWith(t)
+	mustSession(t, repo, domain.SessionConfirmada)
+
+	got, err := svc.Cancel(context.Background(), "sess-1", domain.CancelByPatient, "imprevisto")
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if got.Status != domain.SessionCancelada {
+		t.Errorf("status = %q, quer cancelada", got.Status)
+	}
+	if got.CanceledBy != domain.CancelByPatient {
+		t.Errorf("canceled_by = %q, quer paciente", got.CanceledBy)
+	}
+	if got.CancelReason != "imprevisto" {
+		t.Errorf("cancel_reason = %q, quer imprevisto", got.CancelReason)
+	}
+	if got.CanceledAt.IsZero() {
+		t.Error("canceled_at não gravado")
+	}
+	// confirmada → cancelada é transição válida.
+	stored, _ := repo.Get(context.Background(), "sess-1")
+	if stored.CanceledBy != domain.CancelByPatient {
+		t.Error("metadados de cancelamento não persistidos")
+	}
+}

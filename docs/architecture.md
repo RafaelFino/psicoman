@@ -104,7 +104,7 @@ erDiagram
 
 **appointment_request** — patient_id, slot solicitado, status (`pendente`|`confirmado`|`recusado`). Registro interno; não toca o Google até confirmação.
 
-**session** — patient_id, location_id, modalidade, início/fim, status (`solicitada`|`agendada`|`realizada`|`cancelada`|`falta`), flags `bill` (haverá cobrança) e `consider_cost` (considerar custos), google_event_id, meet_url.
+**session** — patient_id, location_id, modalidade, início/fim, status (`solicitada`|`agendada`|`confirmada`|`realizada`|`cancelada`|`falta`), flags `bill` (haverá cobrança) e `consider_cost` (considerar custos), google_event_id, meet_url, e os metadados de status (Opção B, patient-timeline R6): `confirmed_at`, `canceled_by` (`paciente`|`terapeuta`), `cancel_reason` (texto livre opcional), `canceled_at`. Transições: `solicitada → agendada|cancelada`; `agendada → confirmada|realizada|cancelada|falta`; `confirmada → realizada|cancelada|falta`; demais terminais. A `SessionCategory(status, canceled_by)` deriva a categoria de relatório (realizadas, faltas, canceladas-paciente, canceladas-terapeuta, canceladas-sem-autor, agendadas/confirmadas, solicitadas), reutilizada pelas métricas e relatórios. O `CHECK` do status foi atualizado via **rebuild da tabela** na migration 0004 (SQLite não altera CHECK por ALTER).
 
 **plan** — patient_id, tipo (`pagamento_por_consulta`|`pagamento_por_mes`|`plano_fechado_mensal`|`plano_fechado_trimestral`|`atendimento_social`), valor (centavos, quando fixo), `due_day` (dia de vencimento 1–28 dos planos fechados; 0 = não aplicável), vigência.
 
@@ -275,7 +275,9 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 | CRUD | `/v1/admin/plans` | Planos por paciente |
 | GET/POST | `/v1/admin/sessions` | Sessões e transições de estado (checa conflito via freebusy do Calendar antes de confirmar) |
 | GET/PUT | `/v1/admin/sessions/{id}` | Obter / editar sessão (data/hora, local, modalidade; não troca paciente; bloqueado em estado terminal; auditado) |
-| POST | `/v1/admin/sessions/{id}/finish` | Finalizar (flags bill/consider_cost) |
+| POST | `/v1/admin/sessions/{id}/finish` | Finalizar (bill opcional: ausente=cobra, false=opt-out; consider_cost) |
+| POST | `/v1/admin/sessions/{id}/confirm` | Confirmar sessão (agendada → confirmada; grava confirmed_at; audita session.confirm) |
+| POST | `/v1/admin/sessions/{id}/cancel` | Cancelar (corpo `{canceled_by: paciente\|terapeuta, cancel_reason?}`; autor obrigatório; audita session.cancel) |
 | GET/POST | `/v1/admin/appointment-requests` | Pedidos pendentes / confirmar |
 | CRUD | `/v1/admin/debts` | Débitos; PDF de cobrança |
 | POST | `/v1/admin/debts/{id}/pay` | Quitar (anexa comprovante) |

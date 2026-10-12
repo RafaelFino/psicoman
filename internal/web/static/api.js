@@ -132,7 +132,7 @@ const Fmt = {
   // Rótulo PT-BR para status de sessão.
   sessionStatus(s) {
     return ({
-      solicitada: "Solicitada", agendada: "Agendada",
+      solicitada: "Solicitada", agendada: "Agendada", confirmada: "Confirmada",
       realizada: "Realizada", finalizada: "Finalizada",
       cancelada: "Cancelada", falta: "Falta",
     })[s] || (s || "—");

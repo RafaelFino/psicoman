@@ -67,8 +67,14 @@ type SessionService struct {
 	calendar  SessionCalendar
 	reminders []int
 	hooks     []SessionFinishedHook
+	audit     *AuditService
 	clock     clock.Clock
 }
+
+// SetAudit injeta o serviço de auditoria para registrar operações sensíveis de
+// sessão (confirmação, cancelamento, remarcação). Best-effort: falha de audit
+// não derruba a operação.
+func (s *SessionService) SetAudit(a *AuditService) { s.audit = a }
 
 // NewSessionService cria o serviço. Sem Google, usa o checker no-op.
 func NewSessionService(repo SessionRepository, patients PatientRepository) *SessionService {
@@ -239,9 +245,58 @@ func (s *SessionService) createCalendarEvent(ctx context.Context, sess *domain.S
 	return nil
 }
 
-// Cancel move a sessão para "cancelada".
-func (s *SessionService) Cancel(ctx context.Context, id string) (*domain.Session, error) {
-	return s.simpleTransition(ctx, id, domain.SessionCancelada)
+// Confirm move a sessão de "agendada" para "confirmada", gravando confirmed_at.
+// A confirmação é opcional no fluxo (uma sessão agendada ainda pode ir direto a
+// realizada/falta/cancelada). Audita session.confirm (sem conteúdo clínico).
+func (s *SessionService) Confirm(ctx context.Context, id string) (*domain.Session, error) {
+	sess, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !sess.CanTransition(domain.SessionConfirmada) {
+		return nil, NewValidation("A sessão não pode ser confirmada a partir do estado atual.")
+	}
+	sess.Status = domain.SessionConfirmada
+	sess.ConfirmedAt = s.clock.Now()
+	sess.UpdatedAt = sess.ConfirmedAt
+	if err := s.repo.Update(ctx, sess); err != nil {
+		return nil, err
+	}
+	if s.audit != nil {
+		_ = s.audit.Record(ctx, "sistema", domain.AuditActionSessionConfirm, "session", sess.ID,
+			map[string]any{"confirmed_at": clock.Format(sess.ConfirmedAt)})
+	}
+	return sess, nil
+}
+
+// Cancel move a sessão para "cancelada", exigindo o autor (paciente|terapeuta)
+// e gravando o motivo opcional e canceled_at. Audita session.cancel com
+// metadata {canceled_by} — o motivo NÃO entra em metadata (coerente com §4.1).
+func (s *SessionService) Cancel(ctx context.Context, id, by, reason string) (*domain.Session, error) {
+	if !domain.ValidCancelBy(by) {
+		return nil, NewValidation("Informe quem cancelou: paciente ou terapeuta.")
+	}
+	sess, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !sess.CanTransition(domain.SessionCancelada) {
+		return nil, NewValidation("A sessão não pode ser cancelada a partir do estado atual.")
+	}
+	now := s.clock.Now()
+	sess.Status = domain.SessionCancelada
+	sess.CanceledBy = by
+	sess.CancelReason = reason
+	sess.CanceledAt = now
+	sess.UpdatedAt = now
+	if err := s.repo.Update(ctx, sess); err != nil {
+		return nil, err
+	}
+	if s.audit != nil {
+		_ = s.audit.Record(ctx, "sistema", domain.AuditActionSessionCancel, "session", sess.ID,
+			map[string]any{"canceled_by": by})
+	}
+	return sess, nil
 }
 
 // MarkNoShow move a sessão para "falta".

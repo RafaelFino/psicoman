@@ -159,6 +159,7 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 	gedSvc := service.NewGEDService(sqlite.NewGEDMetaRepo(d.db), gedStore)
 	therapistSvc := service.NewTherapistService(sqlite.NewTherapistRepo(d.db), gedSvc)
 	sessionSvc := service.NewSessionService(sqlite.NewSessionRepo(d.db), sqlite.NewPatientRepo(d.db))
+	sessionSvc.SetAudit(auditSvc)
 	planSvc := service.NewPlanService(sqlite.NewPlanRepo(d.db), sqlite.NewPatientRepo(d.db))
 	billingSvc := service.NewBillingService(sqlite.NewDebtRepo(d.db), sqlite.NewPlanRepo(d.db), auditSvc)
 	invoiceSvc := service.NewInvoiceService(sqlite.NewDebtRepo(d.db), sqlite.NewPatientRepo(d.db), gedSvc, therapistSvc, auditSvc)

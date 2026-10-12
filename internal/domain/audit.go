@@ -32,4 +32,8 @@ const (
 	AuditActionConfig       = "config"
 	AuditActionApprove      = "aprovar"
 	AuditActionReject       = "rejeitar"
+	// Ações de sessão (patient-timeline R6/R4.3). Sem conteúdo clínico em metadata.
+	AuditActionSessionConfirm    = "session.confirm"
+	AuditActionSessionCancel     = "session.cancel"
+	AuditActionSessionReschedule = "session.reschedule"
 )

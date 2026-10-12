@@ -110,9 +110,11 @@ func TestSessionCancelAndNoShow(t *testing.T) {
 		return s.ID
 	}
 
-	// Cancelar a partir de agendada.
+	// Cancelar a partir de agendada (com autor obrigatório).
 	id1 := mk()
-	resp := env.AdminPOST(t, "/v1/admin/sessions/"+id1+"/cancel", nil)
+	resp := env.AdminPOST(t, "/v1/admin/sessions/"+id1+"/cancel", map[string]any{
+		"canceled_by": "terapeuta", "cancel_reason": "reorganização de agenda",
+	})
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("cancel status = %d, quer 200", resp.StatusCode)
 	}
@@ -309,7 +311,7 @@ func TestSessionUpdate(t *testing.T) {
 
 	// Sessão em estado terminal (cancelada) → 422.
 	idTerm := mk("agendada")
-	resp = env.AdminPOST(t, "/v1/admin/sessions/"+idTerm+"/cancel", nil)
+	resp = env.AdminPOST(t, "/v1/admin/sessions/"+idTerm+"/cancel", map[string]any{"canceled_by": "terapeuta"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cancelar status = %d", resp.StatusCode)
 	}
@@ -323,4 +325,101 @@ func TestSessionUpdate(t *testing.T) {
 		t.Errorf("PUT sessão terminal status = %d, quer 422", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+// TestSessionConfirm cobre a confirmação (POST /sessions/{id}/confirm):
+// agendada → confirmada grava confirmed_at; confirmada → realizada é válida.
+func TestSessionConfirm(t *testing.T) {
+	env := StartAdmin(t)
+	defer env.Stop()
+
+	pid := env.createPatient(t, "confirma@example.com")
+	start := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	end := time.Now().Add(25 * time.Hour).Format(time.RFC3339)
+	resp := env.AdminPOST(t, "/v1/admin/sessions", map[string]any{
+		"patient_id": pid, "modality": "online", "starts_at": start, "ends_at": end, "status": "agendada",
+	})
+	var s struct {
+		ID string `json:"id"`
+	}
+	DecodeEnvelope(t, resp).DataAs(t, &s)
+
+	resp = env.AdminPOST(t, "/v1/admin/sessions/"+s.ID+"/confirm", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("confirm status = %d, quer 200", resp.StatusCode)
+	}
+	ce := DecodeEnvelope(t, resp)
+	var conf struct {
+		Status      string `json:"status"`
+		ConfirmedAt string `json:"confirmed_at"`
+	}
+	ce.DataAs(t, &conf)
+	if conf.Status != "confirmada" {
+		t.Errorf("status = %q, quer confirmada", conf.Status)
+	}
+	if conf.ConfirmedAt == "" {
+		t.Error("confirmed_at não retornado na view")
+	}
+
+	// confirmada → realizada é válida.
+	resp = env.AdminPOST(t, "/v1/admin/sessions/"+s.ID+"/finish", map[string]any{"consider_cost": false})
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("finish de confirmada status = %d, quer 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+// TestSessionCancelAuthor cobre o cancelamento com e sem autor: sem autor é
+// negado (422); com autor grava os metadados na view.
+func TestSessionCancelAuthor(t *testing.T) {
+	env := StartAdmin(t)
+	defer env.Stop()
+
+	pid := env.createPatient(t, "cancel-autor@example.com")
+	start := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	end := time.Now().Add(25 * time.Hour).Format(time.RFC3339)
+	mk := func() string {
+		resp := env.AdminPOST(t, "/v1/admin/sessions", map[string]any{
+			"patient_id": pid, "modality": "online", "starts_at": start, "ends_at": end, "status": "agendada",
+		})
+		var s struct {
+			ID string `json:"id"`
+		}
+		DecodeEnvelope(t, resp).DataAs(t, &s)
+		return s.ID
+	}
+
+	// Sem autor → 422.
+	id1 := mk()
+	resp := env.AdminPOST(t, "/v1/admin/sessions/"+id1+"/cancel", map[string]any{})
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("cancel sem autor status = %d, quer 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Autor inválido → 422.
+	resp = env.AdminPOST(t, "/v1/admin/sessions/"+id1+"/cancel", map[string]any{"canceled_by": "sistema"})
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("cancel autor inválido status = %d, quer 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Com autor paciente + motivo → 200 e metadados na view.
+	resp = env.AdminPOST(t, "/v1/admin/sessions/"+id1+"/cancel", map[string]any{
+		"canceled_by": "paciente", "cancel_reason": "imprevisto",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("cancel com autor status = %d, quer 200", resp.StatusCode)
+	}
+	ce := DecodeEnvelope(t, resp)
+	var c struct {
+		Status       string `json:"status"`
+		CanceledBy   string `json:"canceled_by"`
+		CancelReason string `json:"cancel_reason"`
+		CanceledAt   string `json:"canceled_at"`
+	}
+	ce.DataAs(t, &c)
+	if c.Status != "cancelada" || c.CanceledBy != "paciente" || c.CancelReason != "imprevisto" || c.CanceledAt == "" {
+		t.Errorf("metadados de cancelamento inconsistentes: %+v", c)
+	}
 }

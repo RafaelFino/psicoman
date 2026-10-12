@@ -6,6 +6,24 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-12 — Onda "patient-timeline" (Fase B): controle de status da sessão
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R6. A máquina de estados da sessão (`solicitada → agendada → {realizada, cancelada, falta}`) não tinha passo de **confirmação** e não distinguia **quem cancelou** (paciente × terapeuta), nem registrava quando/por quê. O terapeuta quer o ciclo de vida completo e base para métricas/relatórios.
+
+**Decisões.**
+1. **Opção B — status enxuto + metadados ortogonais.** Em vez de desdobrar o status por autor (`cancelada_paciente`, `cancelada_terapeuta`), o status continua único (`cancelada`) e o autor/motivo/datas são **campos** da sessão: `confirmed_at`, `canceled_by` (`paciente`|`terapeuta`), `cancel_reason` (texto livre opcional), `canceled_at`. Novo estado `confirmada` entre `agendada` e os desfechos. Transições: `agendada → confirmada|realizada|cancelada|falta`; `confirmada → realizada|cancelada|falta`. A confirmação é **opcional** (uma agendada ainda vai direto a realizada/falta/cancelada). Spec R6.1–R6.2 · D6.1.
+2. **Rebuild da tabela `session` na migration 0004.** SQLite não altera `CHECK` por `ALTER`; incluir `confirmada` no `CHECK (status IN (...))` exige **recriar a tabela** (criar `session_new` com o CHECK atualizado + as 4 colunas novas, copiar os dados com metadados nulos, dropar/renomear, recriar os índices). Feito dentro da transação do framework de migrations, preservando dados, FKs e índices. Registros legados ficam com metadados nulos. Spec R6.3 · D6.2.
+3. **Cancelamento exige autor; auditoria sem conteúdo clínico.** `SessionService.Cancel(ctx, id, by, reason)` recusa `by` ausente/inválido (HTTP 422) e grava os metadados; `Confirm` grava `confirmed_at`. As operações auditam `session.confirm` / `session.cancel` (metadata só `{canceled_by}` ou `{confirmed_at}` — o motivo NÃO entra em metadata, coerente com `§4.1`). `Finish`/`MarkNoShow` aceitam origem `confirmada` (via transições). Spec R6.2 · D6.3.
+4. **Categoria de relatório `SessionCategory` (função pura).** Deriva de `status + canceled_by`: realizadas, faltas, canceladas-paciente, canceladas-terapeuta, canceladas-sem-autor (legado), agendadas/confirmadas, solicitadas. Reutilizada pelas métricas do paciente (F) e pelo relatório por local (F). Spec R6.4 · D6.4.
+
+**Consequências.**
+- Migration `0004_session_status_meta.sql` (rebuild idempotente no boot).
+- Contrato: `sessionView` passa a expor `confirmed_at`/`canceled_by`/`cancel_reason`/`canceled_at` (quando houver); novo `POST /sessions/{id}/confirm`; `POST /sessions/{id}/cancel` passa a exigir corpo `{canceled_by, cancel_reason?}`. Novas ações de audit `session.confirm`/`session.cancel`/`session.reschedule`. Swagger atualizado.
+- UI do painel da sessão: botão "Confirmar" (agendada), finalizar/falta disponíveis em agendada e confirmada, cancelamento com seletor de autor + motivo; `statusChip`/`Fmt.sessionStatus` ganham `confirmada`.
+- **Breaking (interno):** a assinatura de `SessionService.Cancel` mudou de `Cancel(ctx, id)` para `Cancel(ctx, id, by, reason)`; o único chamador (handler admin) foi ajustado. O corpo do endpoint `/cancel` passou a ser obrigatório (autor) — fixtures E2E atualizadas.
+
+---
+
 ## 2026-10-12 — Onda "patient-timeline" (Fase A): faturamento por sessão e ciclo por vencimento
 
 **Contexto.** Terceira onda de evoluções (spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md)). O terapeuta quer que o faturamento por sessão seja automático e que os planos fechados cobrem a partir de um dia de vencimento, não com `+7 dias` arbitrário. Esta entrada cobre a **Fase A** (R1); as demais fases registram suas decisões aqui conforme forem fechando.

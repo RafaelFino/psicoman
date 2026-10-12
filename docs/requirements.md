@@ -76,14 +76,21 @@ Como o portal fica exposto na internet e o Pangolin não aplica controle de aces
 stateDiagram-v2
     [*] --> Solicitada: pedido do paciente
     Solicitada --> Agendada: terapeuta confirma
+    Solicitada --> Cancelada
+    Agendada --> Confirmada: terapeuta confirma presença (opcional)
     Agendada --> Realizada
     Agendada --> Cancelada
     Agendada --> Falta
+    Confirmada --> Realizada
+    Confirmada --> Cancelada
+    Confirmada --> Falta
     Realizada --> [*]
     Cancelada --> [*]
     Falta --> [*]
 ```
 
+- A sessão suporta um estado explícito e **opcional** de `confirmada` (entre `agendada` e os desfechos), com `confirmed_at` registrado (onda `patient-timeline` R6.1). Uma sessão agendada ainda pode ir direto a realizada/falta/cancelada.
+- O **cancelamento** registra metadados (onda `patient-timeline` R6.2): `canceled_by` (`paciente`|`terapeuta`, **obrigatório**), `cancel_reason` (texto livre, opcional) e `canceled_at`. O status permanece único (`cancelada`); autor e motivo são metadados. A operação é auditada (sem conteúdo clínico em metadata).
 - Ao mudar o estado (Realizada / Cancelada / Falta), o terapeuta decide dois flags independentes:
   - **Haverá cobrança?** → gera ou não débito financeiro. Desde a onda `patient-timeline` (R1.3), a cobrança é o **padrão** de uma sessão realizada de plano por-sessão: o flag funciona como **opt-out explícito** ("esta sessão não gera cobrança"). Não é mais preciso lembrar de marcá-lo para gerar o débito.
   - **Custos serão considerados?** → a sessão computa ou não custo de local/infra.

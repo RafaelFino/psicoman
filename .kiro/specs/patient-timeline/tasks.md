@@ -55,7 +55,7 @@ Convenções:
 
 ## Fase B — Controle de status da sessão (R6 base: domínio, persistência, serviço)
 
-- [ ] **B1. Máquina de estados + metadados no domínio** (dep: —)
+- [x] **B1. Máquina de estados + metadados no domínio** (dep: —)
   - `domain.Session`: nova const `SessionConfirmada`; atualizar `transitions` (`agendada → confirmada|realizada|cancelada|falta`; `confirmada → realizada|cancelada|falta`); `ValidStatus` reconhece `confirmada`.
   - Novos campos: `ConfirmedAt`, `CanceledBy`, `CancelReason`, `CanceledAt`; consts `CancelByPatient`/`CancelByTherapist`; helper `ValidCancelBy`.
   - Função pura `SessionCategory(sess)` → categoria de relatório (realizadas, faltas, cancelada-paciente, cancelada-terapeuta, cancelada-sem-autor, agendadas/confirmadas, solicitadas).
@@ -63,14 +63,14 @@ Convenções:
   - **Testes:** unit domínio (transições, `ValidCancelBy`, `SessionCategory`).
   - **Refs:** R6.1–R6.2, R6.4 · D6.1, D6.4.
 
-- [ ] **B2. Migration de rebuild + persistência** (dep: B1)
+- [x] **B2. Migration de rebuild + persistência** (dep: B1)
   - Migration `0004_session_status_meta.sql`: adiciona `confirmed_at`/`canceled_by`/`cancel_reason`/`canceled_at` e **recria a tabela `session`** (table rebuild) para o CHECK de status aceitar `confirmada`, preservando dados, FKs e índices.
   - Repositório SQLite (`repository/sqlite/session.go`): 4 colunas novas em insert/select/update; zero-time ↔ NULL.
   - **Aceite:** boot aplica em base com e sem dados; dados preservados após rebuild; `confirmada` aceito; metadados nulos nos pré-existentes.
   - **Testes:** migration em base com/sem dados; round-trip de persistência dos metadados.
   - **Refs:** R6.3 · D6.2.
 
-- [ ] **B3. Serviço: confirmar e cancelar com autor/motivo** (dep: B2)
+- [x] **B3. Serviço: confirmar e cancelar com autor/motivo** (dep: B2)
   - `SessionService.Confirm` (`agendada → confirmada`, grava `confirmed_at`, audit `session.confirm`); `Cancel(ctx, id, by, reason)` exige `by` válido, grava metadados, audit `session.cancel` (metadata `{canceled_by}`, sem motivo em metadata); `Finish`/`MarkNoShow` aceitam origem `confirmada`.
   - Handlers (`internal/api/admin/session.go`): `POST /sessions/{id}/confirm`; `POST /sessions/{id}/cancel` com corpo `{canceled_by, cancel_reason}`; `sessionView` expõe os campos novos. Swagger atualizado.
   - UI mínima: ação "Confirmar" e cancelamento com seletor de autor + motivo no painel da sessão; `Fmt.sessionStatus` e `statusChip` ganham `confirmada`.
@@ -78,7 +78,7 @@ Convenções:
   - **Testes:** unit serviço; E2E confirm; E2E cancel com e sem autor (negado sem autor); smoke de parse.
   - **Refs:** R6.1–R6.2 · D6.3, D6.5.
 
-- [ ] **Fechamento Fase B:** `docs/decisions.md` (Opção B para status; rebuild da `session` na 0004), `docs/architecture.md` (metadados de sessão, categorização), `docs/requirements.md`, Swagger; `make check` verde → commit "patient-timeline Fase B: controle de status da sessão (confirmação, autor de cancelamento)".
+- [x] **Fechamento Fase B:** `docs/decisions.md` (Opção B para status; rebuild da `session` na 0004), `docs/architecture.md` (metadados de sessão, categorização), `docs/requirements.md`, Swagger; `make check` verde → commit "patient-timeline Fase B: controle de status da sessão (confirmação, autor de cancelamento)".
 
 ---
 

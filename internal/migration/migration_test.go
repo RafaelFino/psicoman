@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -199,5 +200,78 @@ func TestPlanDueDayMigration(t *testing.T) {
 	}
 	if dueNovo != 1 {
 		t.Errorf("novo plano ficou due_day=%d, quer 1 (default)", dueNovo)
+	}
+}
+
+// TestSessionStatusMetaMigration verifica a migration 0004 (patient-timeline
+// R6.3): o rebuild da tabela session preserva os dados pré-existentes, aceita o
+// novo status `confirmada` e deixa os metadados nulos nos registros legados.
+func TestSessionStatusMetaMigration(t *testing.T) {
+	db := openTemp(t)
+	migs, err := load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if err := ensureTable(db.DB); err != nil {
+		t.Fatalf("ensureTable: %v", err)
+	}
+	// Base legada: aplica tudo ANTES da 0004 (0001..0003), com uma sessão.
+	for _, m := range migs {
+		if m.Version < "0004" {
+			if err := apply(db.DB, m); err != nil {
+				t.Fatalf("aplicando %s: %v", m.Version, err)
+			}
+		}
+	}
+	_, err = db.Exec(`INSERT INTO patient (id, name, phone, email, approval_status, created_at, updated_at)
+		VALUES ('01PAC','Pac','1199','pac@example.com','aprovado','2026-01-01T09:00:00-03:00','2026-01-01T09:00:00-03:00')`)
+	if err != nil {
+		t.Fatalf("inserindo paciente: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO session
+		(id, patient_id, modality, starts_at, ends_at, status, bill, consider_cost, created_at, updated_at)
+		VALUES ('01SESS','01PAC','online','2026-01-02T10:00:00-03:00','2026-01-02T11:00:00-03:00','agendada',1,0,'2026-01-01T09:00:00-03:00','2026-01-01T09:00:00-03:00')`)
+	if err != nil {
+		t.Fatalf("inserindo sessão legada: %v", err)
+	}
+
+	// Roda o Run completo (aplica a 0004: rebuild).
+	if err := Run(db.DB); err != nil {
+		t.Fatalf("Run com migration 0004: %v", err)
+	}
+
+	// Dados preservados; metadados nulos nos legados.
+	var status string
+	var bill int
+	var confirmedAt, canceledBy sql.NullString
+	err = db.QueryRow(`SELECT status, bill, confirmed_at, canceled_by FROM session WHERE id='01SESS'`).
+		Scan(&status, &bill, &confirmedAt, &canceledBy)
+	if err != nil {
+		t.Fatalf("lendo sessão após rebuild: %v", err)
+	}
+	if status != "agendada" || bill != 1 {
+		t.Errorf("dados não preservados: status=%q bill=%d", status, bill)
+	}
+	if confirmedAt.Valid || canceledBy.Valid {
+		t.Errorf("metadados deveriam ser nulos nos legados: confirmed_at=%v canceled_by=%v", confirmedAt, canceledBy)
+	}
+
+	// O novo CHECK aceita `confirmada`.
+	_, err = db.Exec(`UPDATE session SET status='confirmada', confirmed_at='2026-01-01T12:00:00-03:00' WHERE id='01SESS'`)
+	if err != nil {
+		t.Fatalf("CHECK deveria aceitar 'confirmada': %v", err)
+	}
+	// Um status inválido continua rejeitado.
+	_, err = db.Exec(`UPDATE session SET status='invalido' WHERE id='01SESS'`)
+	if err == nil {
+		t.Error("CHECK deveria rejeitar status inválido")
+	}
+
+	// A FK da sessão continua valendo após o rebuild.
+	_, err = db.Exec(`INSERT INTO session
+		(id, patient_id, modality, starts_at, ends_at, status, created_at, updated_at)
+		VALUES ('02SESS','inexistente','online','2026-01-02T10:00:00-03:00','2026-01-02T11:00:00-03:00','solicitada','2026-01-01T09:00:00-03:00','2026-01-01T09:00:00-03:00')`)
+	if err == nil {
+		t.Error("FK deveria rejeitar patient_id inexistente após rebuild")
 	}
 }
