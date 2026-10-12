@@ -40,6 +40,13 @@ func TestAdminWebPages(t *testing.T) {
 	if !strings.Contains(string(appBody), "Wa.link(") {
 		t.Error("markup do admin sem link de WhatsApp (Wa.link)")
 	}
+	// R1: aba Prontuário presente (substitui Sessões/Notas).
+	if !strings.Contains(string(appBody), "tab === 'prontuario'") {
+		t.Error("markup do admin sem a aba Prontuário")
+	}
+	if strings.Contains(string(appBody), "tab === 'sessoes'") || strings.Contains(string(appBody), "tab === 'notas'") {
+		t.Error("abas antigas (Sessões/Notas) ainda presentes no markup")
+	}
 
 	// CSS estático.
 	resp = env.GET(t, "/static/app.css")

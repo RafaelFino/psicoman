@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAnamnesis(t *testing.T) {
@@ -124,5 +125,79 @@ func TestTemplateRenderAndSend(t *testing.T) {
 	se.DataAs(t, &send)
 	if !strings.Contains(send.HTML, "<li>Pontualidade</li>") {
 		t.Errorf("envio sem versão formatada: %q", send.HTML)
+	}
+}
+
+// TestSessionLinkedNote cobre R2.3/R2.4: ao criar uma nota com session_id, ela
+// fica correlacionada à sessão (is_free=false, session_id preenchido), e a
+// edição da sessão (PUT) continua funcionando no mesmo fluxo do painel.
+func TestSessionLinkedNote(t *testing.T) {
+	env := StartAdmin(t)
+	defer env.Stop()
+
+	pid := env.createPatient(t, "prontuario-sessao@example.com")
+
+	// Cria uma sessão agendada.
+	start := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	resp := env.AdminPOST(t, "/v1/admin/sessions", map[string]any{
+		"patient_id": pid, "modality": "online",
+		"starts_at": start.Format(time.RFC3339),
+		"ends_at":   start.Add(time.Hour).Format(time.RFC3339),
+		"status":    "agendada",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("criar sessão status = %d", resp.StatusCode)
+	}
+	se := DecodeEnvelope(t, resp)
+	var s struct {
+		ID string `json:"id"`
+	}
+	se.DataAs(t, &s)
+
+	// Registro vinculado à sessão.
+	resp = env.AdminPOST(t, "/v1/admin/patients/"+pid+"/notes", map[string]any{
+		"session_id": s.ID,
+		"content":    "Relatório da sessão: evoluiu bem.",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("criar nota de sessão status = %d, quer 201", resp.StatusCode)
+	}
+	ne := DecodeEnvelope(t, resp)
+	var note struct {
+		SessionID string `json:"session_id"`
+		IsFree    bool   `json:"is_free"`
+	}
+	ne.DataAs(t, &note)
+	if note.SessionID != s.ID {
+		t.Errorf("session_id = %q, quer %q", note.SessionID, s.ID)
+	}
+	if note.IsFree {
+		t.Error("nota vinculada não deveria ser livre")
+	}
+
+	// Nota livre no mesmo paciente.
+	env.AdminPOST(t, "/v1/admin/patients/"+pid+"/notes", map[string]any{
+		"content": "Anotação livre.",
+	}).Body.Close()
+
+	// GET notes: uma vinculada (session_id), uma livre.
+	resp = env.AdminGET(t, "/v1/admin/patients/"+pid+"/notes")
+	le := DecodeEnvelope(t, resp)
+	var notes []struct {
+		SessionID string `json:"session_id"`
+		IsFree    bool   `json:"is_free"`
+	}
+	le.DataAs(t, &notes)
+	var vinculadas, livres int
+	for _, n := range notes {
+		if n.SessionID == s.ID && !n.IsFree {
+			vinculadas++
+		}
+		if n.IsFree && n.SessionID == "" {
+			livres++
+		}
+	}
+	if vinculadas != 1 || livres != 1 {
+		t.Errorf("esperava 1 vinculada e 1 livre, veio %d/%d", vinculadas, livres)
 	}
 }

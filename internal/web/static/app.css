@@ -345,6 +345,7 @@ input:focus, select:focus, textarea:focus {
 .chip.ok { background: var(--ok-soft); color: var(--ok); border-color: #bbf7d0; }
 .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: #fde68a; }
 .chip.info { background: var(--accent-soft); color: var(--accent); border-color: #c7d2fe; }
+.chip.danger { background: var(--danger-soft); color: var(--danger); border-color: #fecaca; }
 
 /* ── Listas de itens ────────────────────────────────────────────────────── */
 .item-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -704,3 +705,53 @@ textarea.tall { min-height: 180px; resize: vertical; line-height: 1.5; }
 .table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border, #e5e7eb); }
 .table th { color: var(--muted); font-weight: 600; }
 .table tbody tr:hover { background: var(--surface-2, #f8fafc); }
+
+/* ── Prontuário: timeline cronológica (prontuario-ux R1) ────────────────── */
+.timeline { display: flex; flex-direction: column; gap: 18px; }
+.tl-day { display: flex; flex-direction: column; gap: 8px; }
+.tl-date {
+  margin: 0;
+  font-size: .9rem;
+  font-weight: 700;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--primary-soft);
+}
+.tl-item { border-left: 4px solid var(--border); }
+.tl-item.st-agendada { border-left-color: var(--accent); }
+.tl-item.st-solicitada { border-left-color: var(--warn); }
+.tl-item.st-realizada { border-left-color: var(--ok); }
+.tl-item.st-cancelada, .tl-item.st-falta { border-left-color: var(--danger); }
+.tl-item.tl-nota { border-left-color: var(--accent-soft); }
+.tl-registros { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.tl-registro {
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.tl-sem-registro { margin: 8px 0 0; font-style: italic; }
+
+/* ── Modal / painel sobreposto (painel da sessão) ───────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(15, 23, 42, .45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 24px 16px; overflow-y: auto;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, .25);
+  width: 100%; max-width: 640px;
+  padding: 20px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+@media (max-width: 720px) {
+  .modal-backdrop { padding: 12px 8px; }
+  .modal { padding: 14px; border-radius: 12px; }
+}
