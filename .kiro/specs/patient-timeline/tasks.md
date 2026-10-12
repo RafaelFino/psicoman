@@ -108,19 +108,19 @@ Convenções:
 
 ## Fase D — Timeline como tela base do paciente (R4 UI)
 
-- [ ] **D1. Helpers de formatação de feed** (dep: —)
+- [x] **D1. Helpers de formatação de feed** (dep: —)
   - `Fmt.relative(iso)` em `internal/web/static/api.js` (datas relativas "hoje", "há 2 dias" + absoluta no title).
   - **Aceite:** helper devolve rótulos coerentes para hoje/ontem/semana/data antiga.
   - **Testes:** teste do helper onde couber; senão verificação manual registrada.
   - **Refs:** R3.3, R4.1 · D3.1.
 
-- [ ] **D2. Visão timeline no `patientDetail()`** (dep: C3, D1)
+- [x] **D2. Visão timeline no `patientDetail()`** (dep: C3, D1)
   - Nova aba default `tab = 'timeline'`; consome `GET /patients/{id}/history`; cards por tipo (ícone/cor), ação ao clicar (abrir sessão/débito/arquivo), filtro "Tudo | Clínico | Financeiro | Agenda | Arquivos"; eventos de cancelamento mostram autor/motivo.
   - **Aceite:** timeline é a visão inicial; filtros funcionam; "Tudo" é padrão; cliques navegam.
   - **Testes:** smoke de parse; verificação manual registrada.
   - **Refs:** R4.1, R4.4 · D4.2, D6.5.
 
-- [ ] **Fechamento Fase D:** `README.md` (tela base = timeline), `docs/requirements.md`; `make check` verde → commit "patient-timeline Fase D: timeline como tela base do paciente".
+- [x] **Fechamento Fase D:** `README.md` (tela base = timeline), `docs/requirements.md`; `make check` verde → commit "patient-timeline Fase D: timeline como tela base do paciente".
 
 ---
 

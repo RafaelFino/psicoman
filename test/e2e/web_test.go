@@ -44,6 +44,14 @@ func TestAdminWebPages(t *testing.T) {
 	if !strings.Contains(string(appBody), "tab === 'prontuario'") {
 		t.Error("markup do admin sem a aba Prontuário")
 	}
+
+	// patient-timeline R4: timeline é a visão base do paciente.
+	if !strings.Contains(string(appBody), "tab === 'timeline'") {
+		t.Error("markup do admin sem a aba Timeline")
+	}
+	if !strings.Contains(string(appBody), "historyFiltered()") {
+		t.Error("markup da timeline sem a lista filtrável de eventos")
+	}
 	if strings.Contains(string(appBody), "tab === 'sessoes'") || strings.Contains(string(appBody), "tab === 'notas'") {
 		t.Error("abas antigas (Sessões/Notas) ainda presentes no markup")
 	}
@@ -80,6 +88,10 @@ func TestAdminWebPages(t *testing.T) {
 	resp.Body.Close()
 	if !strings.Contains(string(jsBody), "const Wa") {
 		t.Error("api.js sem helper Wa")
+	}
+	// patient-timeline D1: helper de data relativa para a timeline.
+	if !strings.Contains(string(jsBody), "relative(iso)") {
+		t.Error("api.js sem helper Fmt.relative")
 	}
 }
 

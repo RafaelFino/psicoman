@@ -189,6 +189,7 @@
     </template>
 
     <nav class="tabs" aria-label="Seções do paciente">
+      <button class="tab" :class="{ active: tab === 'timeline' }" @click="go('timeline')">{{template "icon" "activity"}} Timeline</button>
       <button class="tab" :class="{ active: tab === 'dados' }" @click="tab = 'dados'">{{template "icon" "user"}} Dados</button>
       <button class="tab" :class="{ active: tab === 'anamnese' }" @click="go('anamnese')">{{template "icon" "note"}} Anamnese</button>
       <button class="tab" :class="{ active: tab === 'prontuario' }" @click="go('prontuario')">{{template "icon" "heart"}} Prontuário</button>
@@ -197,6 +198,47 @@
       <button class="tab" :class="{ active: tab === 'custos' }" @click="go('custos')">{{template "icon" "chart"}} Custos</button>
       <button class="tab" :class="{ active: tab === 'arquivos' }" @click="go('arquivos')">{{template "icon" "doc"}} Arquivos</button>
     </nav>
+
+    <!-- Timeline: história completa do paciente (R4), visão base. -->
+    <div x-show="tab === 'timeline'" class="stack">
+      <p class="muted">A história completa deste paciente, do mais recente ao mais antigo.</p>
+      <!-- Filtro por categoria -->
+      <div class="row" style="gap:6px;flex-wrap:wrap" role="group" aria-label="Filtrar a timeline">
+        <template x-for="f in historyFilters" :key="f.value">
+          <button class="chip" :class="{ info: historyFilter === f.value }"
+                  :aria-pressed="historyFilter === f.value"
+                  @click="historyFilter = f.value" x-text="f.label"></button>
+        </template>
+      </div>
+
+      <template x-if="loading && history.length === 0">
+        <p class="muted">Carregando a história…</p>
+      </template>
+      <template x-if="!loading && historyFiltered().length === 0">
+        <p class="empty">Nada por aqui ainda nesta categoria.</p>
+      </template>
+
+      <ul class="item-list">
+        <template x-for="(it, idx) in historyFiltered()" :key="idx">
+          <li class="item" :class="historyClickable(it) ? 'clickable' : ''"
+              @click="historyAction(it)"
+              :tabindex="historyClickable(it) ? 0 : -1"
+              @keydown.enter="historyAction(it)"
+              :aria-label="it.titulo + ' — ' + Fmt.datetime(it.data)">
+            <span class="chip" :class="historyChip(it.tipo)" aria-hidden="true">
+              <svg class="icon"><use :href="'#i-' + historyIcon(it.tipo)"></use></svg>
+            </span>
+            <div class="grow">
+              <div class="title" x-text="it.titulo"></div>
+              <div class="sub">
+                <span x-text="it.resumo"></span>
+              </div>
+            </div>
+            <time class="sub" :datetime="it.data" :title="Fmt.datetime(it.data)" x-text="Fmt.relative(it.data)"></time>
+          </li>
+        </template>
+      </ul>
+    </div>
 
     <!-- Dados -->
     <div x-show="tab === 'dados'" class="stack">
@@ -1809,9 +1851,18 @@
     return {
       ...panel(),
       id: null,
-      tab: "dados",
+      tab: "timeline",
       patient: null,
       origins: [],
+      history: [],
+      historyFilter: "tudo",
+      historyFilters: [
+        { value: "tudo", label: "Tudo" },
+        { value: "clinico", label: "Clínico" },
+        { value: "financeiro", label: "Financeiro" },
+        { value: "agenda", label: "Agenda" },
+        { value: "arquivos", label: "Arquivos" },
+      ],
       editing: false,
       edit: { name: "", phone: "", email: "", cpf: "", origin_id: "" },
       anamnese: { content: "", updated_at: null },
@@ -1837,12 +1888,13 @@
       close() { this.id = null; Alpine.store("nav").closePatient(); },
 
       async bootstrap() {
-        this.tab = "dados";
+        this.tab = "timeline";
         this.loaded = {};
         this.editing = false;
         this.anamnesePreview = false;
         this.notePreview = false;
         this.patient = null;
+        this.history = []; this.historyFilter = "tudo";
         this.anamnese = { content: "", updated_at: null };
         this.sessions = []; this.notes = []; this.debts = []; this.files = []; this.plans = [];
         this.payments = {}; this.costs = {}; this.expandedDebt = null; this.confirmingPlanId = null; this.payingDebt = null; this.confirmingNoteId = null;
@@ -1858,11 +1910,64 @@
         await this.loadDebts();
         await this.loadFiles();
         await this.loadPlans();
+        // Timeline é a visão base: carrega a história assim que o paciente abre.
+        this.loaded["timeline"] = true;
+        await this.loadHistory();
         // Veio da Agenda pedindo para abrir uma sessão específica (R2.1)?
         const focusId = Alpine.store("nav").focusSessionId;
         if (focusId) {
           Alpine.store("nav").focusSessionId = null;
           await this.openProntuarioSession(focusId);
+        }
+      },
+
+      // Carrega a timeline (história composta no servidor — R4).
+      async loadHistory() {
+        const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/history`));
+        if (res) this.history = res.data || [];
+      },
+      // Filtra os eventos pela categoria selecionada ("tudo" mostra todas).
+      historyFiltered() {
+        if (this.historyFilter === "tudo") return this.history;
+        return this.history.filter((it) => it.categoria === this.historyFilter);
+      },
+      // Ícone (sufixo do sprite #i-) por tipo de evento.
+      historyIcon(tipo) {
+        return ({
+          cadastro: "user", aprovacao: "check", sessao: "calendar",
+          remarcacao: "refresh", registro: "heart", nota_livre: "note",
+          anamnese: "heart", debito: "wallet", pagamento: "money", arquivo: "doc",
+        })[tipo] || "info";
+      },
+      // Cor do chip por tipo (coerente com a semântica do design).
+      historyChip(tipo) {
+        return ({
+          cadastro: "info", aprovacao: "ok", sessao: "info", remarcacao: "warn",
+          registro: "info", nota_livre: "info", anamnese: "info",
+          debito: "warn", pagamento: "ok", arquivo: "info",
+        })[tipo] || "info";
+      },
+      historyClickable(it) {
+        const k = it.ref && it.ref.kind;
+        return k === "session" || k === "debt" || k === "ged_file" || k === "anamnesis";
+      },
+      // Ação ao clicar num evento, conforme a referência da entidade.
+      async historyAction(it) {
+        if (!it.ref) return;
+        switch (it.ref.kind) {
+          case "session":
+            if (it.ref.id) await this.openProntuarioSession(it.ref.id);
+            break;
+          case "debt":
+            this.go("financeiro");
+            this.expandedDebt = it.ref.id;
+            break;
+          case "ged_file":
+            window.open(`/v1/admin/files/${it.ref.id}`, "_blank");
+            break;
+          case "anamnesis":
+            this.go("anamnese");
+            break;
         }
       },
 
@@ -1878,6 +1983,8 @@
 
       go(tab) {
         this.tab = tab;
+        // A timeline reflete mudanças feitas em outras abas: sempre recarrega.
+        if (tab === "timeline") { this.loadHistory(); return; }
         if (this.loaded[tab]) return;
         this.loaded[tab] = true;
         if (tab === "anamnese") this.loadAnamnese();

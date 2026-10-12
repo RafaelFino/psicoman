@@ -123,6 +123,36 @@ const Fmt = {
     const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     return `${cap}, ${data} · ${hora}`;
   },
+  // ISO-8601 -> rótulo relativo PT-BR ("agora", "hoje", "ontem", "há 3 dias",
+  // "há 2 meses"); para datas muito antigas, cai na data absoluta curta. Use
+  // sempre com a data absoluta no title/tooltip (Fmt.datetime).
+  relative(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    const now = new Date();
+    const diffMs = d.getTime() - now.getTime();
+    const future = diffMs > 0;
+    const abs = Math.abs(diffMs);
+    const min = Math.round(abs / 60000);
+    const hour = Math.round(abs / 3600000);
+    // Dias por diferença de calendário (ignora a hora do dia).
+    const d0 = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const n0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayDiff = Math.round((d0 - n0) / 86400000);
+
+    if (min < 1) return "agora";
+    if (hour < 1) return future ? `em ${min} min` : `há ${min} min`;
+    if (dayDiff === 0) return future ? `em ${hour} h` : `há ${hour} h`;
+    if (dayDiff === -1) return "ontem";
+    if (dayDiff === 1) return "amanhã";
+    const absDays = Math.abs(dayDiff);
+    if (absDays < 30) return future ? `em ${absDays} dias` : `há ${absDays} dias`;
+    const months = Math.round(absDays / 30);
+    if (months < 12) return future ? `em ${months} ${months === 1 ? "mês" : "meses"}` : `há ${months} ${months === 1 ? "mês" : "meses"}`;
+    // Antigo/distante: data absoluta curta.
+    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  },
   // Escapa texto para inserção segura (usado só quando necessário; Alpine já escapa via x-text).
   esc(s) {
     const div = document.createElement("div");
