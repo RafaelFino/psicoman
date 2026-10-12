@@ -55,6 +55,22 @@ func TestAdminWebPages(t *testing.T) {
 	}
 	resp.Body.Close()
 
+	// R5.1: slot da agenda abre o painel da sessão (não só o paciente).
+	if !strings.Contains(string(appBody), "openSession(s)") {
+		t.Error("slot da agenda não abre o painel da sessão")
+	}
+
+	// R5.1: CSS da semana fluida (colunas alinhadas pelo topo).
+	resp = env.GET(t, "/static/app.css")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("app.css status = %d", resp.StatusCode)
+	}
+	cssBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(cssBody), "align-items: start") {
+		t.Error("week-grid sem align-items: start (dia que cresce com a lotação)")
+	}
+
 	// JS estático: helper Wa disponível no cliente.
 	resp = env.GET(t, "/static/api.js")
 	if resp.StatusCode != http.StatusOK {

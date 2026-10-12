@@ -110,12 +110,13 @@
             <span class="day-empty">—</span>
           </template>
           <template x-for="s in day.slots" :key="s.id">
-            <button class="slot" :class="'st-' + s.status" @click="openPatient(s.patient_id)">
+            <button class="slot" :class="'st-' + s.status" @click="openSession(s)"
+                    :aria-label="'Abrir sessão de ' + patientName(s.patient_id) + ' às ' + fmtTime(s.starts_at)">
               <span class="slot-time" x-text="fmtTime(s.starts_at)"></span>
               <span class="slot-name" x-text="patientName(s.patient_id)"></span>
               <span class="slot-meta">
                 <svg class="icon" aria-hidden="true"><use :href="s.modality === 'online' ? '#i-video' : '#i-pin'"></use></svg>
-                <span x-text="s.status"></span>
+                <span class="chip" :class="statusChip(s.status)" x-text="Fmt.sessionStatus(s.status)"></span>
               </span>
             </button>
           </template>
@@ -1546,8 +1547,15 @@
   document.addEventListener("alpine:init", () => {
     Alpine.store("nav", {
       patientId: null,
-      openPatient(id) { this.patientId = id; window.scrollTo({ top: 0, behavior: "smooth" }); },
-      closePatient() { this.patientId = null; },
+      focusSessionId: null, // sessão a abrir no painel ao carregar o paciente
+      openPatient(id) { this.focusSessionId = null; this.patientId = id; window.scrollTo({ top: 0, behavior: "smooth" }); },
+      // Abre o paciente e sinaliza a sessão a focar (painel da sessão — R2.1).
+      openSession(patientId, sessionId) {
+        this.focusSessionId = sessionId;
+        this.patientId = patientId;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      },
+      closePatient() { this.patientId = null; this.focusSessionId = null; },
     });
   });
 
@@ -1747,6 +1755,11 @@
       fmtTime(iso) { return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); },
       patientName(id) { return this.patients[id] || "Paciente"; },
       openPatient(id) { Alpine.store("nav").openPatient(id); },
+      // Clique no cartão abre o painel daquela sessão no detalhe do paciente (R2.1).
+      openSession(s) { Alpine.store("nav").openSession(s.patient_id, s.id); },
+      statusChip(status) {
+        return ({ realizada: "ok", agendada: "info", solicitada: "info", falta: "warn", cancelada: "danger" })[status] || "info";
+      },
     };
   }
 
@@ -1804,6 +1817,21 @@
         await this.loadDebts();
         await this.loadFiles();
         await this.loadPlans();
+        // Veio da Agenda pedindo para abrir uma sessão específica (R2.1)?
+        const focusId = Alpine.store("nav").focusSessionId;
+        if (focusId) {
+          Alpine.store("nav").focusSessionId = null;
+          await this.openProntuarioSession(focusId);
+        }
+      },
+
+      // Abre a aba Prontuário e o painel da sessão indicada (vindo da Agenda).
+      async openProntuarioSession(sessionId) {
+        this.go("prontuario");
+        await this.loadNotes();
+        await this.loadLocations();
+        const s = this.sessions.find((x) => x.id === sessionId);
+        if (s) this.openSession(s);
       },
       reload() { this.loaded = {}; this.bootstrap(); },
 

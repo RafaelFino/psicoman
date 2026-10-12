@@ -448,17 +448,24 @@ pre.code {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
+  /* Cada coluna cresce conforme a lotação do dia (estilo Google Calendar):
+     alinhar pelo topo evita que um dia cheio estique os vizinhos (R5.1). */
+  align-items: start;
 }
 .week-day {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px;
-  min-height: 120px;
+  /* Altura mínima só para o dia vazio ter presença; o conteúdo manda e a
+     coluna cresce para baixo sem travar nem cortar (R5.1). */
+  min-height: 96px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
+/* Lista de sessões do dia: cresce naturalmente; a página rola (R5.1). */
+.week-day .day-slots { display: flex; flex-direction: column; gap: 8px; }
 .week-day.is-today { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
 .week-day .day-head {
   display: flex;
@@ -478,15 +485,17 @@ pre.code {
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
+  min-height: 44px;          /* alvo de toque confortável (WCAG AA, R5.1) */
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);
   cursor: pointer;
   text-align: left;
   font: inherit;
-  transition: border-color .12s, transform .05s;
+  transition: border-color .12s, transform .05s, box-shadow .12s;
 }
-.slot:hover { border-color: var(--primary); }
+.slot:hover { border-color: var(--primary); box-shadow: 0 1px 4px rgba(55, 48, 163, .12); }
+.slot:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .slot:active { transform: translateY(1px); }
 .slot .slot-time { font-weight: 700; font-size: .82rem; color: var(--primary-strong); }
 .slot .slot-name { font-size: .82rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
