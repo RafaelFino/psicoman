@@ -166,6 +166,19 @@ A spec passou por uma revisão de coerência antes do início da implementação
 
 Não foram encontrados outros bloqueadores. A spec está consistente entre `requirements.md`, `architecture.md` e `tasks.md`, e pronta para o início da implementação.
 
+## Teste local (Docker)
+
+Para subir o sistema inteiro (admin + portal) num container local, com dados de
+demonstração e limpeza completa depois:
+
+```bash
+make stack-up      # sobe a stack em modo dev e aplica a carga inicial
+make stack-down    # derruba e limpa tudo (containers, volume e imagem)
+```
+
+Admin em http://localhost:8080/app/ e portal em http://localhost:8081/app/.
+Detalhes (seed, logs, variações) em [`docs/stack-local.md`](./docs/stack-local.md).
+
 ## Deploy
 
 Instalação e atualização em um servidor (uma VM por terapeuta, atrás do Pangolin):

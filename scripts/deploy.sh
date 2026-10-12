@@ -87,9 +87,9 @@ ask DATA_DIR       "Diretório de dados (SQLite, GED, logs)"      "/var/lib/psic
 
 echo
 printf '%s\n' "${BOLD}--- Rede (portas locais atrás do Pangolin) ---${RESET}"
-ask ADMIN_HOST     "Host de bind do admin"                       "127.0.0.1"
+ask ADMIN_HOST     "Host de bind do admin"                       "0.0.0.0"
 ask ADMIN_PORT     "Porta do admin"                              "8080"
-ask PORTAL_HOST    "Host de bind do portal"                      "127.0.0.1"
+ask PORTAL_HOST    "Host de bind do portal"                      "0.0.0.0"
 ask PORTAL_PORT    "Porta do portal"                             "8081"
 
 echo
@@ -277,9 +277,11 @@ validate() {
   [[ ${SYSTEMD} -eq 1 ]] && echo "  journalctl -u psicoman-${name} -n 50 --no-pager"
   return 1
 }
+# host de bind 0.0.0.0 não é navegável: usa 127.0.0.1 para o health-check local.
+local_host() { case "$1" in 0.0.0.0|""|::) echo "127.0.0.1";; *) echo "$1";; esac; }
 RC=0
-validate "http://${ADMIN_HOST}:${ADMIN_PORT}"   "admin"  || RC=1
-validate "http://${PORTAL_HOST}:${PORTAL_PORT}" "portal" || RC=1
+validate "http://$(local_host "${ADMIN_HOST}"):${ADMIN_PORT}"   "admin"  || RC=1
+validate "http://$(local_host "${PORTAL_HOST}"):${PORTAL_PORT}" "portal" || RC=1
 
 echo
 if [[ ${RC} -eq 0 ]]; then

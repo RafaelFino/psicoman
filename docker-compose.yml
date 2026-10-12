@@ -1,0 +1,52 @@
+# Psicoman — stack LOCAL de teste (admin + portal) em MODO DEV.
+#
+# Os dois serviços usam a MESMA imagem e compartilham o volume de dados, logo
+# operam sobre o mesmo banco SQLite. Autenticação desligada (dev_mode).
+# NÃO use isto em produção.
+#
+# Suba com:   ./scripts/stack-up.sh   (ou make stack-up)
+# Limpe com:  ./scripts/stack-down.sh (ou make stack-down)
+
+name: psicoman-local
+
+services:
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: psicoman-local:dev
+    command: ["psicoman-admin", "-config", "/app/config.docker.yaml"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - psicoman-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+    restart: unless-stopped
+
+  portal:
+    # Reaproveita a imagem construída pelo serviço admin (mesmo Dockerfile).
+    image: psicoman-local:dev
+    command: ["psicoman-portal", "-config", "/app/config.docker.yaml"]
+    ports:
+      - "8081:8081"
+    volumes:
+      - psicoman-data:/data
+    depends_on:
+      admin:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+    restart: unless-stopped
+
+volumes:
+  psicoman-data:
+    name: psicoman-local-data
