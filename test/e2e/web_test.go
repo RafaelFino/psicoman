@@ -36,6 +36,10 @@ func TestAdminWebPages(t *testing.T) {
 	if !strings.Contains(string(appBody), `for="p-email"`) {
 		t.Error("formulário sem label associado")
 	}
+	// R3.2: telefone vira link de WhatsApp (helper Wa.link no markup).
+	if !strings.Contains(string(appBody), "Wa.link(") {
+		t.Error("markup do admin sem link de WhatsApp (Wa.link)")
+	}
 
 	// CSS estático.
 	resp = env.GET(t, "/static/app.css")
@@ -43,6 +47,17 @@ func TestAdminWebPages(t *testing.T) {
 		t.Errorf("css status = %d, quer 200", resp.StatusCode)
 	}
 	resp.Body.Close()
+
+	// JS estático: helper Wa disponível no cliente.
+	resp = env.GET(t, "/static/api.js")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("api.js status = %d, quer 200", resp.StatusCode)
+	}
+	jsBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(jsBody), "const Wa") {
+		t.Error("api.js sem helper Wa")
+	}
 }
 
 func TestPortalWebPages(t *testing.T) {

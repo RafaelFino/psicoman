@@ -130,7 +130,7 @@ func TestROIByOrigin(t *testing.T) {
 
 	// Paciente dessa origem, com plano por consulta, sessão finalizada e paga.
 	resp = env.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Paciente ROI", "phone": "1199", "email": "roi@example.com", "origin_id": origin.ID,
+		"name": "Paciente ROI", "phone": "11999990001", "email": "roi@example.com", "origin_id": origin.ID,
 	})
 	pe := DecodeEnvelope(t, resp)
 	var p struct {

@@ -141,7 +141,7 @@ func TestAdminCreatedPatientIsApproved(t *testing.T) {
 	defer env.Stop()
 
 	resp := env.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Direto Admin", "phone": "1199", "email": "direto@example.com",
+		"name": "Direto Admin", "phone": "11999990001", "email": "direto@example.com",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create status = %d, quer 201", resp.StatusCode)

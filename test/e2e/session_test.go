@@ -10,7 +10,7 @@ import (
 func (e *Env) createPatient(t *testing.T, email string) string {
 	t.Helper()
 	resp := e.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Paciente " + email, "phone": "1199", "email": email,
+		"name": "Paciente " + email, "phone": "11999990001", "email": email,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("criar paciente status = %d", resp.StatusCode)

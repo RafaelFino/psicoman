@@ -12,7 +12,7 @@ func registerPortalPatient(t *testing.T, adminEnv, portalEnv *Env, email string)
 	t.Helper()
 	pc := portalEnv.NewPortalClient(t)
 	resp := pc.PUT(t, "/v1/portal/register", map[string]any{
-		"credential": email, "name": "Paciente " + email, "phone": "1199",
+		"credential": email, "name": "Paciente " + email, "phone": "11999990001",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("register status = %d", resp.StatusCode)

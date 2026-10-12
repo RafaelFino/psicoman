@@ -146,6 +146,35 @@ const Fmt = {
   },
 };
 
+// Wa: helpers de WhatsApp. O telefone já é persistido canônico pelo backend
+// (só dígitos, com DDI 55 — ver domain.NormalizePhone). link() monta o href do
+// WhatsApp Web; pretty() formata para leitura; vazio -> null (sem link quebrado).
+const Wa = {
+  // Só dígitos do telefone (defensivo: registros legados podem ter máscara).
+  digits(phone) {
+    return String(phone == null ? "" : phone).replace(/\D/g, "");
+  },
+  // https://wa.me/<numero>. Retorna null quando não há dígitos.
+  link(phone) {
+    const d = this.digits(phone);
+    return d ? `https://wa.me/${d}` : null;
+  },
+  // Formata o canônico 55DDNNNNNNNNN para "+55 (DD) NNNNN-NNNN". Fallback: o
+  // próprio valor quando o formato não bate (ex.: legado sem DDI).
+  pretty(phone) {
+    const d = this.digits(phone);
+    if (!d) return "—";
+    // 55 + DDD(2) + número(8 ou 9).
+    if (d.startsWith("55") && (d.length === 12 || d.length === 13)) {
+      const ddd = d.slice(2, 4);
+      const num = d.slice(4);
+      const sep = num.length === 9 ? 5 : 4;
+      return `+55 (${ddd}) ${num.slice(0, sep)}-${num.slice(sep)}`;
+    }
+    return phone;
+  },
+};
+
 // Money: conversão reais<->centavos para os formulários (a API usa centavos).
 const Money = {
   // "1.234,56" ou "1234.56" ou "1234,56" -> 123456 (centavos). "" -> 0.

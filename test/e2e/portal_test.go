@@ -60,13 +60,13 @@ func TestPortalIsolation(t *testing.T) {
 	// Paciente A cadastra e loga.
 	a := env.NewPortalClient(t)
 	a.PUT(t, "/v1/portal/register", map[string]any{
-		"credential": "a@example.com", "name": "A", "phone": "111",
+		"credential": "a@example.com", "name": "A", "phone": "11999990011",
 	}).Body.Close()
 
 	// Paciente B cadastra e loga (jar separado).
 	b := env.NewPortalClient(t)
 	b.PUT(t, "/v1/portal/register", map[string]any{
-		"credential": "b@example.com", "name": "B", "phone": "222",
+		"credential": "b@example.com", "name": "B", "phone": "11999990022",
 	}).Body.Close()
 
 	// Cada um vê apenas o próprio perfil.
@@ -98,7 +98,7 @@ func TestPortalLinkByEmail(t *testing.T) {
 
 	// Terapeuta cadastra o paciente pelo admin.
 	resp := adminEnv.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Cadastrado pelo Admin", "phone": "1199", "email": "vinculo@example.com",
+		"name": "Cadastrado pelo Admin", "phone": "11999990001", "email": "vinculo@example.com",
 	})
 	ae := DecodeEnvelope(t, resp)
 	var created struct {
@@ -109,7 +109,7 @@ func TestPortalLinkByEmail(t *testing.T) {
 	// Paciente se cadastra no portal com o MESMO email → vincula, não duplica.
 	pc := portalEnv.NewPortalClient(t)
 	resp = pc.PUT(t, "/v1/portal/register", map[string]any{
-		"credential": "vinculo@example.com", "name": "Nome do Portal", "phone": "1188",
+		"credential": "vinculo@example.com", "name": "Nome do Portal", "phone": "11988880002",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("register portal status = %d", resp.StatusCode)

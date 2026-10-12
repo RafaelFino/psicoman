@@ -163,7 +163,12 @@
         <h2 x-text="patient ? patient.name : 'Paciente'"></h2>
         <div class="sub" x-show="patient">
           <span x-text="patient && patient.email"></span> ·
-          <span x-text="patient && patient.phone"></span>
+          <template x-if="patient && patient.phone">
+            <a :href="Wa.link(patient.phone)" target="_blank" rel="noopener"
+               :title="'Abrir conversa no WhatsApp: ' + Wa.pretty(patient.phone)"
+               x-text="Wa.pretty(patient.phone)"></a>
+          </template>
+          <template x-if="!(patient && patient.phone)"><span>—</span></template>
           <template x-if="patient && patient.can_issue_receipt">
             <span class="chip ok" style="margin-left:6px">{{template "icon" "doc"}} Recibo</span>
           </template>
@@ -206,7 +211,14 @@
       <div class="item-list" x-show="patient && !editing">
         <div class="item"><div class="grow"><div class="sub">Nome</div><div class="title" x-text="patient && patient.name"></div></div></div>
         <div class="item"><div class="grow"><div class="sub">Email</div><div class="title" x-text="patient && patient.email"></div></div></div>
-        <div class="item"><div class="grow"><div class="sub">Telefone</div><div class="title" x-text="patient && patient.phone"></div></div></div>
+        <div class="item"><div class="grow"><div class="sub">Telefone</div><div class="title">
+          <template x-if="patient && patient.phone">
+            <a :href="Wa.link(patient.phone)" target="_blank" rel="noopener"
+               :title="'Abrir conversa no WhatsApp: ' + Wa.pretty(patient.phone)"
+               x-text="Wa.pretty(patient.phone)"></a>
+          </template>
+          <template x-if="!(patient && patient.phone)"><span>—</span></template>
+        </div></div></div>
         <div class="item"><div class="grow"><div class="sub">CPF</div><div class="title" x-text="(patient && patient.cpf) || '—'"></div></div></div>
         <div class="item"><div class="grow"><div class="sub">Cadastrado em</div><div class="title" x-text="Fmt.datetime(patient && patient.created_at)"></div></div></div>
       </div>
@@ -592,7 +604,15 @@
             <span class="icon icon-lg" style="color:var(--primary)"><use href="#i-user"></use></span>
             <div class="grow">
               <div class="title" x-text="p.name"></div>
-              <div class="sub" x-text="p.email + ' · ' + p.phone"></div>
+              <div class="sub">
+                <span x-text="p.email"></span> ·
+                <template x-if="p.phone">
+                  <a :href="Wa.link(p.phone)" target="_blank" rel="noopener" @click.stop
+                     :title="'Abrir conversa no WhatsApp: ' + Wa.pretty(p.phone)"
+                     x-text="Wa.pretty(p.phone)"></a>
+                </template>
+                <template x-if="!p.phone"><span>—</span></template>
+              </div>
             </div>
             <template x-if="p.can_issue_receipt">
               <span class="chip ok">{{template "icon" "doc"}} Recibo</span>
@@ -1275,7 +1295,13 @@
               <div class="grow">
                 <div class="title" x-text="p.name"></div>
                 <div class="sub">
-                  <span x-text="p.email"></span> · <span x-text="p.phone"></span>
+                  <span x-text="p.email"></span> ·
+                  <template x-if="p.phone">
+                    <a :href="Wa.link(p.phone)" target="_blank" rel="noopener"
+                       :title="'Abrir conversa no WhatsApp: ' + Wa.pretty(p.phone)"
+                       x-text="Wa.pretty(p.phone)"></a>
+                  </template>
+                  <template x-if="!p.phone"><span>—</span></template>
                   · cadastrado em <span x-text="Fmt.short(p.created_at)"></span>
                 </div>
               </div>
