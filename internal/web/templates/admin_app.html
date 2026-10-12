@@ -8,15 +8,31 @@
 
   <!-- ══════════════════════════════ AGENDA ══════════════════════════════ -->
   <section class="card" id="agenda" x-data="agendaPanel()" x-init="load()" x-show="!$store.nav.patientId">
-    <header>{{template "icon" "calendar"}}<h2>Agenda da semana</h2></header>
-    <p class="muted">Sessões de segunda a sábado. Clique numa sessão para abrir o paciente.</p>
+    <header>{{template "icon" "calendar"}}<h2 x-text="view === 'mes' ? 'Agenda do mês' : 'Agenda da semana'"></h2></header>
+    <p class="muted" x-text="view === 'mes'
+        ? 'Visão geral do mês para planejamento. Clique num dia para abrir a semana.'
+        : 'Sessões de segunda a sábado. Clique numa sessão para abrir o paciente.'"></p>
+
+    <!-- Alternância entre as visões (semana detalhada / mês geral) -->
+    <div class="view-switch" role="tablist" aria-label="Visão da agenda">
+      <button class="switch-btn" :class="{ active: view === 'semana' }" role="tab"
+              :aria-selected="view === 'semana' ? 'true' : 'false'" @click="setView('semana')" :disabled="loading">
+        {{template "icon" "calendar"}} Semana
+      </button>
+      <button class="switch-btn" :class="{ active: view === 'mes' }" role="tab"
+              :aria-selected="view === 'mes' ? 'true' : 'false'" @click="setView('mes')" :disabled="loading">
+        {{template "icon" "calendar"}} Mês
+      </button>
+    </div>
 
     <div class="agenda-toolbar">
-      <button class="btn secondary icon-only" @click="prevWeek()" :disabled="loading" aria-label="Semana anterior">
+      <button class="btn secondary icon-only" @click="prev()" :disabled="loading"
+              :aria-label="view === 'mes' ? 'Mês anterior' : 'Semana anterior'">
         {{template "icon" "chevron-left"}}
       </button>
-      <button class="btn secondary" @click="thisWeek()" :disabled="loading">Hoje</button>
-      <button class="btn secondary icon-only" @click="nextWeek()" :disabled="loading" aria-label="Próxima semana">
+      <button class="btn secondary" @click="today()" :disabled="loading">Hoje</button>
+      <button class="btn secondary icon-only" @click="next()" :disabled="loading"
+              :aria-label="view === 'mes' ? 'Próximo mês' : 'Próxima semana'">
         {{template "icon" "chevron-right"}}
       </button>
       <span class="range" x-text="rangeLabel()"></span>
@@ -81,7 +97,8 @@
       </div>
     </div>
 
-    <div class="week-grid" role="region" aria-live="polite">
+    <!-- Visão SEMANAL (detalhada, seg–sáb) -->
+    <div class="week-grid" role="region" aria-live="polite" x-show="view === 'semana'">
       <template x-for="day in days" :key="day.iso">
         <div class="week-day" :class="{ 'is-today': day.isToday }">
           <div class="day-head">
@@ -104,6 +121,35 @@
           </template>
         </div>
       </template>
+    </div>
+
+    <!-- Visão MENSAL (geral, calendário dom–sáb para planejamento) -->
+    <div class="month-view" x-show="view === 'mes'" x-cloak>
+      <div class="month-weekdays" aria-hidden="true">
+        <template x-for="wd in weekdayLabels" :key="wd">
+          <span class="month-wd" x-text="wd"></span>
+        </template>
+      </div>
+      <div class="month-grid" role="region" aria-live="polite">
+        <template x-for="cell in monthCells" :key="cell.iso">
+          <div class="month-cell"
+               :class="{ 'is-today': cell.isToday, 'is-outside': !cell.inMonth, 'has-sessions': cell.slots.length > 0 }"
+               role="button" tabindex="0"
+               :aria-label="cell.num + ', ' + cell.slots.length + ' sessão(ões). Abrir semana.'"
+               @click="openWeekOf(cell)" @keydown.enter="openWeekOf(cell)" @keydown.space.prevent="openWeekOf(cell)">
+            <div class="month-cell-head">
+              <span class="month-num" x-text="cell.num"></span>
+              <span class="month-count" x-show="cell.slots.length > 0" x-text="cell.slots.length"></span>
+            </div>
+            <div class="month-dots" x-show="cell.slots.length > 0">
+              <template x-for="s in cell.slots.slice(0, 4)" :key="s.id">
+                <span class="month-dot" :class="'st-' + s.status" :title="fmtTime(s.starts_at) + ' · ' + patientName(s.patient_id)"></span>
+              </template>
+              <span class="month-more" x-show="cell.slots.length > 4" x-text="'+' + (cell.slots.length - 4)"></span>
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </section>
 
@@ -1340,22 +1386,42 @@
 
   function adminApp() { return {}; }
 
-  // ── Agenda semanal (segunda a sábado) ──────────────────────────────────
+  // ── Agenda (visão semanal detalhada + visão mensal geral) ───────────────
+  // Ambas consomem o MESMO endpoint GET /v1/admin/sessions?from=&to=, variando
+  // apenas o intervalo pedido ao backend (semana seg–sáb ou grade do mês).
   function agendaPanel() {
     return {
       ...panel(),
+      view: "semana",       // "semana" | "mes"
       weekStart: null,      // segunda-feira da semana exibida (Date, meia-noite local)
+      monthRef: null,       // 1º dia do mês exibido (Date, meia-noite local)
       sessions: [],
       patients: {},         // id -> nome (para exibir no slot)
       patientList: [],      // objetos completos (para o form de nova sessão)
       locations: [],
-      days: [],
+      days: [],             // células da visão semanal
+      monthCells: [],       // células da visão mensal (grade dom–sáb)
+      weekdayLabels: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"],
       showNew: false,
       newForm: { patient_id: "", location_id: "", modality: "presencial", starts_at: "", ends_at: "" },
-      init() { this.weekStart = mondayOf(new Date()); },
+      init() { this.weekStart = mondayOf(new Date()); this.monthRef = firstOfMonth(new Date()); },
       get approvedPatients() { return this.patientList.filter((p) => p.approval_status === "aprovado"); },
+
+      // Intervalo [from, to) pedido ao backend conforme a visão corrente.
+      rangeParams() {
+        if (this.view === "mes") {
+          const from = monthGridStart(this.monthRef);        // domingo da 1ª semana
+          const to = new Date(from); to.setDate(to.getDate() + 42); // 6 semanas
+          return { from, to };
+        }
+        const from = new Date(this.weekStart);
+        const to = new Date(from); to.setDate(to.getDate() + 6); // seg..sáb (6 dias)
+        return { from, to };
+      },
+
       async load() {
         if (!this.weekStart) this.weekStart = mondayOf(new Date());
+        if (!this.monthRef) this.monthRef = firstOfMonth(new Date());
         // Carrega pacientes e locais uma vez (para rotular slots e o form).
         if (this.patientList.length === 0) {
           const pr = await this.run(() => Api.get("/v1/admin/patients"));
@@ -1368,8 +1434,16 @@
           const lr = await this.run(() => Api.get("/v1/admin/locations"));
           if (lr) this.locations = lr.data || [];
         }
-        const res = await this.run(() => Api.get("/v1/admin/sessions"));
+        const { from, to } = this.rangeParams();
+        const qs = `from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`;
+        const res = await this.run(() => Api.get(`/v1/admin/sessions?${qs}`));
         if (res) { this.sessions = res.data || []; this.build(); }
+      },
+
+      setView(v) {
+        if (this.view === v) return;
+        this.view = v;
+        this.load();
       },
       // Formata um Date para o value de <input type=datetime-local> (hora local).
       toLocalInput(d) {
@@ -1409,8 +1483,12 @@
         if (res) { this.ok(res.message || "Sessão agendada."); this.showNew = false; await this.load(); }
       },
       build() {
+        if (this.view === "mes") this.buildMonth();
+        else this.buildWeek();
+      },
+
+      buildWeek() {
         const start = new Date(this.weekStart);
-        const end = new Date(start); end.setDate(end.getDate() + 6); // seg..sáb (6 dias)
         const today = new Date(); today.setHours(0, 0, 0, 0);
         const names = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
         const days = [];
@@ -1436,10 +1514,64 @@
         days.forEach((d) => d.slots.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)));
         this.days = days;
       },
-      prevWeek() { this.weekStart.setDate(this.weekStart.getDate() - 7); this.weekStart = new Date(this.weekStart); this.load(); },
-      nextWeek() { this.weekStart.setDate(this.weekStart.getDate() + 7); this.weekStart = new Date(this.weekStart); this.load(); },
-      thisWeek() { this.weekStart = mondayOf(new Date()); this.load(); },
+
+      buildMonth() {
+        const gridStart = monthGridStart(this.monthRef); // domingo da 1ª linha
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const refMonth = this.monthRef.getMonth();
+        const cells = [];
+        for (let i = 0; i < 42; i++) { // 6 semanas × 7 dias
+          const d = new Date(gridStart); d.setDate(gridStart.getDate() + i);
+          cells.push({
+            iso: d.toISOString().slice(0, 10),
+            num: d.getDate(),
+            date: d,
+            inMonth: d.getMonth() === refMonth,
+            isToday: d.getTime() === today.getTime(),
+            slots: [],
+          });
+        }
+        const byIso = {};
+        cells.forEach((c) => { byIso[c.iso] = c; });
+        this.sessions
+          .filter((s) => s.status !== "cancelada")
+          .forEach((s) => {
+            const iso = new Date(s.starts_at).toISOString().slice(0, 10);
+            if (byIso[iso]) byIso[iso].slots.push(s);
+          });
+        cells.forEach((c) => c.slots.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)));
+        this.monthCells = cells;
+      },
+
+      // Navegação unificada: avança/retrocede semana ou mês conforme a visão.
+      prev() {
+        if (this.view === "mes") { this.monthRef.setMonth(this.monthRef.getMonth() - 1); this.monthRef = new Date(this.monthRef); }
+        else { this.weekStart.setDate(this.weekStart.getDate() - 7); this.weekStart = new Date(this.weekStart); }
+        this.load();
+      },
+      next() {
+        if (this.view === "mes") { this.monthRef.setMonth(this.monthRef.getMonth() + 1); this.monthRef = new Date(this.monthRef); }
+        else { this.weekStart.setDate(this.weekStart.getDate() + 7); this.weekStart = new Date(this.weekStart); }
+        this.load();
+      },
+      today() {
+        if (this.view === "mes") this.monthRef = firstOfMonth(new Date());
+        else this.weekStart = mondayOf(new Date());
+        this.load();
+      },
+
+      // Clique num dia do mês: foca a semana daquele dia na visão semanal.
+      openWeekOf(cell) {
+        this.weekStart = mondayOf(cell.date);
+        this.view = "semana";
+        this.load();
+      },
+
       rangeLabel() {
+        if (this.view === "mes") {
+          if (!this.monthRef) return "";
+          return this.monthRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+        }
         if (!this.weekStart) return "";
         const end = new Date(this.weekStart); end.setDate(end.getDate() + 5);
         const f = (d) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
@@ -2083,6 +2215,13 @@
     return d;
   }
   function dayFloor(date) { const d = new Date(date); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  function firstOfMonth(date) { const d = new Date(date); d.setHours(0, 0, 0, 0); d.setDate(1); return d; }
+  // Domingo que inicia a grade mensal (pode cair no mês anterior).
+  function monthGridStart(monthRef) {
+    const d = firstOfMonth(monthRef);
+    d.setDate(1 - d.getDay()); // getDay 0=dom → recua até o domingo
+    return d;
+  }
 </script>
 {{template "foot" .}}
 {{end}}

@@ -48,14 +48,29 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// clientAddr converte um endereço de bind (host:porta) no endereço que o
+// cliente de teste deve usar. O servidor binda em 0.0.0.0, mas o cliente/
+// cookiejar precisa de um host navegável; mapeia 0.0.0.0 -> 127.0.0.1
+// preservando a porta.
+func clientAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "0.0.0.0" || host == "" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
+}
+
 // testConfig monta um config temporário isolado para o teste.
 func testConfig(t *testing.T) *config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := &config.Config{}
-	cfg.Admin.Host = "127.0.0.1"
+	cfg.Admin.Host = "0.0.0.0"
 	cfg.Admin.Port = freePort(t)
-	cfg.Portal.Host = "127.0.0.1"
+	cfg.Portal.Host = "0.0.0.0"
 	cfg.Portal.Port = freePort(t)
 	cfg.Paths.SQLite = filepath.Join(dir, "psicoman.db")
 	cfg.Paths.GEDRoot = filepath.Join(dir, "ged")
@@ -139,7 +154,12 @@ func start(t *testing.T, cfg *config.Config, addr string, build func(context.Con
 	}()
 
 	env := &Env{
-		BaseURL: "http://" + addr,
+		// O servidor binda em 0.0.0.0 (todas as interfaces, como na stack
+		// docker), mas o CLIENTE de teste precisa conectar num host navegável:
+		// o cookiejar do Go não reenvia cookies para o host 0.0.0.0, o que faria
+		// toda rota autenticada do portal responder 401. Por isso o BaseURL usa
+		// 127.0.0.1 (mesma porta), independente do host de bind.
+		BaseURL: "http://" + clientAddr(addr),
 		cfg:     cfg,
 		cancel:  cancel,
 		done:    done,

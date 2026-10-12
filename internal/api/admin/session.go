@@ -84,9 +84,32 @@ func (h *SessionHandlers) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SessionHandlers) list(w http.ResponseWriter, r *http.Request) {
-	// Filtro opcional por paciente.
-	if pid := r.URL.Query().Get("patient_id"); pid != "" {
+	q := r.URL.Query()
+	// Filtro opcional por paciente (usado no detalhe do paciente).
+	if pid := q.Get("patient_id"); pid != "" {
 		ss, err := h.svc.ListByPatient(r.Context(), pid)
+		if err != nil {
+			respondServiceError(w, r, err)
+			return
+		}
+		h.respondList(w, r, ss)
+		return
+	}
+	// Filtro opcional por intervalo [from, to) — serve às visões de agenda
+	// (semana/mês). Ambos devem vir juntos, em ISO-8601 (RFC3339).
+	fromStr, toStr := q.Get("from"), q.Get("to")
+	if fromStr != "" || toStr != "" {
+		if fromStr == "" || toStr == "" {
+			httpx.RespondError(w, r, httpx.ErrValidation("Informe os dois limites do intervalo: from e to."))
+			return
+		}
+		from, err1 := time.Parse(time.RFC3339, fromStr)
+		to, err2 := time.Parse(time.RFC3339, toStr)
+		if err1 != nil || err2 != nil {
+			httpx.RespondError(w, r, httpx.ErrValidation("Os limites from e to devem estar no formato ISO-8601 (RFC3339)."))
+			return
+		}
+		ss, err := h.svc.ListByRange(r.Context(), from, to)
 		if err != nil {
 			respondServiceError(w, r, err)
 			return

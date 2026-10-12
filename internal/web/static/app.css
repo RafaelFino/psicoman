@@ -500,6 +500,109 @@ pre.code {
   .week-day { min-height: auto; }
 }
 
+/* ── Alternância de visão da agenda (semana / mês) ──────────────────────── */
+.view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  min-height: 40px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: .88rem;
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.switch-btn:hover { color: var(--text); }
+.switch-btn.active { background: var(--surface); color: var(--primary-strong); box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,.08)); }
+.switch-btn .icon { width: 1.05em; height: 1.05em; }
+
+/* ── Agenda mensal (grade dom–sáb, visão de planejamento) ───────────────── */
+/* Mobile-first: no celular a grade fica compacta; expande em telas maiores. */
+.month-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.month-wd {
+  text-align: center;
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.month-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 56px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .12s, background .12s;
+}
+.month-cell:hover { border-color: var(--primary); background: var(--primary-soft); }
+.month-cell:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.month-cell.is-outside { opacity: .4; }
+.month-cell.is-today { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+.month-cell.has-sessions { background: var(--surface-2); }
+.month-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.month-num { font-size: .82rem; font-weight: 700; color: var(--text); }
+.month-cell.is-today .month-num { color: var(--primary-strong); }
+.month-count {
+  font-size: .62rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+}
+.month-dots { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.month-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.month-dot.st-solicitada { background: var(--warn); }
+.month-dot.st-agendada { background: var(--accent); }
+.month-dot.st-realizada { background: var(--ok); }
+.month-dot.st-falta { background: var(--danger); }
+.month-more { font-size: .62rem; font-weight: 700; color: var(--muted); }
+
+/* Tablet/desktop: células mais altas e números maiores. */
+@media (min-width: 721px) {
+  .month-weekdays, .month-grid { gap: 8px; }
+  .month-wd { font-size: .75rem; }
+  .month-cell { min-height: 92px; padding: 8px; }
+  .month-num { font-size: .95rem; }
+  .month-dot { width: 8px; height: 8px; }
+}
+
 /* ── Abas (detalhe do paciente) ─────────────────────────────────────────── */
 .tabs {
   display: flex;

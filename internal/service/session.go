@@ -16,6 +16,8 @@ type SessionRepository interface {
 	Get(ctx context.Context, id string) (*domain.Session, error)
 	List(ctx context.Context) ([]*domain.Session, error)
 	ListByPatient(ctx context.Context, patientID string) ([]*domain.Session, error)
+	// ListByRange devolve as sessões cujo início está em [from, to).
+	ListByRange(ctx context.Context, from, to time.Time) ([]*domain.Session, error)
 	SoftDelete(ctx context.Context, id string) error
 }
 
@@ -249,6 +251,12 @@ func (s *SessionService) List(ctx context.Context) ([]*domain.Session, error) {
 // ListByPatient devolve as sessões de um paciente.
 func (s *SessionService) ListByPatient(ctx context.Context, patientID string) ([]*domain.Session, error) {
 	return s.repo.ListByPatient(ctx, patientID)
+}
+
+// ListByRange devolve as sessões cujo início está no intervalo [from, to).
+// Serve às visões de agenda (semana/mês) sem trazer o histórico inteiro.
+func (s *SessionService) ListByRange(ctx context.Context, from, to time.Time) ([]*domain.Session, error) {
+	return s.repo.ListByRange(ctx, from, to)
 }
 
 func (s *SessionService) simpleTransition(ctx context.Context, id, next string) (*domain.Session, error) {
