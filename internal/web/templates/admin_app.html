@@ -190,6 +190,7 @@
 
     <nav class="tabs" aria-label="Seções do paciente">
       <button class="tab" :class="{ active: tab === 'timeline' }" @click="go('timeline')">{{template "icon" "activity"}} Timeline</button>
+      <button class="tab" :class="{ active: tab === 'calendario' }" @click="go('calendario')">{{template "icon" "calendar"}} Calendário</button>
       <button class="tab" :class="{ active: tab === 'dados' }" @click="tab = 'dados'">{{template "icon" "user"}} Dados</button>
       <button class="tab" :class="{ active: tab === 'anamnese' }" @click="go('anamnese')">{{template "icon" "note"}} Anamnese</button>
       <button class="tab" :class="{ active: tab === 'prontuario' }" @click="go('prontuario')">{{template "icon" "heart"}} Prontuário</button>
@@ -238,6 +239,51 @@
           </li>
         </template>
       </ul>
+    </div>
+
+    <!-- Calendário mensal do paciente (R2): sessões passadas e futuras. -->
+    <div x-show="tab === 'calendario'" class="stack">
+      <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div class="row" style="gap:6px;align-items:center">
+          <button class="btn ghost icon-only" @click="calPrev()" :disabled="loading" aria-label="Mês anterior">{{template "icon" "chevron-left"}}</button>
+          <strong x-text="calLabel()" style="min-width:9rem;text-align:center"></strong>
+          <button class="btn ghost icon-only" @click="calNext()" :disabled="loading" aria-label="Próximo mês">{{template "icon" "chevron-right"}}</button>
+        </div>
+        <button class="btn secondary" @click="calToday()" :disabled="loading">Hoje</button>
+      </div>
+
+      <div class="month-view">
+        <div class="month-weekdays" aria-hidden="true">
+          <template x-for="wd in calWeekdays" :key="wd">
+            <span class="month-wd" x-text="wd"></span>
+          </template>
+        </div>
+        <div class="month-grid" role="region" aria-live="polite">
+          <template x-for="cell in calCells" :key="cell.iso">
+            <div class="month-cell"
+                 :class="{ 'is-today': cell.isToday, 'is-outside': !cell.inMonth, 'has-sessions': cell.slots.length > 0 }"
+                 :role="cell.slots.length > 0 ? 'button' : null"
+                 :tabindex="cell.slots.length > 0 ? 0 : -1"
+                 :aria-label="cell.num + ', ' + cell.slots.length + ' sessão(ões).'"
+                 @click="cell.slots.length && openProntuarioSession(cell.slots[0].id)"
+                 @keydown.enter="cell.slots.length && openProntuarioSession(cell.slots[0].id)">
+              <div class="month-cell-head">
+                <span class="month-num" x-text="cell.num"></span>
+                <span class="month-count" x-show="cell.slots.length > 1" x-text="cell.slots.length"></span>
+              </div>
+              <div class="month-dots" x-show="cell.slots.length > 0">
+                <template x-for="s in cell.slots.slice(0, 4)" :key="s.id">
+                  <span class="month-dot" :class="'st-' + s.status"
+                        :title="fmtTime(s.starts_at) + ' · ' + Fmt.sessionStatus(s.status)"
+                        @click.stop="openProntuarioSession(s.id)"></span>
+                </template>
+                <span class="month-more" x-show="cell.slots.length > 4" x-text="'+' + (cell.slots.length - 4)"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+      <p class="muted" style="font-size:.82rem">Clique num dia com sessão para abrir o registro.</p>
     </div>
 
     <!-- Dados -->
@@ -1863,6 +1909,10 @@
         { value: "agenda", label: "Agenda" },
         { value: "arquivos", label: "Arquivos" },
       ],
+      // Calendário mensal do paciente (R2).
+      calRef: null,
+      calCells: [],
+      calWeekdays: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"],
       editing: false,
       edit: { name: "", phone: "", email: "", cpf: "", origin_id: "" },
       anamnese: { content: "", updated_at: null },
@@ -1971,6 +2021,55 @@
         }
       },
 
+      // ── Calendário mensal do paciente (R2) ────────────────────────────────
+      fmtTime(iso) { return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); },
+      // Data local YYYY-MM-DD (agrupamento por dia no fuso local; evita o
+      // deslocamento de toISOString, que é UTC).
+      localISO(d) {
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      },
+      calLabel() {
+        if (!this.calRef) return "";
+        const s = this.calRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      },
+      async loadCalendar() {
+        if (!this.calRef) this.calRef = firstOfMonth(new Date());
+        const from = monthGridStart(this.calRef);           // domingo da 1ª linha
+        const to = new Date(from); to.setDate(to.getDate() + 42); // 6 semanas
+        const q = `patient_id=${this.id}&from=${from.toISOString()}&to=${to.toISOString()}`;
+        const res = await this.run(() => Api.get(`/v1/admin/sessions?${q}`));
+        const list = res ? (res.data || []) : [];
+        this.buildCalendar(from, list);
+      },
+      buildCalendar(gridStart, list) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const refMonth = this.calRef.getMonth();
+        const cells = [];
+        for (let i = 0; i < 42; i++) {
+          const d = new Date(gridStart); d.setDate(gridStart.getDate() + i);
+          cells.push({
+            iso: this.localISO(d), num: d.getDate(), date: d,
+            inMonth: d.getMonth() === refMonth,
+            isToday: d.getTime() === today.getTime(),
+            slots: [],
+          });
+        }
+        const byIso = {};
+        cells.forEach((c) => { byIso[c.iso] = c; });
+        // Todos os status entram (passado + futuro — R2.1); agrupa no fuso local.
+        list.forEach((s) => {
+          const iso = this.localISO(new Date(s.starts_at));
+          if (byIso[iso]) byIso[iso].slots.push(s);
+        });
+        cells.forEach((c) => c.slots.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)));
+        this.calCells = cells;
+      },
+      calPrev() { this.calRef.setMonth(this.calRef.getMonth() - 1); this.calRef = new Date(this.calRef); this.loadCalendar(); },
+      calNext() { this.calRef.setMonth(this.calRef.getMonth() + 1); this.calRef = new Date(this.calRef); this.loadCalendar(); },
+      calToday() { this.calRef = firstOfMonth(new Date()); this.loadCalendar(); },
+
       // Abre a aba Prontuário e o painel da sessão indicada (vindo da Agenda).
       async openProntuarioSession(sessionId) {
         this.go("prontuario");
@@ -1985,6 +2084,8 @@
         this.tab = tab;
         // A timeline reflete mudanças feitas em outras abas: sempre recarrega.
         if (tab === "timeline") { this.loadHistory(); return; }
+        // O calendário também reflete mudanças de agenda: sempre recarrega.
+        if (tab === "calendario") { if (!this.calRef) this.calRef = firstOfMonth(new Date()); this.loadCalendar(); return; }
         if (this.loaded[tab]) return;
         this.loaded[tab] = true;
         if (tab === "anamnese") this.loadAnamnese();

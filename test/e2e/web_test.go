@@ -52,6 +52,14 @@ func TestAdminWebPages(t *testing.T) {
 	if !strings.Contains(string(appBody), "historyFiltered()") {
 		t.Error("markup da timeline sem a lista filtrável de eventos")
 	}
+
+	// patient-timeline R2: calendário mensal do paciente.
+	if !strings.Contains(string(appBody), "tab === 'calendario'") {
+		t.Error("markup do admin sem a aba Calendário do paciente")
+	}
+	if !strings.Contains(string(appBody), "loadCalendar()") {
+		t.Error("markup do calendário sem a carga de sessões do mês")
+	}
 	if strings.Contains(string(appBody), "tab === 'sessoes'") || strings.Contains(string(appBody), "tab === 'notas'") {
 		t.Error("abas antigas (Sessões/Notas) ainda presentes no markup")
 	}

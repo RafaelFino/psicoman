@@ -126,13 +126,13 @@ Convenções:
 
 ## Fase E — Calendário mensal do paciente (R2)
 
-- [ ] **E1. Grade mensal no `patientDetail()`** (dep: B3)
+- [x] **E1. Grade mensal no `patientDetail()`** (dep: B3)
   - Nova visão "Calendário"; carrega `GET /sessions?patient_id=&from=&to=` do mês visível; monta grade 7×n agrupando por dia (fuso local); chips de status por cor (inclui `confirmada`); navegação ‹/›/Hoje; clique abre `openProntuarioSession`.
   - **Aceite:** calendário mostra sessões passadas e futuras; navegação de meses funciona; clique abre o registro da sessão.
   - **Testes:** smoke de parse; lógica de grade testada onde couber; verificação manual registrada.
   - **Refs:** R2.1–R2.2 · D2.
 
-- [ ] **Fechamento Fase E:** `docs/requirements.md`/`README.md`; `make check` verde → commit "patient-timeline Fase E: calendário mensal do paciente".
+- [x] **Fechamento Fase E:** `docs/requirements.md`/`README.md`; `make check` verde → commit "patient-timeline Fase E: calendário mensal do paciente".
 
 ---
 

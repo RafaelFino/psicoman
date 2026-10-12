@@ -21,6 +21,7 @@ O escopo descrito na documentação corresponde ao **MVP**. Ideias futuras discu
 - Ciclo de vida de sessões (agendada → confirmada → realizada / cancelada / falta) com confirmação opcional, autor e motivo de cancelamento, controle explícito de cobrança e custo, e edição de sessão (data/hora, local, modalidade; remarcação rastreável).
 - Planos e pagamentos com gatilho de débito por tipo de plano (por sessão automático com opt-out, ou por fechamento de ciclo a partir do dia de vencimento, ou nunca no caso do atendimento social), geração idempotente, PDF de cobrança, quitação com comprovantes.
 - Tela base do paciente é uma **timeline** (história completa, do mais recente ao mais antigo): cadastro, sessões, remarcações, registros clínicos, anamnese, débitos, pagamentos e arquivos, com filtro por categoria.
+- **Calendário mensal** do paciente, com as sessões passadas e futuras coloridas por status e navegação por mês.
 - Prontuário unificado: linha do tempo por data com sessões e seus registros + notas livres; anamnese à parte; templates em Markdown.
 - Controle de custos (local, CRP, infra, plataformas), rateio por sessão e ROI por canal de origem.
 - Relatórios financeiros e de custos.
