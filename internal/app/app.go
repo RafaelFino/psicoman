@@ -241,6 +241,12 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 	admin.NewCostHandlers(costSvc, reportSvc, auditSvc).Register(adminGroup)
 	admin.NewGoogleHandlers(oauth, auditSvc).Register(adminGroup)
 
+	// Histórico/timeline do paciente (composição no servidor — patient-timeline).
+	historySvc := service.NewHistoryService(
+		sqlite.NewPatientRepo(d.db), sqlite.NewSessionRepo(d.db), sqlite.NewProntuarioRepo(d.db),
+		sqlite.NewDebtRepo(d.db), sqlite.NewPaymentRepo(d.db), sqlite.NewGEDMetaRepo(d.db), auditSvc)
+	admin.NewHistoryHandlers(historySvc).Register(adminGroup)
+
 	// Pedidos de agendamento (confirmação cria a sessão + evento).
 	apptSvc := service.NewAppointmentService(
 		sqlite.NewAppointmentRepo(d.db), sqlite.NewPatientRepo(d.db), sessionSvc, sqlite.NewLocationRepo(d.db))

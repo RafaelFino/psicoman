@@ -71,6 +71,9 @@ func (fakeAuditRepo) Insert(context.Context, *domain.AuditLog) error { return ni
 func (fakeAuditRepo) List(context.Context, int) ([]*domain.AuditLog, error) {
 	return nil, nil
 }
+func (fakeAuditRepo) ListByEntity(context.Context, string, string) ([]*domain.AuditLog, error) {
+	return nil, nil
+}
 
 // capturingAuditRepo guarda as entradas para inspeção.
 type capturingAuditRepo struct{ entries []*domain.AuditLog }
@@ -81,6 +84,15 @@ func (c *capturingAuditRepo) Insert(_ context.Context, e *domain.AuditLog) error
 }
 func (c *capturingAuditRepo) List(context.Context, int) ([]*domain.AuditLog, error) {
 	return c.entries, nil
+}
+func (c *capturingAuditRepo) ListByEntity(_ context.Context, entity, entityID string) ([]*domain.AuditLog, error) {
+	var out []*domain.AuditLog
+	for _, e := range c.entries {
+		if e.Entity == entity && e.EntityID == entityID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
 }
 
 func newSession(patientID string, bill bool) *domain.Session {

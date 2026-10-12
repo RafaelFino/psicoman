@@ -232,6 +232,56 @@ func TestSessionCancelRequiresAuthor(t *testing.T) {
 	}
 }
 
+func TestSessionUpdateRecordsReschedule(t *testing.T) {
+	svc, repo, _ := newSessionSvcWith(t)
+	audit := &capturingAuditRepo{}
+	svc.SetAudit(NewAuditService(audit))
+	mustSession(t, repo, domain.SessionAgendada)
+
+	newStart := time.Date(2026, 10, 20, 15, 0, 0, 0, clock.Location())
+	if _, err := svc.Update(context.Background(), "sess-1", SessionUpdateInput{
+		Modality: domain.ModalityPresencial,
+		StartsAt: newStart,
+		EndsAt:   newStart.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	var found *domain.AuditLog
+	for _, e := range audit.entries {
+		if e.Action == domain.AuditActionSessionReschedule && e.EntityID == "sess-1" {
+			found = e
+		}
+	}
+	if found == nil {
+		t.Fatal("esperava audit session.reschedule")
+	}
+	if found.Metadata["from"] == "" || found.Metadata["to"] == "" {
+		t.Errorf("metadata de remarcação incompleta: %+v", found.Metadata)
+	}
+}
+
+func TestSessionUpdateNoRescheduleWhenSameTime(t *testing.T) {
+	svc, repo, _ := newSessionSvcWith(t)
+	audit := &capturingAuditRepo{}
+	svc.SetAudit(NewAuditService(audit))
+	s := mustSession(t, repo, domain.SessionAgendada)
+
+	// Só muda a modalidade/local; mantém o horário.
+	if _, err := svc.Update(context.Background(), "sess-1", SessionUpdateInput{
+		Modality: domain.ModalityOnline,
+		StartsAt: s.StartsAt,
+		EndsAt:   s.EndsAt,
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	for _, e := range audit.entries {
+		if e.Action == domain.AuditActionSessionReschedule {
+			t.Error("não deveria registrar remarcação quando o horário não muda")
+		}
+	}
+}
+
 func TestSessionCancelWithMetadata(t *testing.T) {
 	svc, repo, _ := newSessionSvcWith(t)
 	mustSession(t, repo, domain.SessionConfirmada)

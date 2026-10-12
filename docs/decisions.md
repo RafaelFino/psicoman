@@ -6,6 +6,23 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-12 — Onda "patient-timeline" (Fase C): histórico do paciente e rastreabilidade de remarcação
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R4. A tela base do paciente passará a ser uma timeline unificada; o backend precisa fornecer o feed já normalizado e registrar as remarcações, que hoje não são rastreáveis.
+
+**Decisões.**
+1. **Composição do histórico no servidor (opção B do design D4.4).** Novo `HistoryService` + endpoint `GET /v1/admin/patients/{id}/history` que agrega e normaliza os eventos (`{tipo, categoria, data, titulo, resumo, ref}`), ordenados desc, **derivados** das fontes existentes (sessões, notas, anamnese, débitos, pagamentos, arquivos, aprovação) + remarcações do audit. Preferido ao cálculo só no cliente pela testabilidade (E2E de contrato) e por centralizar a auditoria de leitura clínica. Tipos: `cadastro, aprovacao, sessao, remarcacao, registro, nota_livre, anamnese, debito, pagamento, arquivo`. Spec R4.1–R4.2 · D4.1/D4.4.
+2. **Remarcação via audit `session.reschedule`.** `SessionService.Update`, ao alterar o horário de uma sessão `agendada`/`confirmada`, grava audit `session.reschedule` com `{session_id, from, to}` (datas, sem conteúdo clínico). A timeline deriva a entrada de remarcação desse log. Não se criou coluna/tabela nova para remarcação. Spec R4.3 · D4.3.
+3. **Auditoria de leitura clínica na carga do histórico.** Como o feed agrega conteúdo clínico, cada carga de `history` registra um `AuditActionRead` sobre `patient_history`, com metadata **sem** conteúdo clínico (só `{patient_id, itens}`). O resumo textual exibido na UI não vai para metadados de auditoria. Spec R4.5.
+4. **`AuditRepository.ListByEntity`.** Para derivar remarcações por sessão, o repositório de auditoria ganhou `ListByEntity(entity, entity_id)`.
+
+**Consequências.**
+- Novo endpoint `GET /v1/admin/patients/{id}/history`; novo `HistoryService`; nova ação de audit `session.reschedule` (constante já criada na Fase B); `AuditRepository.ListByEntity` + fakes de teste ajustados.
+- Swagger, `docs/architecture.md` (§4.1.1/§4.1.2 + rota) e `docs/requirements.md` (§3.6 timeline) atualizados.
+- Testes: unit do `HistoryService` (ordenação desc, todos os tipos, remarcação do audit, cancelamento com autor, sem conteúdo clínico em metadata); unit do `Update` (grava/não-grava reschedule); E2E de contrato do fluxo completo.
+
+---
+
 ## 2026-10-12 — Onda "patient-timeline" (Fase B): controle de status da sessão
 
 **Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R6. A máquina de estados da sessão (`solicitada → agendada → {realizada, cancelada, falta}`) não tinha passo de **confirmação** e não distinguia **quem cancelou** (paciente × terapeuta), nem registrava quando/por quê. O terapeuta quer o ciclo de vida completo e base para métricas/relatórios.

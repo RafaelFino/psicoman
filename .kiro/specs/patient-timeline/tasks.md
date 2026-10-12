@@ -84,25 +84,25 @@ Convenções:
 
 ## Fase C — Endpoint de histórico do paciente (R4 backend)
 
-- [ ] **C1. Rastreabilidade de remarcação** (dep: B3)
+- [x] **C1. Rastreabilidade de remarcação** (dep: B3)
   - `SessionService.Update`: quando altera `StartsAt`/`EndsAt` de sessão `agendada`/`confirmada`, grava audit `session.reschedule` com metadata `{session_id, from, to}` (datas, sem conteúdo clínico).
   - **Aceite:** remarcar uma sessão gera entrada de audit consultável.
   - **Testes:** unit do serviço; E2E `PUT /sessions/{id}` com nova data → entrada no audit.
   - **Refs:** R4.3 · D4.3.
 
-- [ ] **C2. Serviço de composição do histórico** (dep: C1, A3)
+- [x] **C2. Serviço de composição do histórico** (dep: C1, A3)
   - Novo serviço/método que compõe o feed a partir de: cadastro/aprovação, sessões (com status/autor de cancelamento), remarcações (audit), registros/notas, anamnese, débitos, pagamentos, arquivos. Itens `{tipo, data, titulo, resumo, ref}`, ordenados desc. Leitura de conteúdo clínico gera `AuditActionRead`.
   - **Aceite:** devolve todos os tipos na ordem correta, sem conteúdo clínico em metadata de audit.
   - **Testes:** unit com fakes (ordenação, presença de cada tipo, remarcação/cancelamento do audit).
   - **Refs:** R4.1–R4.2, R4.5 · D4.1, D4.4, D6.5.
 
-- [ ] **C3. Endpoint `GET /patients/{id}/history`** (dep: C2)
+- [x] **C3. Endpoint `GET /patients/{id}/history`** (dep: C2)
   - Handler admin fino; `historyView` serializa; envelope padrão. Swagger atualizado.
   - **Aceite:** endpoint devolve o feed ordenado para um paciente com histórico variado.
   - **Testes:** E2E — paciente → sessão → confirmar → finalizar (débito) → pagar → anexar arquivo → remarcar → cancelar outra; `GET /patients/{id}/history` traz todos os eventos na ordem esperada.
   - **Refs:** R4.1–R4.2 · D4.4.
 
-- [ ] **Fechamento Fase C:** `docs/architecture.md`/`docs/requirements.md`, Swagger, `docs/decisions.md` (composição no servidor); `make check` verde → commit "patient-timeline Fase C: histórico do paciente e rastreabilidade de remarcação".
+- [x] **Fechamento Fase C:** `docs/architecture.md`/`docs/requirements.md`, Swagger, `docs/decisions.md` (composição no servidor); `make check` verde → commit "patient-timeline Fase C: histórico do paciente e rastreabilidade de remarcação".
 
 ---
 

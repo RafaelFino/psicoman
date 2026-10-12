@@ -181,6 +181,15 @@ sequenceDiagram
 - **Geração automática por sessão (opt-out):** a cobrança é o padrão de uma sessão `realizada` de plano por-sessão. O flag `bill` em `POST /sessions/{id}/finish` é opcional: ausente ⇒ cobra; `false` ⇒ opt-out explícito. Sem plano vigente, não gera (sem base de valor) e registra audit `debt_skip_no_plan` para o terapeuta notar o cadastro faltante.
 - **Idempotência do débito (planos por sessão):** `INSERT ... ON CONFLICT(idempotency_key) DO NOTHING`; segunda chamada não duplica.
 - **Rateio (custo `diario`/`mensal`/`anual`):** `custo_periodo / nº_sessões_realizadas_no_local_no_periodo`. Recalculado ao fechar o período; `session_cost` guarda o valor no momento + base usada para auditoria.
+- **Remarcação rastreável (patient-timeline R4.3):** quando `SessionService.Update` altera o horário (`starts_at`/`ends_at`) de uma sessão `agendada`/`confirmada`, grava um audit `session.reschedule` com metadata `{session_id, from, to}` (datas, sem conteúdo clínico). É a fonte das entradas de "remarcação" na timeline.
+
+### 4.1.2 Timeline/história do paciente (composição no servidor)
+
+A história completa do paciente (`GET /patients/{id}/history`) é **derivada** no servidor a partir das fontes existentes — não há tabela de "eventos". O `HistoryService` agrega e normaliza em itens `{tipo, categoria, data, titulo, resumo, ref}`, ordenados do mais recente ao mais antigo:
+
+- `cadastro`/`aprovacao` (do paciente), `sessao` (status + autor/motivo de cancelamento), `remarcacao` (do audit `session.reschedule`), `registro`/`nota_livre` (notas), `anamnese`, `debito`, `pagamento`, `arquivo` (GED).
+- A composição é **no servidor** (não só no cliente) para centralizar a regra, viabilizar testes de contrato E2E e respeitar a auditoria de leitura clínica: cada carga registra um `AuditActionRead` sobre `patient_history` com metadata **sem** conteúdo clínico (R4.5). O resumo textual é legível para a UI, mas o conteúdo clínico cru não vai para metadados de auditoria.
+- Para as remarcações, o repositório de auditoria ganhou `ListByEntity(entity, entity_id)` (lista as entradas de uma sessão).
 
 ### 4.1.1 Fechamento de ciclo — planos fechados
 
@@ -278,6 +287,7 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 | POST | `/v1/admin/sessions/{id}/finish` | Finalizar (bill opcional: ausente=cobra, false=opt-out; consider_cost) |
 | POST | `/v1/admin/sessions/{id}/confirm` | Confirmar sessão (agendada → confirmada; grava confirmed_at; audita session.confirm) |
 | POST | `/v1/admin/sessions/{id}/cancel` | Cancelar (corpo `{canceled_by: paciente\|terapeuta, cancel_reason?}`; autor obrigatório; audita session.cancel) |
+| GET | `/v1/admin/patients/{id}/history` | Timeline do paciente: feed de eventos composto no servidor (ordenado desc; audita leitura clínica) |
 | GET/POST | `/v1/admin/appointment-requests` | Pedidos pendentes / confirmar |
 | CRUD | `/v1/admin/debts` | Débitos; PDF de cobrança |
 | POST | `/v1/admin/debts/{id}/pay` | Quitar (anexa comprovante) |

@@ -180,6 +180,8 @@ func (s *SessionService) Update(ctx context.Context, id string, in SessionUpdate
 	if sess.IsTerminal() {
 		return nil, NewValidation("Esta sessão já foi concluída e não pode ser reagendada.")
 	}
+	// Captura o horário anterior para registrar a remarcação (R4.3).
+	fromStart, fromEnd := sess.StartsAt, sess.EndsAt
 	sess.LocationID = in.LocationID
 	sess.Modality = in.Modality
 	sess.StartsAt = in.StartsAt
@@ -195,6 +197,18 @@ func (s *SessionService) Update(ctx context.Context, id string, in SessionUpdate
 	}
 	if err := s.repo.Update(ctx, sess); err != nil {
 		return nil, err
+	}
+	// Remarcação: quando o horário muda numa sessão agendada/confirmada, grava
+	// audit consultável (session.reschedule), sem conteúdo clínico (R4.3).
+	rescheduled := !fromStart.Equal(sess.StartsAt) || !fromEnd.Equal(sess.EndsAt)
+	if rescheduled && s.audit != nil &&
+		(sess.Status == domain.SessionAgendada || sess.Status == domain.SessionConfirmada) {
+		_ = s.audit.Record(ctx, "sistema", domain.AuditActionSessionReschedule, "session", sess.ID,
+			map[string]any{
+				"session_id": sess.ID,
+				"from":       clock.Format(fromStart),
+				"to":         clock.Format(sess.StartsAt),
+			})
 	}
 	return sess, nil
 }
