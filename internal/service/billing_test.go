@@ -35,6 +35,9 @@ func (f *fakeDebtRepo) List(context.Context) ([]*domain.Debt, error) { return ni
 func (f *fakeDebtRepo) ListByPatient(context.Context, string) ([]*domain.Debt, error) {
 	return nil, nil
 }
+func (f *fakeDebtRepo) ListBySessionIDs(context.Context, []string) ([]*domain.Debt, error) {
+	return nil, nil
+}
 func (f *fakeDebtRepo) UpdateStatus(context.Context, string, string) error { return nil }
 func (f *fakeDebtRepo) SetPDF(context.Context, string, string) error       { return nil }
 func (f *fakeDebtRepo) count() int                                         { return len(f.byKey) }

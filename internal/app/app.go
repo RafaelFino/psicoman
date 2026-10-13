@@ -247,6 +247,11 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 		sqlite.NewDebtRepo(d.db), sqlite.NewPaymentRepo(d.db), sqlite.NewGEDMetaRepo(d.db), auditSvc)
 	admin.NewHistoryHandlers(historySvc).Register(adminGroup)
 
+	// Métricas de sessão do paciente e relatório por local (patient-timeline F).
+	metricsSvc := service.NewSessionMetricsService(
+		sqlite.NewSessionRepo(d.db), sqlite.NewDebtRepo(d.db), sqlite.NewLocationRepo(d.db))
+	admin.NewMetricsHandlers(metricsSvc).Register(adminGroup)
+
 	// Pedidos de agendamento (confirmação cria a sessão + evento).
 	apptSvc := service.NewAppointmentService(
 		sqlite.NewAppointmentRepo(d.db), sqlite.NewPatientRepo(d.db), sessionSvc, sqlite.NewLocationRepo(d.db))

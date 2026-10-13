@@ -40,6 +40,19 @@ func (f *histDebtRepo) List(context.Context) ([]*domain.Debt, error) { return f.
 func (f *histDebtRepo) ListByPatient(_ context.Context, _ string) ([]*domain.Debt, error) {
 	return f.debts, nil
 }
+func (f *histDebtRepo) ListBySessionIDs(_ context.Context, ids []string) ([]*domain.Debt, error) {
+	set := map[string]bool{}
+	for _, id := range ids {
+		set[id] = true
+	}
+	var out []*domain.Debt
+	for _, d := range f.debts {
+		if set[d.SessionID] {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
 func (f *histDebtRepo) UpdateStatus(context.Context, string, string) error { return nil }
 func (f *histDebtRepo) SetPDF(context.Context, string, string) error       { return nil }
 

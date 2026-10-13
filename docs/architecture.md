@@ -191,6 +191,15 @@ A história completa do paciente (`GET /patients/{id}/history`) é **derivada** 
 - A composição é **no servidor** (não só no cliente) para centralizar a regra, viabilizar testes de contrato E2E e respeitar a auditoria de leitura clínica: cada carga registra um `AuditActionRead` sobre `patient_history` com metadata **sem** conteúdo clínico (R4.5). O resumo textual é legível para a UI, mas o conteúdo clínico cru não vai para metadados de auditoria.
 - Para as remarcações, o repositório de auditoria ganhou `ListByEntity(entity, entity_id)` (lista as entradas de uma sessão).
 
+### 4.1.3 Métricas de sessão e relatório por local (motor de agregação)
+
+Um **motor de agregação** compartilhado (`SessionMetricsService`) categoriza um conjunto de sessões por `SessionCategory` (status + autor de cancelamento) e soma o **faturado das realizadas** (débitos vinculados). É reutilizado por duas dimensões, mudando só o filtro de origem:
+
+- **Métricas do paciente** (`GET /patients/{id}/session-metrics`, `?from=&to=`, default histórico completo): contagem por categoria, **taxa de comparecimento** = realizadas / (realizadas + faltas + canceladas-paciente) e **taxa de cancelamento** = (canceladas-paciente + canceladas-terapeuta + canceladas-sem-autor) / total — ambas zero-safe, trafegadas como fração 0..1 (a UI formata em %).
+- **Relatório por local** (`GET /locations/{id}/session-report`, `?from=&to=`, default mês atual): contagem por categoria, total e faturado das realizadas do local no período, para repasse a clínicas parceiras.
+
+O recorte temporal é sempre por `starts_at` no fuso `America/Sao_Paulo`. O faturado usa `debts.ListByPatient` (paciente) ou `debts.ListBySessionIDs` (local) casando `debt.session_id` com as realizadas. Exportação CSV/impressão fica fora do escopo desta onda.
+
 ### 4.1.1 Fechamento de ciclo — planos fechados
 
 Para `plano_fechado_mensal`/`plano_fechado_trimestral`, o débito não nasce da finalização de uma sessão, e sim de um **job de fechamento de ciclo** (cron diário que verifica planos cuja vigência de período iniciou). O gatilho é o **dia de vencimento** (`plan.due_day`, 1–28): o débito do período só é gerado quando a data de referência alcança o vencimento (`ref >= vencimento`), e o `due_date` do débito é a data real do vencimento (ano/mês do período + `due_day`), não `now + 7 dias`. No trimestral, o vencimento é ancorado no 1º mês do trimestre; a idempotência por `plan_id + billing_period` garante uma única cobrança por período mesmo rodando o cron diário várias vezes:
@@ -288,6 +297,8 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 | POST | `/v1/admin/sessions/{id}/confirm` | Confirmar sessão (agendada → confirmada; grava confirmed_at; audita session.confirm) |
 | POST | `/v1/admin/sessions/{id}/cancel` | Cancelar (corpo `{canceled_by: paciente\|terapeuta, cancel_reason?}`; autor obrigatório; audita session.cancel) |
 | GET | `/v1/admin/patients/{id}/history` | Timeline do paciente: feed de eventos composto no servidor (ordenado desc; audita leitura clínica) |
+| GET | `/v1/admin/patients/{id}/session-metrics` | Métricas de sessão do paciente (contagem por categoria, taxas, faturado; `?from=&to=`) |
+| GET | `/v1/admin/locations/{id}/session-report` | Relatório de sessões por local (categorias + total + faturado; `?from=&to=`, default mês atual) |
 | GET/POST | `/v1/admin/appointment-requests` | Pedidos pendentes / confirmar |
 | CRUD | `/v1/admin/debts` | Débitos; PDF de cobrança |
 | POST | `/v1/admin/debts/{id}/pay` | Quitar (anexa comprovante) |

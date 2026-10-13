@@ -202,6 +202,17 @@
 
     <!-- Timeline: história completa do paciente (R4), visão base. -->
     <div x-show="tab === 'timeline'" class="stack">
+      <!-- Métricas de sessão (R6.4–R6.5) -->
+      <div class="kpis" x-show="metrics">
+        <div class="kpi"><span class="n" x-text="metrics ? metrics.total : 0"></span><span class="k">Sessões</span></div>
+        <div class="kpi"><span class="n" x-text="metricCount('realizadas')"></span><span class="k">Realizadas</span></div>
+        <div class="kpi"><span class="n" x-text="metricCount('faltas')"></span><span class="k">Faltas</span></div>
+        <div class="kpi"><span class="n" x-text="metricCount('canceladas_paciente') + metricCount('canceladas_terapeuta') + metricCount('canceladas_sem_autor')"></span><span class="k">Canceladas</span></div>
+        <div class="kpi"><span class="n" x-text="pct(metrics && metrics.taxa_comparecimento)"></span><span class="k">Comparecimento</span></div>
+        <div class="kpi"><span class="n" x-text="pct(metrics && metrics.taxa_cancelamento)"></span><span class="k">Cancelamento</span></div>
+        <div class="kpi accent"><span class="n" x-text="Fmt.brl(metrics ? metrics.faturado_realizadas : 0)"></span><span class="k">Faturado (realizadas)</span></div>
+      </div>
+
       <p class="muted">A história completa deste paciente, do mais recente ao mais antigo.</p>
       <!-- Filtro por categoria -->
       <div class="row" style="gap:6px;flex-wrap:wrap" role="group" aria-label="Filtrar a timeline">
@@ -1325,6 +1336,49 @@
     </div>
   </section>
 
+  <!-- ══════════════════ RELATÓRIO DE SESSÕES POR LOCAL ═══════════════════ -->
+  <section class="card" id="relatorio-local" x-data="locationReportPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "pin"}}<h2>Relatório de sessões por local</h2></header>
+    <p class="muted">Para repassar à clínica parceira: quantos atendimentos por categoria e o faturamento das realizadas no período.</p>
+
+    <div class="row" style="flex-wrap:wrap;gap:8px;align-items:flex-end">
+      <div class="field">
+        <label for="rl-local">Local</label>
+        <select id="rl-local" x-model="locationId" @change="load()">
+          <option value="">— Selecione —</option>
+          <template x-for="l in locations" :key="l.id">
+            <option :value="l.id" x-text="l.name"></option>
+          </template>
+        </select>
+      </div>
+      <div class="row" style="gap:6px;align-items:center">
+        <button class="btn ghost icon-only" @click="prevMonth()" :disabled="loading || !locationId" aria-label="Mês anterior">{{template "icon" "chevron-left"}}</button>
+        <strong x-text="monthLabel()" style="min-width:9rem;text-align:center"></strong>
+        <button class="btn ghost icon-only" @click="nextMonth()" :disabled="loading || !locationId" aria-label="Próximo mês">{{template "icon" "chevron-right"}}</button>
+      </div>
+      <button class="btn secondary" @click="thisMonth()" :disabled="loading || !locationId">Mês atual</button>
+    </div>
+
+    <template x-if="!locationId">
+      <p class="empty">Escolha um local para ver o relatório.</p>
+    </template>
+
+    <div x-show="report" style="margin-top:12px">
+      <ul class="item-list">
+        <template x-for="row in categoryRows()" :key="row.key">
+          <li class="item">
+            <div class="grow"><div class="title" x-text="row.label"></div></div>
+            <span class="chip info" x-text="row.count"></span>
+          </li>
+        </template>
+      </ul>
+      <div class="kpis" style="margin-top:10px">
+        <div class="kpi"><span class="n" x-text="report ? report.total : 0"></span><span class="k">Total de sessões</span></div>
+        <div class="kpi accent"><span class="n" x-text="Fmt.brl(report ? report.faturado_realizadas : 0)"></span><span class="k">Faturado (realizadas)</span></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ═══════════════════════ PERFIL DO TERAPEUTA ═════════════════════════ -->
   <section class="card" id="perfil-terapeuta" x-data="therapistPanel()" x-init="load()" x-show="!$store.nav.patientId">
     <header>{{template "icon" "user"}}<h2>Meu perfil (terapeuta)</h2></header>
@@ -1901,6 +1955,7 @@
       patient: null,
       origins: [],
       history: [],
+      metrics: null,
       historyFilter: "tudo",
       historyFilters: [
         { value: "tudo", label: "Tudo" },
@@ -1944,7 +1999,7 @@
         this.anamnesePreview = false;
         this.notePreview = false;
         this.patient = null;
-        this.history = []; this.historyFilter = "tudo";
+        this.history = []; this.metrics = null; this.historyFilter = "tudo";
         this.anamnese = { content: "", updated_at: null };
         this.sessions = []; this.notes = []; this.debts = []; this.files = []; this.plans = [];
         this.payments = {}; this.costs = {}; this.expandedDebt = null; this.confirmingPlanId = null; this.payingDebt = null; this.confirmingNoteId = null;
@@ -1971,11 +2026,17 @@
         }
       },
 
-      // Carrega a timeline (história composta no servidor — R4).
+      // Carrega a timeline (história composta no servidor — R4) e as métricas.
       async loadHistory() {
         const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/history`));
         if (res) this.history = res.data || [];
+        const mr = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/session-metrics`));
+        if (mr) this.metrics = mr.data || null;
       },
+      // Contagem de uma categoria nas métricas (zero quando ausente).
+      metricCount(cat) { return (this.metrics && this.metrics.counts && this.metrics.counts[cat]) || 0; },
+      // Fração 0..1 → percentual legível.
+      pct(frac) { return Math.round(((frac || 0) * 100)) + "%"; },
       // Filtra os eventos pela categoria selecionada ("tudo" mostra todas).
       historyFiltered() {
         if (this.historyFilter === "tudo") return this.history;
@@ -2585,6 +2646,55 @@
         const rr = await this.run(() => Api.get("/v1/admin/reports/roi" + qs));
         if (rr) this.roi = rr.data || [];
       },
+    };
+  }
+
+  // ── Relatório de sessões por local (R7) ─────────────────────────────────
+  function locationReportPanel() {
+    return {
+      ...panel(),
+      locations: [],
+      locationId: "",
+      monthRef: null,      // 1º dia do mês exibido
+      report: null,
+      // Rótulos PT-BR das categorias (ordem de exibição).
+      catOrder: [
+        { key: "realizadas", label: "Realizadas" },
+        { key: "faltas", label: "Faltas" },
+        { key: "canceladas_paciente", label: "Canceladas pelo paciente" },
+        { key: "canceladas_terapeuta", label: "Canceladas pelo terapeuta" },
+        { key: "canceladas_sem_autor", label: "Canceladas (sem autor)" },
+        { key: "agendadas_confirmadas", label: "Agendadas/Confirmadas" },
+        { key: "solicitadas", label: "Solicitadas" },
+      ],
+      async load() {
+        if (!this.monthRef) this.monthRef = firstOfMonth(new Date());
+        if (this.locations.length === 0) {
+          const lr = await this.run(() => Api.get("/v1/admin/locations"));
+          if (lr) this.locations = lr.data || [];
+        }
+        if (!this.locationId) { this.report = null; return; }
+        await this.loadReport();
+      },
+      async loadReport() {
+        const from = new Date(this.monthRef);
+        const to = new Date(this.monthRef); to.setMonth(to.getMonth() + 1);
+        const q = `from=${from.toISOString()}&to=${to.toISOString()}`;
+        const res = await this.run(() => Api.get(`/v1/admin/locations/${this.locationId}/session-report?${q}`));
+        this.report = res ? (res.data || null) : null;
+      },
+      monthLabel() {
+        if (!this.monthRef) return "";
+        const s = this.monthRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      },
+      categoryRows() {
+        const c = (this.report && this.report.counts) || {};
+        return this.catOrder.map((r) => ({ key: r.key, label: r.label, count: c[r.key] || 0 }));
+      },
+      prevMonth() { this.monthRef.setMonth(this.monthRef.getMonth() - 1); this.monthRef = new Date(this.monthRef); this.loadReport(); },
+      nextMonth() { this.monthRef.setMonth(this.monthRef.getMonth() + 1); this.monthRef = new Date(this.monthRef); this.loadReport(); },
+      thisMonth() { this.monthRef = firstOfMonth(new Date()); this.loadReport(); },
     };
   }
 

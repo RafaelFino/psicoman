@@ -6,6 +6,26 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-12 — Onda "patient-timeline" (Fase F): métricas do paciente e relatório por local
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R6.4–R6.5 e R7. O terapeuta quer métricas de sessão por paciente (comparecimento, cancelamento, faturado) e um relatório mensal por local para repasse a clínicas parceiras.
+
+**Decisões.**
+1. **Motor de agregação compartilhado por `SessionCategory`.** Um agregador puro (`aggregateSessions`) recebe um conjunto de sessões e um mapa de faturado por sessão e devolve a contagem por categoria (R6.4/B) e o total faturado das **realizadas**. Reutilizado pelas métricas do paciente e pelo relatório por local — mesma regra, filtro de origem diferente. Spec D7.1.
+2. **Agrupamento sempre por `starts_at`** (data de início da sessão), no fuso `America/Sao_Paulo`, tanto nas métricas do paciente quanto no relatório por local. Não se usa `created_at` para o recorte temporal. Spec R6.4, R7.1 · D7.4.
+3. **Taxas zero-safe.** Comparecimento = realizadas / (realizadas + faltas + canceladas-paciente); cancelamento = (canceladas-paciente + canceladas-terapeuta + canceladas-sem-autor) / total. Denominador zero ⇒ taxa 0 (sem divisão por zero). As taxas trafegam como fração 0..1; a UI formata em %. Spec R6.4.
+4. **Faturado = soma dos débitos vinculados às sessões realizadas.** Para o paciente, casa `debt.session_id` com as realizadas via `debts.ListByPatient`; para o local, via novo `debts.ListBySessionIDs` sobre as sessões do recorte. Representa faturamento (das realizadas), não recebimento. Spec R7.2.
+5. **Defaults de período.** Métricas do paciente: histórico completo (from/to ausentes). Relatório por local: mês atual (1º ao 1º dia do mês seguinte, fuso local). Spec D7.4.
+6. **Exportação (CSV/impressão) fora do escopo mínimo** desta onda (R7.3); fica como melhoria futura. O relatório é legível na tela para repasse.
+
+**Consequências.**
+- Novo `SessionMetricsService` (motor + métricas do paciente + relatório por local); novos repositórios `sessions.ListByLocationRange` e `debts.ListBySessionIDs`.
+- Novos endpoints `GET /v1/admin/patients/{id}/session-metrics` e `GET /v1/admin/locations/{id}/session-report`. Swagger atualizado.
+- UI: bloco de KPIs de sessão na timeline do paciente; nova seção "Relatório de sessões por local" (seletor de local + navegação por mês + tabela de categorias + total + faturado), item no menu Gestão.
+- Testes: unit do agregador (categorias incl. cancelada sem autor, taxas zero-safe, faturado só realizadas) + serviços; E2E com sessões variadas para ambos os endpoints.
+
+---
+
 ## 2026-10-12 — Onda "patient-timeline" (Fase C): histórico do paciente e rastreabilidade de remarcação
 
 **Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R4. A tela base do paciente passará a ser uma timeline unificada; o backend precisa fornecer o feed já normalizado e registrar as remarcações, que hoje não são rastreáveis.

@@ -72,6 +72,23 @@ func (f *fakeSessionRepo) ListByRange(_ context.Context, from, to time.Time) ([]
 	return out, nil
 }
 
+func (f *fakeSessionRepo) ListByLocationRange(_ context.Context, locationID string, from, to time.Time) ([]*domain.Session, error) {
+	var out []*domain.Session
+	for _, s := range f.byID {
+		if s.LocationID != locationID {
+			continue
+		}
+		if !from.IsZero() && s.StartsAt.Before(from) {
+			continue
+		}
+		if !to.IsZero() && !s.StartsAt.Before(to) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 func (f *fakeSessionRepo) SoftDelete(_ context.Context, id string) error {
 	delete(f.byID, id)
 	return nil

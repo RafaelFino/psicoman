@@ -18,6 +18,9 @@ type SessionRepository interface {
 	ListByPatient(ctx context.Context, patientID string) ([]*domain.Session, error)
 	// ListByRange devolve as sessões cujo início está em [from, to).
 	ListByRange(ctx context.Context, from, to time.Time) ([]*domain.Session, error)
+	// ListByLocationRange devolve as sessões de um local cujo início está em
+	// [from, to). Limites zero = sem limite (histórico completo do local).
+	ListByLocationRange(ctx context.Context, locationID string, from, to time.Time) ([]*domain.Session, error)
 	SoftDelete(ctx context.Context, id string) error
 }
 

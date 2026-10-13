@@ -89,6 +89,24 @@ func (r *SessionRepo) ListByRange(ctx context.Context, from, to time.Time) ([]*d
 		clock.Format(from), clock.Format(to))
 }
 
+// ListByLocationRange devolve as sessões de um local cujo início está em
+// [from, to). Limites zero = sem limite (compara como ISO-8601, ordem
+// lexicográfica = cronológica).
+func (r *SessionRepo) ListByLocationRange(ctx context.Context, locationID string, from, to time.Time) ([]*domain.Session, error) {
+	q := sessionSelect + ` WHERE location_id=? AND deleted_at IS NULL`
+	args := []any{locationID}
+	if !from.IsZero() {
+		q += ` AND starts_at >= ?`
+		args = append(args, clock.Format(from))
+	}
+	if !to.IsZero() {
+		q += ` AND starts_at < ?`
+		args = append(args, clock.Format(to))
+	}
+	q += ` ORDER BY starts_at ASC`
+	return r.query(ctx, q, args...)
+}
+
 // SoftDelete marca uma sessão como removida.
 func (r *SessionRepo) SoftDelete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx,

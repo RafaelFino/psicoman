@@ -60,6 +60,24 @@ func (r *DebtRepo) ListByPatient(ctx context.Context, patientID string) ([]*doma
 	return r.query(ctx, debtSelect+` WHERE patient_id=? AND deleted_at IS NULL ORDER BY created_at DESC`, patientID)
 }
 
+// ListBySessionIDs devolve os débitos vinculados a qualquer uma das sessões.
+func (r *DebtRepo) ListBySessionIDs(ctx context.Context, sessionIDs []string) ([]*domain.Debt, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]byte, 0, len(sessionIDs)*2)
+	args := make([]any, 0, len(sessionIDs))
+	for i, id := range sessionIDs {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, id)
+	}
+	q := debtSelect + ` WHERE session_id IN (` + string(placeholders) + `) AND deleted_at IS NULL ORDER BY created_at DESC`
+	return r.query(ctx, q, args...)
+}
+
 // UpdateStatus atualiza o status de um débito.
 func (r *DebtRepo) UpdateStatus(ctx context.Context, id, status string) error {
 	res, err := r.db.ExecContext(ctx,

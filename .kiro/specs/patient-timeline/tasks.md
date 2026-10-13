@@ -138,7 +138,7 @@ Convenções:
 
 ## Fase F — Métricas do paciente e relatório por local (R6.4–R6.5, R7)
 
-- [ ] **F1. Motor de agregação + métricas do paciente** (dep: B3)
+- [x] **F1. Motor de agregação + métricas do paciente** (dep: B3)
   - Serviço de relatório com agregador por `SessionCategory` (+ faturado das realizadas), agrupando por `starts_at` no fuso local. `PatientSessionMetrics(ctx, id, from, to)` com taxas zero-safe (comparecimento, cancelamento).
   - Endpoint `GET /v1/admin/patients/{id}/session-metrics?from=&to=` (default = histórico completo); `metricsView`. Swagger atualizado.
   - UI: bloco de KPIs no detalhe do paciente (reusa `.kpis`/`.kpi`), rótulos PT-BR; taxas em %.
@@ -146,7 +146,7 @@ Convenções:
   - **Testes:** unit do agregador; E2E com sessões variadas; smoke de parse.
   - **Refs:** R6.4–R6.5 · D7.1–D7.2.
 
-- [ ] **F2. Relatório por local** (dep: F1)
+- [x] **F2. Relatório por local** (dep: F1)
   - Repositório `sessions.ListByLocationRange`; serviço `LocationSessionReport(ctx, locationID, from, to)` (counts por categoria + faturado das realizadas).
   - Endpoint `GET /v1/admin/locations/{id}/session-report?from=&to=` (default = mês atual); Swagger atualizado.
   - UI: seção no admin (junto de Locais ou Custos e ROI), seletor de local + navegação de período, tabela de categorias + total + faturado; padrão visual de "Custos e ROI".
@@ -154,7 +154,7 @@ Convenções:
   - **Testes:** unit do agregador por local; E2E; smoke de parse.
   - **Refs:** R7.1–R7.4 · D7.1, D7.3–D7.4.
 
-- [ ] **Fechamento Fase F:** `docs/requirements.md`/`docs/architecture.md`/`README.md`, Swagger, `docs/decisions.md` (agrupamento por `starts_at`, CSV fora de escopo); `make check` verde → commit "patient-timeline Fase F: métricas do paciente e relatório por local".
+- [x] **Fechamento Fase F:** `docs/requirements.md`/`docs/architecture.md`/`README.md`, Swagger, `docs/decisions.md` (agrupamento por `starts_at`, CSV fora de escopo); `make check` verde → commit "patient-timeline Fase F: métricas do paciente e relatório por local".
 
 ---
 

@@ -19,6 +19,8 @@ type DebtRepository interface {
 	GetByIdempotencyKey(ctx context.Context, key string) (*domain.Debt, error)
 	List(ctx context.Context) ([]*domain.Debt, error)
 	ListByPatient(ctx context.Context, patientID string) ([]*domain.Debt, error)
+	// ListBySessionIDs devolve os débitos vinculados a qualquer uma das sessões.
+	ListBySessionIDs(ctx context.Context, sessionIDs []string) ([]*domain.Debt, error)
 	UpdateStatus(ctx context.Context, id, status string) error
 	SetPDF(ctx context.Context, id, pdfFileID string) error
 }
