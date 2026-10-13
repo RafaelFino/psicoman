@@ -68,6 +68,17 @@ func TestAdminWebPages(t *testing.T) {
 	if !strings.Contains(string(appBody), `id="relatorio-local"`) {
 		t.Error("markup sem a seção de relatório por local")
 	}
+
+	// patient-timeline R8: feed do dia é a entrada do app (seção #hoje) com resumo colapsável.
+	if !strings.Contains(string(appBody), `id="hoje"`) {
+		t.Error("markup sem a seção Hoje (feed do dia)")
+	}
+	if !strings.Contains(string(appBody), "dayFeedPanel()") {
+		t.Error("markup sem o componente do feed do dia")
+	}
+	if !strings.Contains(string(appBody), `aria-controls="resumo-dia"`) {
+		t.Error("feed do dia sem o resumo colapsável acessível")
+	}
 	if strings.Contains(string(appBody), "tab === 'sessoes'") || strings.Contains(string(appBody), "tab === 'notas'") {
 		t.Error("abas antigas (Sessões/Notas) ainda presentes no markup")
 	}

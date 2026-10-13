@@ -96,6 +96,7 @@ stateDiagram-v2
   - **Custos serão considerados?** → a sessão computa ou não custo de local/infra.
 - **Edição de sessão** (onda `prontuario-ux`): o terapeuta pode abrir uma sessão (na Agenda ou no Prontuário) e editar **data/hora, local e modalidade** (`PUT /v1/admin/sessions/{id}`). A edição **não troca o paciente** e é **bloqueada em estados terminais** (realizada/cancelada/falta); o registro clínico da sessão continua permitido. A edição é auditada. Quando a sessão tem evento no Google, a UI avisa para ajustar o convite manualmente (a reconciliação automática com o Calendar está fora de escopo desta onda — ver [`decisions.md`](./decisions.md)).
 - **Visão semanal fluida** (onda `prontuario-ux`): a agenda semanal (seg–sáb, sem domingo) acomoda muitos atendimentos no mesmo dia; a coluna do dia **cresce conforme a lotação** (referência ~10/dia), sem deformar os dias vizinhos. Cada cartão é clicável e abre o painel da sessão.
+- **Feed do dia do terapeuta** (onda `patient-timeline` R8): a **visão inicial** do admin é um feed transversal a todos os pacientes, com cards didáticos do que aconteceu (sessões, pagamentos, débitos, arquivos) e do que vem (próximas sessões, vencimentos, pedidos pendentes), agrupados por faixa temporal e com janela ajustável (hoje/próximos 7 dias/recentes). O bloco de **resumo agregado** nasce colapsado; os eventos individuais ficam visíveis. A agenda em grade continua acessível pelo menu. Servido por `GET /v1/admin/day-feed`.
 
 ### 3.4 Planos e Pagamentos
 

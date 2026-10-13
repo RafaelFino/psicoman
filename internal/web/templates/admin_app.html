@@ -6,6 +6,70 @@
     <p class="lead">Gestão do consultório</p>
   </div>
 
+  <!-- ══════════════════════════ HOJE (FEED DO DIA) ═══════════════════════ -->
+  <section class="card" id="hoje" x-data="dayFeedPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "activity"}}<h2>Hoje</h2></header>
+    <p class="muted">O resumo do seu dia: o que aconteceu e o que vem por aí.</p>
+
+    <!-- Seletor de janela -->
+    <div class="row" style="gap:6px;flex-wrap:wrap" role="group" aria-label="Janela do feed">
+      <template x-for="w in windows" :key="w.value">
+        <button class="chip" :class="{ info: window === w.value }" :aria-pressed="window === w.value"
+                @click="window = w.value; load()" x-text="w.label"></button>
+      </template>
+    </div>
+
+    <!-- Resumo do dia (colapsado por padrão — R8.4) -->
+    <div class="stack" x-data="{ open: false }" style="margin-top:10px">
+      <button class="btn ghost" @click="open = !open" :aria-expanded="open ? 'true' : 'false'" aria-controls="resumo-dia">
+        {{template "icon" "chart"}} Resumo do dia
+        <span class="chip info" x-show="feed" x-text="(feed ? feed.resumo.total : 0) + ' sessões'"></span>
+      </button>
+      <div id="resumo-dia" x-show="open" x-cloak class="kpis">
+        <div class="kpi"><span class="n" x-text="feed ? feed.resumo.total : 0"></span><span class="k">Sessões</span></div>
+        <div class="kpi"><span class="n" x-text="resumoCount('realizadas')"></span><span class="k">Realizadas</span></div>
+        <div class="kpi"><span class="n" x-text="resumoCount('faltas')"></span><span class="k">Faltas</span></div>
+        <div class="kpi ok"><span class="n" x-text="Fmt.brl(feed ? feed.resumo.recebido : 0)"></span><span class="k">Recebido</span></div>
+        <div class="kpi accent"><span class="n" x-text="Fmt.brl(feed ? feed.resumo.a_receber : 0)"></span><span class="k">A receber</span></div>
+      </div>
+    </div>
+
+    <template x-if="loading && !feed">
+      <p class="muted">Carregando o dia…</p>
+    </template>
+    <template x-if="feed && feed.eventos.length === 0">
+      <p class="empty">Nada no período selecionado.</p>
+    </template>
+
+    <!-- Eventos agrupados por faixa temporal -->
+    <template x-for="band in bands()" :key="band.key">
+      <div class="stack" x-show="band.items.length" style="margin-top:12px">
+        <strong class="sub" x-text="band.label"></strong>
+        <ul class="item-list">
+          <template x-for="(e, i) in band.items" :key="band.key + '-' + i">
+            <li class="item clickable" @click="openEvent(e)" tabindex="0" @keydown.enter="openEvent(e)"
+                :aria-label="e.titulo + ' — ' + (e.patient_name || '') + ' — ' + Fmt.datetime(e.data)">
+              <span class="chip" :class="eventChip(e)" aria-hidden="true">
+                <svg class="icon"><use :href="'#i-' + eventIcon(e.tipo)"></use></svg>
+              </span>
+              <div class="grow">
+                <div class="title">
+                  <span x-text="e.titulo"></span>
+                  <template x-if="e.patient_name"><span class="sub" x-text="' · ' + e.patient_name"></span></template>
+                </div>
+                <div class="sub">
+                  <span x-text="e.resumo"></span>
+                  <template x-if="e.status"><span class="chip" :class="statusChip(e.status)" style="margin-left:6px" x-text="Fmt.sessionStatus(e.status)"></span></template>
+                </div>
+              </div>
+              <time class="sub" :datetime="e.data" :title="Fmt.datetime(e.data)" x-text="Fmt.relative(e.data)"></time>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </template>
+  </section>
+
   <!-- ══════════════════════════════ AGENDA ══════════════════════════════ -->
   <section class="card" id="agenda" x-data="agendaPanel()" x-init="load()" x-show="!$store.nav.patientId">
     <header>{{template "icon" "calendar"}}<h2 x-text="view === 'mes' ? 'Agenda do mês' : 'Agenda da semana'"></h2></header>
@@ -1743,6 +1807,71 @@
   });
 
   function adminApp() { return {}; }
+
+  // ── Feed do dia do terapeuta (R8) ──────────────────────────────────────
+  function dayFeedPanel() {
+    return {
+      ...panel(),
+      window: "hoje",
+      feed: null,
+      windows: [
+        { value: "hoje", label: "Hoje" },
+        { value: "proximos7", label: "Próximos 7 dias" },
+        { value: "recentes", label: "Recentes" },
+      ],
+      async load() {
+        const res = await this.run(() => Api.get(`/v1/admin/day-feed?window=${this.window}`));
+        this.feed = res ? (res.data || null) : null;
+      },
+      resumoCount(cat) { return (this.feed && this.feed.resumo.counts && this.feed.resumo.counts[cat]) || 0; },
+      eventIcon(tipo) {
+        return ({
+          sessao: "calendar", debito: "wallet", pagamento: "money",
+          arquivo: "doc", pedido: "clock", aprovacao: "check",
+        })[tipo] || "info";
+      },
+      eventChip(e) {
+        return ({
+          sessao: "info", debito: "warn", pagamento: "ok",
+          arquivo: "info", pedido: "warn", aprovacao: "ok",
+        })[e.tipo] || "info";
+      },
+      statusChip(status) {
+        return ({ realizada: "ok", agendada: "info", confirmada: "info", solicitada: "info", falta: "warn", cancelada: "danger" })[status] || "info";
+      },
+      // Faixa temporal legível a partir da data do evento vs agora (fuso local).
+      bandOf(iso) {
+        const d = new Date(iso);
+        const now = new Date();
+        const d0 = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const n0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const dayDiff = Math.round((d0 - n0) / 86400000);
+        if (dayDiff < 0) return "passado";
+        if (dayDiff === 0) return d.getTime() <= now.getTime() ? "agora" : "mais_tarde";
+        if (dayDiff === 1) return "amanha";
+        return "depois";
+      },
+      bands() {
+        const labels = {
+          agora: "Agora / já passou hoje", mais_tarde: "Mais tarde hoje",
+          amanha: "Amanhã", depois: "Próximos dias", passado: "Já passou",
+        };
+        const order = ["agora", "mais_tarde", "amanha", "depois", "passado"];
+        const groups = {};
+        order.forEach((k) => { groups[k] = []; });
+        (this.feed ? this.feed.eventos : []).forEach((e) => { groups[this.bandOf(e.data)].push(e); });
+        return order.map((k) => ({ key: k, label: labels[k], items: groups[k] }));
+      },
+      openEvent(e) {
+        if (!e.ref) return;
+        if ((e.ref.kind === "session" || e.ref.kind === "appointment_request") && e.patient_id) {
+          Alpine.store("nav").openSession(e.patient_id, e.ref.kind === "session" ? e.ref.id : null);
+        } else if (e.patient_id) {
+          Alpine.store("nav").openPatient(e.patient_id);
+        }
+      },
+    };
+  }
 
   // ── Agenda (visão semanal detalhada + visão mensal geral) ───────────────
   // Ambas consomem o MESMO endpoint GET /v1/admin/sessions?from=&to=, variando

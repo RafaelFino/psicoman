@@ -30,6 +30,7 @@
     <nav class="menu-dropdown" x-show="open" x-cloak x-transition.origin.top.left @click="open = false" aria-label="Navegação">
       {{if eq .Surface "admin-app"}}
       <span class="menu-title">Atendimento</span>
+      <a class="menu-item" href="#hoje" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "activity"}} Hoje</a>
       <a class="menu-item" href="#agenda" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "calendar"}} Agenda</a>
       <a class="menu-item" href="#pacientes" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "users"}} Pacientes</a>
       <a class="menu-item" href="#aprovacoes" @click="$store.nav && $store.nav.closePatient()">{{template "icon" "users"}} Aprovações</a>

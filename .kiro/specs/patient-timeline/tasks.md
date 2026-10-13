@@ -160,20 +160,20 @@ Convenções:
 
 ## Fase G — Feed do dia do terapeuta (R8)
 
-- [ ] **G1. Backend: agregação do feed do dia** (dep: C2, F1)
+- [x] **G1. Backend: agregação do feed do dia** (dep: C2, F1)
   - `DayFeedService` (ou método no serviço de relatório) que compõe eventos transversais a todos os pacientes num intervalo (`window=hoje|proximos7|recentes`): sessões por `starts_at`, pagamentos, débitos (criação + vencimentos próximos), arquivos, aprovações, pedidos pendentes. Reaproveita a normalização de eventos (D4) e o motor de agregação (F1) para o bloco "Resumo do dia".
   - Endpoint `GET /v1/admin/day-feed?window=`; `dayFeedView` → `{resumo, eventos[]}`. Leitura clínica (se houver) gera `AuditActionRead`. Swagger atualizado.
   - **Aceite:** feed devolve eventos de todos os tipos no intervalo + resumo correto; janelas mudam o conjunto; sem conteúdo clínico em metadata.
   - **Testes:** unit do agregador (separação passado/futuro, resumo); E2E `GET /day-feed` nas três janelas.
   - **Refs:** R8.1–R8.2, R8.5 · D8.1–D8.2, D8.4.
 
-- [ ] **G2. UI: feed do dia como visão inicial do admin** (dep: G1)
+- [x] **G2. UI: feed do dia como visão inicial do admin** (dep: G1)
   - `dayFeedPanel()` em `admin_app.html`; nova visão `#hoje` como entrada padrão do app, agenda (grade) acessível pelo menu. Agrupamento por faixa ("Agora", "Mais tarde hoje", "Amanhã", "Já passou"); cards didáticos (paciente + data relativa/absoluta + tipo/status/valor), clique abre paciente/sessão. Bloco "Resumo do dia" **colapsado por padrão** (`aria-expanded`, teclado), eventos individuais visíveis.
   - **Aceite:** ao abrir o admin, o feed do dia é a visão inicial; resumo nasce colapsado e expande; cards navegam; agenda continua acessível.
   - **Testes:** smoke de parse; verificação manual (janelas, colapso do resumo, navegação).
   - **Refs:** R8.1, R8.3–R8.4 · D8.3.
 
-- [ ] **Fechamento Fase G:** `docs/requirements.md`/`docs/architecture.md`/`README.md`, Swagger; `make check` verde → commit "patient-timeline Fase G: feed do dia do terapeuta".
+- [x] **Fechamento Fase G:** `docs/requirements.md`/`docs/architecture.md`/`README.md`, Swagger; `make check` verde → commit "patient-timeline Fase G: feed do dia do terapeuta".
 
 ---
 

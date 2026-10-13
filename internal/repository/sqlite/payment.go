@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
@@ -31,6 +32,39 @@ func (r *PaymentRepo) ListByDebt(ctx context.Context, debtID string) ([]*domain.
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, debt_id, amount, paid_at, method, created_at
 		 FROM payment WHERE debt_id=? ORDER BY paid_at DESC`, debtID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*domain.Payment
+	for rows.Next() {
+		var (
+			p         domain.Payment
+			method    sql.NullString
+			paidAt    string
+			createdAt string
+		)
+		if err := rows.Scan(&p.ID, &p.DebtID, &p.Amount, &paidAt, &method, &createdAt); err != nil {
+			return nil, err
+		}
+		p.Method = method.String
+		if t, err := clock.Parse(paidAt); err == nil {
+			p.PaidAt = t
+		}
+		if t, err := clock.Parse(createdAt); err == nil {
+			p.CreatedAt = t
+		}
+		out = append(out, &p)
+	}
+	return out, rows.Err()
+}
+
+// ListByRange devolve os pagamentos recebidos (paid_at) em [from, to).
+func (r *PaymentRepo) ListByRange(ctx context.Context, from, to time.Time) ([]*domain.Payment, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, debt_id, amount, paid_at, method, created_at
+		 FROM payment WHERE paid_at >= ? AND paid_at < ? ORDER BY paid_at DESC`,
+		clock.Format(from), clock.Format(to))
 	if err != nil {
 		return nil, mapError(err)
 	}

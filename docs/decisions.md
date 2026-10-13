@@ -6,6 +6,23 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-12 — Onda "patient-timeline" (Fase G): feed do dia do terapeuta
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R8. O admin abria na agenda (grade de horários). O terapeuta quer um **feed do dia** transversal a todos os pacientes, didático, que conte "o que aconteceu" e "o que vem".
+
+**Decisões.**
+1. **`#hoje` é a visão inicial do app; a agenda convive.** A seção "Hoje" (`dayFeedPanel`) passa a ser a **primeira** do `admin_app.html` (logo é o que aparece ao abrir `/app/`). A agenda (grade semana/mês) continua existindo e acessível pelo menu (`#agenda`); nada foi removido. Spec R8.1 · D8.1.
+2. **Composição no servidor (`DayFeedService` + `GET /day-feed?window=`).** Reaproveita a normalização de eventos da timeline por-paciente (tipos de `history.go`) sobre **todos** os pacientes num intervalo, e o motor de agregação (F1) para o bloco "Resumo do dia". Janelas: `hoje` (dia local), `proximos7` (hoje → +7 dias), `recentes` (−7 dias → fim de hoje); janela inválida cai em `hoje`. Fontes: sessões (`starts_at`), débitos (criação) + vencimentos próximos, pagamentos (`paid_at`), arquivos (`created_at`), pedidos pendentes. Spec R8.2, R8.5 · D8.2.
+3. **Resumo colapsado, eventos expandidos.** O bloco agregado ("Resumo do dia": sessões/realizadas/faltas, recebido, a receber) nasce **recolhido** (`x-data open:false`, `aria-expanded`, operável por teclado); os eventos individuais ficam visíveis, agrupados por faixa temporal legível ("Agora/Já passou hoje", "Mais tarde hoje", "Amanhã", "Próximos dias", "Já passou"). Spec R8.3–R8.4 · D8.3.
+4. **Sem conteúdo clínico; auditoria de leitura.** O feed carrega só metadados (paciente, tipo, status, valor), nunca conteúdo clínico. Cada carga registra `AuditActionRead` sobre `day_feed` com metadata `{window, eventos}`. Spec R8.5.
+
+**Consequências.**
+- Novo `DayFeedService` + endpoint `GET /v1/admin/day-feed`; novos repositórios de intervalo: `debts.ListByCreatedRange`/`debts.ListDueBetween`, `payments.ListByRange`, `ged.ListByCreatedRange`. Swagger atualizado.
+- UI: nova seção `#hoje` (entrada do app), item de menu "Hoje"; cards didáticos com nome do paciente, data relativa/absoluta, tipo/status/valor; clique abre paciente/sessão.
+- Testes: unit do `DayFeedService` (janelas, tipos de evento, resumo recebido/a-receber, ordenação, nome do paciente) + E2E (`day-feed` nas três janelas, janela inválida → hoje).
+
+---
+
 ## 2026-10-12 — Onda "patient-timeline" (Fase F): métricas do paciente e relatório por local
 
 **Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R6.4–R6.5 e R7. O terapeuta quer métricas de sessão por paciente (comparecimento, cancelamento, faturado) e um relatório mensal por local para repasse a clínicas parceiras.

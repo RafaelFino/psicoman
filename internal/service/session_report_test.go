@@ -57,6 +57,12 @@ func (f *metricsDebtRepo) ListBySessionIDs(_ context.Context, ids []string) ([]*
 	}
 	return out, nil
 }
+func (f *metricsDebtRepo) ListByCreatedRange(context.Context, time.Time, time.Time) ([]*domain.Debt, error) {
+	return nil, nil
+}
+func (f *metricsDebtRepo) ListDueBetween(context.Context, time.Time, time.Time) ([]*domain.Debt, error) {
+	return nil, nil
+}
 func (f *metricsDebtRepo) UpdateStatus(context.Context, string, string) error { return nil }
 func (f *metricsDebtRepo) SetPDF(context.Context, string, string) error       { return nil }
 

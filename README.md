@@ -23,6 +23,7 @@ O escopo descrito na documentação corresponde ao **MVP**. Ideias futuras discu
 - Tela base do paciente é uma **timeline** (história completa, do mais recente ao mais antigo): cadastro, sessões, remarcações, registros clínicos, anamnese, débitos, pagamentos e arquivos, com filtro por categoria.
 - **Calendário mensal** do paciente, com as sessões passadas e futuras coloridas por status e navegação por mês.
 - **Métricas de sessão** por paciente (comparecimento, cancelamento, faturado das realizadas) e **relatório mensal por local** (categorias + total + faturado) para repasse a clínicas parceiras.
+- **Feed do dia** do terapeuta como visão inicial do admin: eventos de todos os pacientes (sessões, pagamentos, débitos, arquivos, pedidos) agrupados por faixa temporal, com resumo colapsável e janela ajustável.
 - Prontuário unificado: linha do tempo por data com sessões e seus registros + notas livres; anamnese à parte; templates em Markdown.
 - Controle de custos (local, CRP, infra, plataformas), rateio por sessão e ROI por canal de origem.
 - Relatórios financeiros e de custos.

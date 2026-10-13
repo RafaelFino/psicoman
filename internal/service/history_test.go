@@ -53,6 +53,12 @@ func (f *histDebtRepo) ListBySessionIDs(_ context.Context, ids []string) ([]*dom
 	}
 	return out, nil
 }
+func (f *histDebtRepo) ListByCreatedRange(context.Context, time.Time, time.Time) ([]*domain.Debt, error) {
+	return nil, nil
+}
+func (f *histDebtRepo) ListDueBetween(context.Context, time.Time, time.Time) ([]*domain.Debt, error) {
+	return nil, nil
+}
 func (f *histDebtRepo) UpdateStatus(context.Context, string, string) error { return nil }
 func (f *histDebtRepo) SetPDF(context.Context, string, string) error       { return nil }
 
@@ -69,6 +75,9 @@ func (f *histPaymentRepo) SumByDebt(_ context.Context, debtID string) (int64, er
 	}
 	return sum, nil
 }
+func (f *histPaymentRepo) ListByRange(context.Context, time.Time, time.Time) ([]*domain.Payment, error) {
+	return nil, nil
+}
 
 type histGEDRepo struct{ files []*domain.GEDFile }
 
@@ -79,6 +88,9 @@ func (f *histGEDRepo) FindByHash(context.Context, string, string) (*domain.GEDFi
 }
 func (f *histGEDRepo) ListByPatient(_ context.Context, _ string) ([]*domain.GEDFile, error) {
 	return f.files, nil
+}
+func (f *histGEDRepo) ListByCreatedRange(context.Context, time.Time, time.Time) ([]*domain.GEDFile, error) {
+	return nil, nil
 }
 func (f *histGEDRepo) Delete(context.Context, string) error { return nil }
 

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
@@ -60,6 +61,27 @@ func (r *GEDMetaRepo) ListByPatient(ctx context.Context, patientID string) ([]*d
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, patient_id, session_id, debt_id, payment_id, rel_path, mime, size, sha256, created_at
 		 FROM ged_file WHERE patient_id=? ORDER BY created_at DESC`, patientID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*domain.GEDFile
+	for rows.Next() {
+		f, err := scanGEDFrom(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// ListByCreatedRange devolve os arquivos criados em [from, to) (todos os pacientes).
+func (r *GEDMetaRepo) ListByCreatedRange(ctx context.Context, from, to time.Time) ([]*domain.GEDFile, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, patient_id, session_id, debt_id, payment_id, rel_path, mime, size, sha256, created_at
+		 FROM ged_file WHERE patient_id IS NOT NULL AND created_at >= ? AND created_at < ? ORDER BY created_at DESC`,
+		clock.Format(from), clock.Format(to))
 	if err != nil {
 		return nil, mapError(err)
 	}

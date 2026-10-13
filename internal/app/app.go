@@ -252,6 +252,12 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 		sqlite.NewSessionRepo(d.db), sqlite.NewDebtRepo(d.db), sqlite.NewLocationRepo(d.db))
 	admin.NewMetricsHandlers(metricsSvc).Register(adminGroup)
 
+	// Feed do dia do terapeuta (patient-timeline G).
+	dayFeedSvc := service.NewDayFeedService(
+		sqlite.NewSessionRepo(d.db), sqlite.NewDebtRepo(d.db), sqlite.NewPaymentRepo(d.db),
+		sqlite.NewGEDMetaRepo(d.db), sqlite.NewAppointmentRepo(d.db), sqlite.NewPatientRepo(d.db), auditSvc)
+	admin.NewDayFeedHandlers(dayFeedSvc).Register(adminGroup)
+
 	// Pedidos de agendamento (confirmação cria a sessão + evento).
 	apptSvc := service.NewAppointmentService(
 		sqlite.NewAppointmentRepo(d.db), sqlite.NewPatientRepo(d.db), sessionSvc, sqlite.NewLocationRepo(d.db))

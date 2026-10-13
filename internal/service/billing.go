@@ -21,6 +21,10 @@ type DebtRepository interface {
 	ListByPatient(ctx context.Context, patientID string) ([]*domain.Debt, error)
 	// ListBySessionIDs devolve os débitos vinculados a qualquer uma das sessões.
 	ListBySessionIDs(ctx context.Context, sessionIDs []string) ([]*domain.Debt, error)
+	// ListByCreatedRange devolve os débitos criados em [from, to).
+	ListByCreatedRange(ctx context.Context, from, to time.Time) ([]*domain.Debt, error)
+	// ListDueBetween devolve os débitos em aberto/parcial com vencimento em [from, to).
+	ListDueBetween(ctx context.Context, from, to time.Time) ([]*domain.Debt, error)
 	UpdateStatus(ctx context.Context, id, status string) error
 	SetPDF(ctx context.Context, id, pdfFileID string) error
 }

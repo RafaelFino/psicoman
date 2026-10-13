@@ -38,6 +38,12 @@ func (f *fakeDebtRepo) ListByPatient(context.Context, string) ([]*domain.Debt, e
 func (f *fakeDebtRepo) ListBySessionIDs(context.Context, []string) ([]*domain.Debt, error) {
 	return nil, nil
 }
+func (f *fakeDebtRepo) ListByCreatedRange(context.Context, time.Time, time.Time) ([]*domain.Debt, error) {
+	return nil, nil
+}
+func (f *fakeDebtRepo) ListDueBetween(context.Context, time.Time, time.Time) ([]*domain.Debt, error) {
+	return nil, nil
+}
 func (f *fakeDebtRepo) UpdateStatus(context.Context, string, string) error { return nil }
 func (f *fakeDebtRepo) SetPDF(context.Context, string, string) error       { return nil }
 func (f *fakeDebtRepo) count() int                                         { return len(f.byKey) }

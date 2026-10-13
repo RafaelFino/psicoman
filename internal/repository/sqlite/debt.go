@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
@@ -76,6 +77,21 @@ func (r *DebtRepo) ListBySessionIDs(ctx context.Context, sessionIDs []string) ([
 	}
 	q := debtSelect + ` WHERE session_id IN (` + string(placeholders) + `) AND deleted_at IS NULL ORDER BY created_at DESC`
 	return r.query(ctx, q, args...)
+}
+
+// ListByCreatedRange devolve os débitos criados em [from, to).
+func (r *DebtRepo) ListByCreatedRange(ctx context.Context, from, to time.Time) ([]*domain.Debt, error) {
+	return r.query(ctx,
+		debtSelect+` WHERE deleted_at IS NULL AND created_at >= ? AND created_at < ? ORDER BY created_at DESC`,
+		clock.Format(from), clock.Format(to))
+}
+
+// ListDueBetween devolve os débitos abertos/parciais com vencimento em [from, to).
+func (r *DebtRepo) ListDueBetween(ctx context.Context, from, to time.Time) ([]*domain.Debt, error) {
+	return r.query(ctx,
+		debtSelect+` WHERE deleted_at IS NULL AND status IN ('aberto','parcial')
+		 AND due_date IS NOT NULL AND due_date >= ? AND due_date < ? ORDER BY due_date ASC`,
+		clock.Format(from), clock.Format(to))
 }
 
 // UpdateStatus atualiza o status de um débito.
