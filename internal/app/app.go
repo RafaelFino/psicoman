@@ -183,11 +183,16 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 		Scopes:       cfg.Google.Scopes,
 	}, tokenRepo)
 
-	// Clientes Google: mock injetado (testes) ou real (OAuth).
+	// Clientes Google: mock injetado (testes) ou real (OAuth). O cliente real só
+	// é ativado quando há credenciais OAuth configuradas (client_id + secret);
+	// sem elas (dev local, ou instância ainda não autorizada), as integrações
+	// ficam desligadas em vez de estourar 500 ao agendar/enviar. Agendar passa a
+	// funcionar sem evento no Calendar; o readiness sinaliza o estado.
+	googleConfigured := cfg.Google.ClientID != "" && cfg.Google.ClientSecret != ""
 	var calendar service.CalendarClient = opts.Calendar
 	var gmail service.GmailClient = opts.Gmail
 	var drive service.DriveClient = opts.Drive
-	if calendar == nil || gmail == nil || drive == nil {
+	if (calendar == nil || gmail == nil || drive == nil) && googleConfigured {
 		real := google.NewClient(oauth, cfg.Google.CalendarID)
 		if calendar == nil {
 			calendar = real
@@ -199,12 +204,22 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 			drive = real
 		}
 	}
-	// Checagem de conflito (freebusy) + criação de evento ao agendar.
-	sessionSvc.SetConflictChecker(service.NewCalendarConflictChecker(calendar))
-	sessionSvc.SetCalendar(calendar, cfg.Reminders.MinutesBefore)
-	// Envio de templates e cobranças por email (best-effort).
-	prontuarioSvc.SetSender(service.NewGmailTemplateSender(gmail))
-	invoiceSvc.SetGmail(gmail)
+	if !googleConfigured && opts.Calendar == nil {
+		d.log.Warn("Google não configurado (sem client_id/secret): agenda sem evento no Calendar, sem envio de email e sem backup no Drive")
+	}
+	// Checagem de conflito (freebusy) + criação de evento ao agendar. Com os
+	// clientes nil (Google não configurado), o SessionService usa o checker
+	// no-op e não cria evento — nenhuma chamada externa.
+	if calendar != nil {
+		sessionSvc.SetConflictChecker(service.NewCalendarConflictChecker(calendar))
+		sessionSvc.SetCalendar(calendar, cfg.Reminders.MinutesBefore)
+	}
+	// Envio de templates e cobranças por email (best-effort). Sem Gmail, o
+	// envio é simplesmente pulado (o registro/PDF continua funcionando).
+	if gmail != nil {
+		prontuarioSvc.SetSender(service.NewGmailTemplateSender(gmail))
+		invoiceSvc.SetGmail(gmail)
+	}
 	// Readiness: reautorização Google pendente = degraded.
 	d.health.AddReadiness("google", api.HealthCheckFunc(func() error {
 		req, _ := tokenRepo.ReauthRequired(context.Background())

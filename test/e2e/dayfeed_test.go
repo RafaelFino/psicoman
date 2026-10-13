@@ -12,12 +12,21 @@ func TestDayFeed(t *testing.T) {
 	defer env.Stop()
 
 	pid := env.createPatient(t, "dia@example.com")
+
+	// Sessão ancorada ao MEIO-DIA de hoje no fuso do projeto, para cair sempre
+	// dentro da janela "hoje" (evita flakiness perto da meia-noite).
+	loc, _ := time.LoadLocation("America/Sao_Paulo")
+	now := time.Now().In(loc)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, loc)
+
+	// Plano vigente desde o início de hoje, para cobrir a sessão do meio-dia
+	// (o débito usa o plano vigente na data de início da sessão).
+	planStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	env.AdminPOST(t, "/v1/admin/plans", map[string]any{
 		"patient_id": pid, "type": "pagamento_por_consulta", "amount": 15000,
+		"starts_at": planStart.Format(time.RFC3339),
 	}).Body.Close()
 
-	// Sessão de hoje (daqui a 2h), finalizada → gera débito.
-	start := time.Now().Add(2 * time.Hour)
 	resp := env.AdminPOST(t, "/v1/admin/sessions", map[string]any{
 		"patient_id": pid, "modality": "online",
 		"starts_at": start.Format(time.RFC3339), "ends_at": start.Add(time.Hour).Format(time.RFC3339),

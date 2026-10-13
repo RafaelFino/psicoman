@@ -96,6 +96,17 @@ func StartAdmin(t *testing.T) *Env {
 	return StartAdminWithGoogle(t, google.NewFakeClient())
 }
 
+// StartAdminNoGoogle sobe o admin SEM nenhum cliente Google (Options vazio) e
+// sem credenciais OAuth no config — reproduz o cenário de dev local / instância
+// ainda não autorizada. Agendar deve funcionar sem evento no Calendar.
+func StartAdminNoGoogle(t *testing.T) *Env {
+	t.Helper()
+	cfg := testConfig(t)
+	return start(t, cfg, cfg.Admin.Addr(), func(ctx context.Context, c *config.Config) (app.Runnable, error) {
+		return app.NewAdminForTest(ctx, c, app.Options{})
+	})
+}
+
 // StartAdminWithGoogle permite injetar um FakeClient específico (ex: com
 // intervalos ocupados para testar conflito de agenda).
 func StartAdminWithGoogle(t *testing.T, fake *google.FakeClient) *Env {

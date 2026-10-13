@@ -6,6 +6,22 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-13 — Fix: agendar/backup sem Google configurado não deve dar 500
+
+**Contexto.** Em `dev_mode` (ou numa instância ainda não autorizada no Google), criar uma sessão já como `agendada` retornava **HTTP 500**: o `buildAdmin` injetava o cliente Google **real** sempre que não havia mock, mesmo sem credenciais OAuth; ao criar o evento no Calendar, a chamada falhava no OAuth sem token. Reproduzido com o seed ("dia lotado"): as sessões `agendada` davam 500 e as `solicitada` passavam. Bug **pré-existente** (anterior à onda `patient-timeline`), exposto ao rodar o seed na stack local. O backup/restore tinha o mesmo risco: `BackupService` chamaria `drive.Upload`/`List` com `drive` nil → panic.
+
+**Decisões.**
+1. **Só ativar os clientes Google reais quando houver credenciais** (`client_id` + `client_secret`). Sem elas, `calendar`/`gmail`/`drive` ficam `nil`: o `SessionService` já trata `nil` como no-op (agenda sem evento, usa o `noopConflictChecker`), o envio de email é pulado (registro/PDF seguem) e o boot emite um `AVISO`. Alinha com `psicoman-google-api` ("sem panic", degraded) e com o propósito do `dev_mode` (rodar local sem dependências externas).
+2. **`BackupService.Backup`/`Restore` toleram `drive` nil**, devolvendo erro de validação tratável ("Drive não configurado") em vez de estourar.
+
+**Consequências.**
+- `internal/app/app.go`: injeção condicional do cliente Google; `SetCalendar`/`SetConflictChecker`/sender só quando o cliente existe.
+- `internal/service/backup.go`: guard de `drive == nil` em `Backup` e `Restore`.
+- Testes E2E novos: `TestAgendarSemGoogle` (agendar 201 sem Google, sem Meet) e `TestBackupSemGoogle` (backup não dá 500). Harness ganhou `StartAdminNoGoogle` (admin sem mocks e sem credenciais). Corrigida também uma fragilidade de borda no `TestDayFeed` (sessão/plano ancorados ao dia local, não a `+2h`).
+- Produção inalterada quando o Google está configurado.
+
+---
+
 ## 2026-10-12 — Onda "patient-timeline" (Fase H): feed de prontuário e título com a marca
 
 **Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R3 e R5. O terapeuta quer ler o prontuário como feed cronológico reverso com a anamnese como marco fundacional, e que o título da aba sempre carregue a marca "Psicoman".

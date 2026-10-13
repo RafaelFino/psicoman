@@ -102,6 +102,11 @@ type BackupResult struct {
 // Backup gera o snapshot cifrado do SQLite, sobe ao Drive e faz o backup
 // incremental do GED (só arquivos cujo hash ainda não está no manifesto).
 func (s *BackupService) Backup(ctx context.Context) (*BackupResult, error) {
+	// Sem Drive configurado (instância sem OAuth / dev local), o backup remoto
+	// não é possível: devolve erro tratável em vez de estourar (nil panic).
+	if s.drive == nil {
+		return nil, NewValidation("Backup indisponível: o Google Drive ainda não foi configurado nesta instância.")
+	}
 	// 1. Snapshot consistente do SQLite via VACUUM INTO (arquivo temporário).
 	tmp, err := os.CreateTemp("", "psicoman-snap-*.db")
 	if err != nil {
@@ -228,6 +233,9 @@ func (s *BackupService) saveManifest(ctx context.Context, m map[string]bool) err
 // Restore baixa o último snapshot do Drive, decifra, descompacta e substitui a
 // base atual (guardando um backup de segurança da base substituída).
 func (s *BackupService) Restore(ctx context.Context) error {
+	if s.drive == nil {
+		return NewValidation("Restauração indisponível: o Google Drive ainda não foi configurado nesta instância.")
+	}
 	names, err := s.drive.List(ctx, s.driveFolder)
 	if err != nil {
 		return err
