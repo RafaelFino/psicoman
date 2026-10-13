@@ -6,6 +6,111 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-12 — Onda "patient-timeline" (Fase H): feed de prontuário e título com a marca
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R3 e R5. O terapeuta quer ler o prontuário como feed cronológico reverso com a anamnese como marco fundacional, e que o título da aba sempre carregue a marca "Psicoman".
+
+**Decisões.**
+1. **Prontuário já era feed desc; reforço da anamnese + composição.** A aba Prontuário (herdada de `prontuario-ux`) já ordena do mais recente ao mais antigo e já tinha composição de nota livre no topo. Esta fase: a composição foi rotulada "Registrar o que aconteceu…" (R3.2) e a **Anamnese** passou a aparecer como **card fundacional destacado no topo** ("Ficha inicial") E como **marco no fim** da linha do tempo ("Início da história clínica") — evita a ambiguidade de onde ordenar a anamnese (decisão D3.1). `loadProntuario` passou a carregar a anamnese. Nenhuma regressão: editar/salvar anamnese e add/remove nota seguem iguais. Spec R3.1–R3.3 · D3.
+2. **Título da aba com a marca, sem duplicar na topbar.** O `<title>` é computado no template `head` como `Psicoman · {{.Title}}` (admin e portal, todas as páginas); as strings de contexto em `web.go` ficam inalteradas e a topbar continua `Psicoman <span class="sub">{{.Title}}</span>` — assim o navegador mostra "Psicoman · Painel" sem a topbar virar "Psicoman · Psicoman · Painel". Spec R5.1 · D5.
+
+**Consequências.**
+- UI only (sem backend/contrato novo). `layout.html` head com a marca; prontuário com Ficha inicial + marco fundacional + composição rotulada.
+- Testes: smoke de parse + asserts (`<title>Psicoman · ` em admin e portal; "Registrar o que aconteceu" e "Ficha inicial" no prontuário). Verificação manual do `<title>` renderizado.
+
+---
+
+## 2026-10-12 — Onda "patient-timeline" (Fase G): feed do dia do terapeuta
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R8. O admin abria na agenda (grade de horários). O terapeuta quer um **feed do dia** transversal a todos os pacientes, didático, que conte "o que aconteceu" e "o que vem".
+
+**Decisões.**
+1. **`#hoje` é a visão inicial do app; a agenda convive.** A seção "Hoje" (`dayFeedPanel`) passa a ser a **primeira** do `admin_app.html` (logo é o que aparece ao abrir `/app/`). A agenda (grade semana/mês) continua existindo e acessível pelo menu (`#agenda`); nada foi removido. Spec R8.1 · D8.1.
+2. **Composição no servidor (`DayFeedService` + `GET /day-feed?window=`).** Reaproveita a normalização de eventos da timeline por-paciente (tipos de `history.go`) sobre **todos** os pacientes num intervalo, e o motor de agregação (F1) para o bloco "Resumo do dia". Janelas: `hoje` (dia local), `proximos7` (hoje → +7 dias), `recentes` (−7 dias → fim de hoje); janela inválida cai em `hoje`. Fontes: sessões (`starts_at`), débitos (criação) + vencimentos próximos, pagamentos (`paid_at`), arquivos (`created_at`), pedidos pendentes. Spec R8.2, R8.5 · D8.2.
+3. **Resumo colapsado, eventos expandidos.** O bloco agregado ("Resumo do dia": sessões/realizadas/faltas, recebido, a receber) nasce **recolhido** (`x-data open:false`, `aria-expanded`, operável por teclado); os eventos individuais ficam visíveis, agrupados por faixa temporal legível ("Agora/Já passou hoje", "Mais tarde hoje", "Amanhã", "Próximos dias", "Já passou"). Spec R8.3–R8.4 · D8.3.
+4. **Sem conteúdo clínico; auditoria de leitura.** O feed carrega só metadados (paciente, tipo, status, valor), nunca conteúdo clínico. Cada carga registra `AuditActionRead` sobre `day_feed` com metadata `{window, eventos}`. Spec R8.5.
+
+**Consequências.**
+- Novo `DayFeedService` + endpoint `GET /v1/admin/day-feed`; novos repositórios de intervalo: `debts.ListByCreatedRange`/`debts.ListDueBetween`, `payments.ListByRange`, `ged.ListByCreatedRange`. Swagger atualizado.
+- UI: nova seção `#hoje` (entrada do app), item de menu "Hoje"; cards didáticos com nome do paciente, data relativa/absoluta, tipo/status/valor; clique abre paciente/sessão.
+- Testes: unit do `DayFeedService` (janelas, tipos de evento, resumo recebido/a-receber, ordenação, nome do paciente) + E2E (`day-feed` nas três janelas, janela inválida → hoje).
+
+---
+
+## 2026-10-12 — Onda "patient-timeline" (Fase F): métricas do paciente e relatório por local
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R6.4–R6.5 e R7. O terapeuta quer métricas de sessão por paciente (comparecimento, cancelamento, faturado) e um relatório mensal por local para repasse a clínicas parceiras.
+
+**Decisões.**
+1. **Motor de agregação compartilhado por `SessionCategory`.** Um agregador puro (`aggregateSessions`) recebe um conjunto de sessões e um mapa de faturado por sessão e devolve a contagem por categoria (R6.4/B) e o total faturado das **realizadas**. Reutilizado pelas métricas do paciente e pelo relatório por local — mesma regra, filtro de origem diferente. Spec D7.1.
+2. **Agrupamento sempre por `starts_at`** (data de início da sessão), no fuso `America/Sao_Paulo`, tanto nas métricas do paciente quanto no relatório por local. Não se usa `created_at` para o recorte temporal. Spec R6.4, R7.1 · D7.4.
+3. **Taxas zero-safe.** Comparecimento = realizadas / (realizadas + faltas + canceladas-paciente); cancelamento = (canceladas-paciente + canceladas-terapeuta + canceladas-sem-autor) / total. Denominador zero ⇒ taxa 0 (sem divisão por zero). As taxas trafegam como fração 0..1; a UI formata em %. Spec R6.4.
+4. **Faturado = soma dos débitos vinculados às sessões realizadas.** Para o paciente, casa `debt.session_id` com as realizadas via `debts.ListByPatient`; para o local, via novo `debts.ListBySessionIDs` sobre as sessões do recorte. Representa faturamento (das realizadas), não recebimento. Spec R7.2.
+5. **Defaults de período.** Métricas do paciente: histórico completo (from/to ausentes). Relatório por local: mês atual (1º ao 1º dia do mês seguinte, fuso local). Spec D7.4.
+6. **Exportação (CSV/impressão) fora do escopo mínimo** desta onda (R7.3); fica como melhoria futura. O relatório é legível na tela para repasse.
+
+**Consequências.**
+- Novo `SessionMetricsService` (motor + métricas do paciente + relatório por local); novos repositórios `sessions.ListByLocationRange` e `debts.ListBySessionIDs`.
+- Novos endpoints `GET /v1/admin/patients/{id}/session-metrics` e `GET /v1/admin/locations/{id}/session-report`. Swagger atualizado.
+- UI: bloco de KPIs de sessão na timeline do paciente; nova seção "Relatório de sessões por local" (seletor de local + navegação por mês + tabela de categorias + total + faturado), item no menu Gestão.
+- Testes: unit do agregador (categorias incl. cancelada sem autor, taxas zero-safe, faturado só realizadas) + serviços; E2E com sessões variadas para ambos os endpoints.
+
+---
+
+## 2026-10-12 — Onda "patient-timeline" (Fase C): histórico do paciente e rastreabilidade de remarcação
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R4. A tela base do paciente passará a ser uma timeline unificada; o backend precisa fornecer o feed já normalizado e registrar as remarcações, que hoje não são rastreáveis.
+
+**Decisões.**
+1. **Composição do histórico no servidor (opção B do design D4.4).** Novo `HistoryService` + endpoint `GET /v1/admin/patients/{id}/history` que agrega e normaliza os eventos (`{tipo, categoria, data, titulo, resumo, ref}`), ordenados desc, **derivados** das fontes existentes (sessões, notas, anamnese, débitos, pagamentos, arquivos, aprovação) + remarcações do audit. Preferido ao cálculo só no cliente pela testabilidade (E2E de contrato) e por centralizar a auditoria de leitura clínica. Tipos: `cadastro, aprovacao, sessao, remarcacao, registro, nota_livre, anamnese, debito, pagamento, arquivo`. Spec R4.1–R4.2 · D4.1/D4.4.
+2. **Remarcação via audit `session.reschedule`.** `SessionService.Update`, ao alterar o horário de uma sessão `agendada`/`confirmada`, grava audit `session.reschedule` com `{session_id, from, to}` (datas, sem conteúdo clínico). A timeline deriva a entrada de remarcação desse log. Não se criou coluna/tabela nova para remarcação. Spec R4.3 · D4.3.
+3. **Auditoria de leitura clínica na carga do histórico.** Como o feed agrega conteúdo clínico, cada carga de `history` registra um `AuditActionRead` sobre `patient_history`, com metadata **sem** conteúdo clínico (só `{patient_id, itens}`). O resumo textual exibido na UI não vai para metadados de auditoria. Spec R4.5.
+4. **`AuditRepository.ListByEntity`.** Para derivar remarcações por sessão, o repositório de auditoria ganhou `ListByEntity(entity, entity_id)`.
+
+**Consequências.**
+- Novo endpoint `GET /v1/admin/patients/{id}/history`; novo `HistoryService`; nova ação de audit `session.reschedule` (constante já criada na Fase B); `AuditRepository.ListByEntity` + fakes de teste ajustados.
+- Swagger, `docs/architecture.md` (§4.1.1/§4.1.2 + rota) e `docs/requirements.md` (§3.6 timeline) atualizados.
+- Testes: unit do `HistoryService` (ordenação desc, todos os tipos, remarcação do audit, cancelamento com autor, sem conteúdo clínico em metadata); unit do `Update` (grava/não-grava reschedule); E2E de contrato do fluxo completo.
+
+---
+
+## 2026-10-12 — Onda "patient-timeline" (Fase B): controle de status da sessão
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R6. A máquina de estados da sessão (`solicitada → agendada → {realizada, cancelada, falta}`) não tinha passo de **confirmação** e não distinguia **quem cancelou** (paciente × terapeuta), nem registrava quando/por quê. O terapeuta quer o ciclo de vida completo e base para métricas/relatórios.
+
+**Decisões.**
+1. **Opção B — status enxuto + metadados ortogonais.** Em vez de desdobrar o status por autor (`cancelada_paciente`, `cancelada_terapeuta`), o status continua único (`cancelada`) e o autor/motivo/datas são **campos** da sessão: `confirmed_at`, `canceled_by` (`paciente`|`terapeuta`), `cancel_reason` (texto livre opcional), `canceled_at`. Novo estado `confirmada` entre `agendada` e os desfechos. Transições: `agendada → confirmada|realizada|cancelada|falta`; `confirmada → realizada|cancelada|falta`. A confirmação é **opcional** (uma agendada ainda vai direto a realizada/falta/cancelada). Spec R6.1–R6.2 · D6.1.
+2. **Rebuild da tabela `session` na migration 0004.** SQLite não altera `CHECK` por `ALTER`; incluir `confirmada` no `CHECK (status IN (...))` exige **recriar a tabela** (criar `session_new` com o CHECK atualizado + as 4 colunas novas, copiar os dados com metadados nulos, dropar/renomear, recriar os índices). Feito dentro da transação do framework de migrations, preservando dados, FKs e índices. Registros legados ficam com metadados nulos. Spec R6.3 · D6.2.
+3. **Cancelamento exige autor; auditoria sem conteúdo clínico.** `SessionService.Cancel(ctx, id, by, reason)` recusa `by` ausente/inválido (HTTP 422) e grava os metadados; `Confirm` grava `confirmed_at`. As operações auditam `session.confirm` / `session.cancel` (metadata só `{canceled_by}` ou `{confirmed_at}` — o motivo NÃO entra em metadata, coerente com `§4.1`). `Finish`/`MarkNoShow` aceitam origem `confirmada` (via transições). Spec R6.2 · D6.3.
+4. **Categoria de relatório `SessionCategory` (função pura).** Deriva de `status + canceled_by`: realizadas, faltas, canceladas-paciente, canceladas-terapeuta, canceladas-sem-autor (legado), agendadas/confirmadas, solicitadas. Reutilizada pelas métricas do paciente (F) e pelo relatório por local (F). Spec R6.4 · D6.4.
+
+**Consequências.**
+- Migration `0004_session_status_meta.sql` (rebuild idempotente no boot).
+- Contrato: `sessionView` passa a expor `confirmed_at`/`canceled_by`/`cancel_reason`/`canceled_at` (quando houver); novo `POST /sessions/{id}/confirm`; `POST /sessions/{id}/cancel` passa a exigir corpo `{canceled_by, cancel_reason?}`. Novas ações de audit `session.confirm`/`session.cancel`/`session.reschedule`. Swagger atualizado.
+- UI do painel da sessão: botão "Confirmar" (agendada), finalizar/falta disponíveis em agendada e confirmada, cancelamento com seletor de autor + motivo; `statusChip`/`Fmt.sessionStatus` ganham `confirmada`.
+- **Breaking (interno):** a assinatura de `SessionService.Cancel` mudou de `Cancel(ctx, id)` para `Cancel(ctx, id, by, reason)`; o único chamador (handler admin) foi ajustado. O corpo do endpoint `/cancel` passou a ser obrigatório (autor) — fixtures E2E atualizadas.
+
+---
+
+## 2026-10-12 — Onda "patient-timeline" (Fase A): faturamento por sessão e ciclo por vencimento
+
+**Contexto.** Terceira onda de evoluções (spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md)). O terapeuta quer que o faturamento por sessão seja automático e que os planos fechados cobrem a partir de um dia de vencimento, não com `+7 dias` arbitrário. Esta entrada cobre a **Fase A** (R1); as demais fases registram suas decisões aqui conforme forem fechando.
+
+**Decisões.**
+1. **`Bill` vira opt-out explícito.** Toda sessão `realizada` de paciente com plano por-sessão gera o débito **por padrão**. O flag `Bill` deixa de ser pré-requisito: `Bill == false` passa a significar "esta sessão não gera cobrança" (opt-out deliberado). No contrato HTTP, o campo `bill` em `POST /sessions/{id}/finish` virou **opcional** (`*bool`): ausente ⇒ cobra; `false` ⇒ opt-out. `SessionService.Finish` marca `Bill = true` quando o flag não é informado. Spec R1.3 · D1.2.
+2. **Dia de vencimento no plano (`due_day`).** O `plan` ganha `due_day` (1–28, para evitar meses curtos; 0 = não aplicável a planos por sessão/social). Migration `0003_plan_due_day.sql` aditiva: default 1, e `due_day = 5` para os planos fechados pré-existentes (padrão coerente). Spec R1.5 · D1.1.
+3. **Ciclo dispara a partir do vencimento; `due_date` real.** `CloseCycles` só gera o débito do período quando `ref` alcança o `due_day` do período (`ref >= vencimento`). O `due_date` do débito passa a ser a data real do vencimento (ano/mês do período + `due_day`), não mais `now + 7 dias`. Trimestral dispara pelo `due_day` do **1º mês** do trimestre; a idempotência por `cycle:<plan_id>:<período>` garante uma única cobrança por período, mesmo rodando o cron diário várias vezes. Spec R1.2, R1.5 · D1.3.
+4. **Sem plano vigente ⇒ skip observável.** Finalizar uma sessão de paciente sem plano vigente não gera débito (sem base de valor) e registra um audit `debt_skip_no_plan` (sem conteúdo clínico), para o terapeuta perceber que faltou cadastrar o plano. Spec R1.2 · D1.2.
+
+**Consequências.**
+- Migration `0003_plan_due_day.sql` (aditiva, idempotente no boot).
+- Contrato: `due_day` em `POST /v1/admin/plans` e no `planView`; `bill` opcional em `POST /sessions/{id}/finish`. Swagger atualizado.
+- UI do plano: seletor de dia de vencimento (1–28) visível só nos planos fechados.
+- Testes: unit de validação do `due_day`; unit de billing (opt-out, skip sem plano, gatilho antes/depois do vencimento, `due_date` real, trimestral pelo 1º mês); migration 0003 em base com/sem dados; E2E de geração por padrão e opt-out.
+- Cron (`CloseCycles` diário) inalterado no agendamento; nada de geração preguiçosa nesta onda.
+
+---
+
 ## 2026-10-12 — Onda "prontuario-ux": prontuário unificado, edição de sessão, WhatsApp, paleta e calendário fluido
 
 **Contexto.** Pedido de produto do terapeuta focado em usabilidade do acompanhamento clínico e identidade visual. O detalhe do paciente fragmentava o conteúdo clínico em abas separadas (Anamnese, Sessões, Notas) e não permitia abrir uma sessão para editá-la nem registrar o relatório daquela sessão; o telefone era texto puro (sem link e sem padronização); o tema branco+verde/teal soava genérico; e a agenda semanal não acomodava bem um dia com ~10 pacientes. Detalhado na spec [`prontuario-ux`](../.kiro/specs/prontuario-ux/requirements.md).

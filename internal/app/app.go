@@ -159,6 +159,7 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 	gedSvc := service.NewGEDService(sqlite.NewGEDMetaRepo(d.db), gedStore)
 	therapistSvc := service.NewTherapistService(sqlite.NewTherapistRepo(d.db), gedSvc)
 	sessionSvc := service.NewSessionService(sqlite.NewSessionRepo(d.db), sqlite.NewPatientRepo(d.db))
+	sessionSvc.SetAudit(auditSvc)
 	planSvc := service.NewPlanService(sqlite.NewPlanRepo(d.db), sqlite.NewPatientRepo(d.db))
 	billingSvc := service.NewBillingService(sqlite.NewDebtRepo(d.db), sqlite.NewPlanRepo(d.db), auditSvc)
 	invoiceSvc := service.NewInvoiceService(sqlite.NewDebtRepo(d.db), sqlite.NewPatientRepo(d.db), gedSvc, therapistSvc, auditSvc)
@@ -239,6 +240,23 @@ func buildAdmin(ctx context.Context, cfg *config.Config, opts Options) (*instanc
 	admin.NewProntuarioHandlers(prontuarioSvc, auditSvc).Register(adminGroup)
 	admin.NewCostHandlers(costSvc, reportSvc, auditSvc).Register(adminGroup)
 	admin.NewGoogleHandlers(oauth, auditSvc).Register(adminGroup)
+
+	// Histórico/timeline do paciente (composição no servidor — patient-timeline).
+	historySvc := service.NewHistoryService(
+		sqlite.NewPatientRepo(d.db), sqlite.NewSessionRepo(d.db), sqlite.NewProntuarioRepo(d.db),
+		sqlite.NewDebtRepo(d.db), sqlite.NewPaymentRepo(d.db), sqlite.NewGEDMetaRepo(d.db), auditSvc)
+	admin.NewHistoryHandlers(historySvc).Register(adminGroup)
+
+	// Métricas de sessão do paciente e relatório por local (patient-timeline F).
+	metricsSvc := service.NewSessionMetricsService(
+		sqlite.NewSessionRepo(d.db), sqlite.NewDebtRepo(d.db), sqlite.NewLocationRepo(d.db))
+	admin.NewMetricsHandlers(metricsSvc).Register(adminGroup)
+
+	// Feed do dia do terapeuta (patient-timeline G).
+	dayFeedSvc := service.NewDayFeedService(
+		sqlite.NewSessionRepo(d.db), sqlite.NewDebtRepo(d.db), sqlite.NewPaymentRepo(d.db),
+		sqlite.NewGEDMetaRepo(d.db), sqlite.NewAppointmentRepo(d.db), sqlite.NewPatientRepo(d.db), auditSvc)
+	admin.NewDayFeedHandlers(dayFeedSvc).Register(adminGroup)
 
 	// Pedidos de agendamento (confirmação cria a sessão + evento).
 	apptSvc := service.NewAppointmentService(

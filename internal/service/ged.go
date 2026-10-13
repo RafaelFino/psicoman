@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"time"
 
 	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
@@ -17,6 +18,8 @@ type GEDMetaRepository interface {
 	// FindByHash busca dedup dentro do escopo do paciente ("" = perfil terapeuta).
 	FindByHash(ctx context.Context, patientID, sha string) (*domain.GEDFile, error)
 	ListByPatient(ctx context.Context, patientID string) ([]*domain.GEDFile, error)
+	// ListByCreatedRange devolve os arquivos criados em [from, to) (todos os pacientes).
+	ListByCreatedRange(ctx context.Context, from, to time.Time) ([]*domain.GEDFile, error)
 	Delete(ctx context.Context, id string) error
 }
 

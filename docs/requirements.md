@@ -76,19 +76,27 @@ Como o portal fica exposto na internet e o Pangolin não aplica controle de aces
 stateDiagram-v2
     [*] --> Solicitada: pedido do paciente
     Solicitada --> Agendada: terapeuta confirma
+    Solicitada --> Cancelada
+    Agendada --> Confirmada: terapeuta confirma presença (opcional)
     Agendada --> Realizada
     Agendada --> Cancelada
     Agendada --> Falta
+    Confirmada --> Realizada
+    Confirmada --> Cancelada
+    Confirmada --> Falta
     Realizada --> [*]
     Cancelada --> [*]
     Falta --> [*]
 ```
 
-- Ao mudar o estado (Realizada / Cancelada / Falta), o terapeuta decide **explicitamente** dois flags independentes:
-  - **Haverá cobrança?** → gera ou não débito financeiro.
+- A sessão suporta um estado explícito e **opcional** de `confirmada` (entre `agendada` e os desfechos), com `confirmed_at` registrado (onda `patient-timeline` R6.1). Uma sessão agendada ainda pode ir direto a realizada/falta/cancelada.
+- O **cancelamento** registra metadados (onda `patient-timeline` R6.2): `canceled_by` (`paciente`|`terapeuta`, **obrigatório**), `cancel_reason` (texto livre, opcional) e `canceled_at`. O status permanece único (`cancelada`); autor e motivo são metadados. A operação é auditada (sem conteúdo clínico em metadata).
+- Ao mudar o estado (Realizada / Cancelada / Falta), o terapeuta decide dois flags independentes:
+  - **Haverá cobrança?** → gera ou não débito financeiro. Desde a onda `patient-timeline` (R1.3), a cobrança é o **padrão** de uma sessão realizada de plano por-sessão: o flag funciona como **opt-out explícito** ("esta sessão não gera cobrança"). Não é mais preciso lembrar de marcá-lo para gerar o débito.
   - **Custos serão considerados?** → a sessão computa ou não custo de local/infra.
 - **Edição de sessão** (onda `prontuario-ux`): o terapeuta pode abrir uma sessão (na Agenda ou no Prontuário) e editar **data/hora, local e modalidade** (`PUT /v1/admin/sessions/{id}`). A edição **não troca o paciente** e é **bloqueada em estados terminais** (realizada/cancelada/falta); o registro clínico da sessão continua permitido. A edição é auditada. Quando a sessão tem evento no Google, a UI avisa para ajustar o convite manualmente (a reconciliação automática com o Calendar está fora de escopo desta onda — ver [`decisions.md`](./decisions.md)).
 - **Visão semanal fluida** (onda `prontuario-ux`): a agenda semanal (seg–sáb, sem domingo) acomoda muitos atendimentos no mesmo dia; a coluna do dia **cresce conforme a lotação** (referência ~10/dia), sem deformar os dias vizinhos. Cada cartão é clicável e abre o painel da sessão.
+- **Feed do dia do terapeuta** (onda `patient-timeline` R8): a **visão inicial** do admin é um feed transversal a todos os pacientes, com cards didáticos do que aconteceu (sessões, pagamentos, débitos, arquivos) e do que vem (próximas sessões, vencimentos, pedidos pendentes), agrupados por faixa temporal e com janela ajustável (hoje/próximos 7 dias/recentes). O bloco de **resumo agregado** nasce colapsado; os eventos individuais ficam visíveis. A agenda em grade continua acessível pelo menu. Servido por `GET /v1/admin/day-feed`.
 
 ### 3.4 Planos e Pagamentos
 
@@ -102,9 +110,10 @@ Planos/acordos por paciente:
 | `plano_fechado_trimestral` | Valor fixo trimestral |
 | `atendimento_social` | Sem pagamento fixo |
 
+- Planos fechados têm um **dia de vencimento** (`due_day`, 1–28), que ancora a cobrança do ciclo.
 - O **gatilho de geração do débito depende do tipo de plano**:
-  - `pagamento_por_consulta` / `pagamento_por_mes`: **por sessão** — encerrar uma sessão com o flag de cobrança marcado gera uma **entrada de valor a receber (débito)**, de forma **idempotente** (uma sessão não gera dois débitos).
-  - `plano_fechado_mensal` / `plano_fechado_trimestral`: **por ciclo de cobrança** — o débito do valor fixo é gerado automaticamente no início de cada período (mês/trimestre) vigente do plano, **independente do número de sessões realizadas**. A geração também é idempotente (um período não gera dois débitos para o mesmo plano).
+  - `pagamento_por_consulta` / `pagamento_por_mes`: **por sessão** — ao marcar a sessão como realizada, o sistema gera a **entrada de valor a receber (débito)** automaticamente (padrão), de forma **idempotente** (uma sessão não gera dois débitos). O terapeuta pode suprimir via opt-out (`bill=false`). Sem plano vigente, não gera e registra a condição de forma observável (audit `debt_skip_no_plan`).
+  - `plano_fechado_mensal` / `plano_fechado_trimestral`: **por ciclo de cobrança** — o débito do valor fixo é gerado automaticamente **a partir do dia de vencimento** do período vigente do plano, **independente do número de sessões realizadas**. O `due_date` do débito é a data real do vencimento. A geração é idempotente (um período não gera dois débitos para o mesmo plano), mesmo com o cron rodando diariamente após o vencimento. No trimestral, o vencimento é ancorado no 1º mês do trimestre.
   - `atendimento_social`: **nunca gera débito**, independente de qualquer flag marcado na sessão.
 - Ao encerrar uma sessão faturável, o terapeuta informa a forma de pagamento conforme o plano do paciente (ou cadastra uma nova).
 - O sistema gera um **PDF de cobrança**, armazenado no GED como lastro, com envio opcional por email ao paciente.
@@ -119,6 +128,7 @@ Cadastro de custos: **local** (§3.2), **CRP** (anual), **infraestrutura** (Goog
 - **Custo por sessão / por paciente:** custo `por_sessao` é atribuído direto; custos `diario`/`mensal`/`anual` são **rateados proporcionalmente** entre as sessões realizadas no local no período. Objetivo: comparar o custo real de sessão online vs. presencial e subsidiar a precificação de cada paciente. A sessão só computa custo se o flag "considerar custos" estiver marcado.
 - **ROI por canal de origem:** cruza a **receita gerada pelos pacientes de cada origem** com o **custo da plataforma correspondente** no período, respondendo se o investimento no canal tem retorno.
 - **Relatórios de custo:** totais com visão anual, mensal ou por paciente.
+- **Relatório de sessões por local** (onda `patient-timeline` R7): para um local e um período (default: mês atual), agrega as sessões por categoria (as mesmas das métricas do paciente) e o **faturado das sessões realizadas** no período (soma dos débitos vinculados, em centavos). Agrupa por `starts_at` no fuso `America/Sao_Paulo`; serve de repasse para clínicas parceiras. Servido por `GET /v1/admin/locations/{id}/session-report`. Exportação CSV/impressão fica como melhoria futura.
 
 ### 3.6 Prontuário e Gestão de Atendimentos
 
@@ -127,7 +137,10 @@ Cadastro de custos: **local** (§3.2), **CRP** (anual), **infraestrutura** (Goog
 - **Notas livres**: sem vínculo com sessão (lembretes). Notas de sessão e livres sempre ordenadas por **data de criação**.
 - **GED segregado por paciente**, isolando documentos.
 - **Templates em Markdown** para enviar ao paciente (ex: anamnese); o envio usa sempre a versão **formatada**.
-- **Prontuário unificado** (onda `prontuario-ux`): no detalhe do paciente, uma aba única **Prontuário** reúne, numa **linha do tempo por data** (mais recente no topo), as **sessões** com seus **registros clínicos vinculados** e as **notas livres**. Substitui as abas antigas "Sessões" e "Notas"; a **Anamnese** permanece separada (documento único). O topo traz um resumo (total de sessões, realizadas, faltas, último registro). O ato de **agendar** continua na Agenda; o Prontuário trata do **registro clínico**. Ao abrir uma sessão no Prontuário, é possível editá-la (§3.3) e adicionar/remover registros vinculados.
+- **Prontuário unificado** (onda `prontuario-ux`; feed reforçado em `patient-timeline` R3): no detalhe do paciente, uma aba única **Prontuário** reúne, numa **linha do tempo por data do mais recente ao mais antigo**, as **sessões** com seus **registros clínicos vinculados** e as **notas livres**. Substitui as abas antigas "Sessões" e "Notas". A **Anamnese** aparece como **ficha inicial** destacada no topo do feed e como **marco fundacional** no fim da linha do tempo (início da história clínica), além de editável à parte. O topo traz uma composição rápida ("Registrar o que aconteceu…") e um resumo (total de sessões, realizadas, faltas, último registro). O ato de **agendar** continua na Agenda; o Prontuário trata do **registro clínico**. Ao abrir uma sessão no Prontuário, é possível editá-la (§3.3) e adicionar/remover registros vinculados.
+- **Timeline unificada do paciente** (onda `patient-timeline` R4): a história completa do paciente é um **feed cronológico** (mais recente no topo) que agrega cadastro/aprovação, sessões, **remarcações**, registros clínicos e notas livres, anamnese, débitos, pagamentos e arquivos. É **composta no servidor** (`GET /v1/admin/patients/{id}/history`), derivada das fontes existentes (sem tabela de eventos). Cada evento tem data, tipo, resumo legível e referência à entidade de origem (para abrir sessão/débito/arquivo). A **remarcação** de horário de uma sessão agendada/confirmada é registrada de forma rastreável no audit log (`session.reschedule`, de/para, sem conteúdo clínico). A leitura do histórico respeita a auditoria de leitura clínica (`AuditActionRead`), sem expor conteúdo clínico em metadados.
+- **Calendário mensal do paciente** (onda `patient-timeline` R2): no detalhe do paciente, uma visão de calendário mensal mostra todas as sessões daquele paciente — passadas (realizadas, faltas, canceladas) e futuras (agendadas, confirmadas, solicitadas) —, com cor por status, contagem quando há mais de uma no dia e navegação por mês (anterior/próximo/hoje). Reusa `GET /v1/admin/sessions?patient_id=&from=&to=`; o agrupamento por dia respeita o fuso `America/Sao_Paulo`. Clicar num dia/sessão abre o registro da sessão.
+- **Métricas de sessão do paciente** (onda `patient-timeline` R6.4–R6.5): a tela do paciente exibe um bloco de métricas com a quebra por categoria (realizadas, faltas, canceladas pelo paciente, canceladas pelo terapeuta, agendadas/confirmadas, solicitadas) e as taxas de **comparecimento** e **cancelamento**, agrupando por `starts_at` (fuso `America/Sao_Paulo`), por padrão sobre o histórico completo (com recorte opcional por período). Servido por `GET /v1/admin/patients/{id}/session-metrics`.
 
 ### 3.7 Integração Google
 
@@ -197,6 +210,7 @@ O terapeuta tem uma tela para inserir e editar seus próprios dados. Como cada i
 - Moderna, limpa, leve, acolhedora e empática. Usuários com pouco conhecimento técnico: zero jargão, fluxos curtos, feedback claro em PT-BR.
 - Paleta suave, tipografia legível, espaçamento generoso, ícones simples, **acessibilidade WCAG AA** (navegação por teclado, contraste, labels, foco visível). A identidade visual usa **azul royal** (primária) e **lilás** (acento) sobre fundos claros derivados e branco (onda `prontuario-ux`).
 - **Responsiva (mobile-first)**: portal do paciente prioriza mobile; admin funciona bem em desktop e mobile.
+- **Título da página com a marca** (onda `patient-timeline` R5): o `<title>` de todas as páginas (admin e portal) segue o padrão `Psicoman · <contexto>` (ex.: `Psicoman · Painel`, `Psicoman · Portal do Paciente`). A topbar permanece com a marca + subtítulo de contexto, sem duplicar a informação.
 
 > Stack de front-end e realização técnica: `architecture.md §9`.
 

@@ -14,6 +14,9 @@ import (
 type AuditRepository interface {
 	Insert(ctx context.Context, entry *domain.AuditLog) error
 	List(ctx context.Context, limit int) ([]*domain.AuditLog, error)
+	// ListByEntity devolve as entradas de uma entidade específica (ex.: todas as
+	// de uma sessão), mais recentes primeiro. Usado pela composição do histórico.
+	ListByEntity(ctx context.Context, entity, entityID string) ([]*domain.AuditLog, error)
 }
 
 // AuditService registra operações sensíveis. Falha de auditoria é logada mas
@@ -48,4 +51,9 @@ func (s *AuditService) List(ctx context.Context, limit int) ([]*domain.AuditLog,
 		limit = 100
 	}
 	return s.repo.List(ctx, limit)
+}
+
+// ListByEntity devolve as entradas de uma entidade específica.
+func (s *AuditService) ListByEntity(ctx context.Context, entity, entityID string) ([]*domain.AuditLog, error) {
+	return s.repo.ListByEntity(ctx, entity, entityID)
 }

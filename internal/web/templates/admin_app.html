@@ -6,6 +6,70 @@
     <p class="lead">Gestão do consultório</p>
   </div>
 
+  <!-- ══════════════════════════ HOJE (FEED DO DIA) ═══════════════════════ -->
+  <section class="card" id="hoje" x-data="dayFeedPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "activity"}}<h2>Hoje</h2></header>
+    <p class="muted">O resumo do seu dia: o que aconteceu e o que vem por aí.</p>
+
+    <!-- Seletor de janela -->
+    <div class="row" style="gap:6px;flex-wrap:wrap" role="group" aria-label="Janela do feed">
+      <template x-for="w in windows" :key="w.value">
+        <button class="chip" :class="{ info: window === w.value }" :aria-pressed="window === w.value"
+                @click="window = w.value; load()" x-text="w.label"></button>
+      </template>
+    </div>
+
+    <!-- Resumo do dia (colapsado por padrão — R8.4) -->
+    <div class="stack" x-data="{ open: false }" style="margin-top:10px">
+      <button class="btn ghost" @click="open = !open" :aria-expanded="open ? 'true' : 'false'" aria-controls="resumo-dia">
+        {{template "icon" "chart"}} Resumo do dia
+        <span class="chip info" x-show="feed" x-text="(feed ? feed.resumo.total : 0) + ' sessões'"></span>
+      </button>
+      <div id="resumo-dia" x-show="open" x-cloak class="kpis">
+        <div class="kpi"><span class="n" x-text="feed ? feed.resumo.total : 0"></span><span class="k">Sessões</span></div>
+        <div class="kpi"><span class="n" x-text="resumoCount('realizadas')"></span><span class="k">Realizadas</span></div>
+        <div class="kpi"><span class="n" x-text="resumoCount('faltas')"></span><span class="k">Faltas</span></div>
+        <div class="kpi ok"><span class="n" x-text="Fmt.brl(feed ? feed.resumo.recebido : 0)"></span><span class="k">Recebido</span></div>
+        <div class="kpi accent"><span class="n" x-text="Fmt.brl(feed ? feed.resumo.a_receber : 0)"></span><span class="k">A receber</span></div>
+      </div>
+    </div>
+
+    <template x-if="loading && !feed">
+      <p class="muted">Carregando o dia…</p>
+    </template>
+    <template x-if="feed && feed.eventos.length === 0">
+      <p class="empty">Nada no período selecionado.</p>
+    </template>
+
+    <!-- Eventos agrupados por faixa temporal -->
+    <template x-for="band in bands()" :key="band.key">
+      <div class="stack" x-show="band.items.length" style="margin-top:12px">
+        <strong class="sub" x-text="band.label"></strong>
+        <ul class="item-list">
+          <template x-for="(e, i) in band.items" :key="band.key + '-' + i">
+            <li class="item clickable" @click="openEvent(e)" tabindex="0" @keydown.enter="openEvent(e)"
+                :aria-label="e.titulo + ' — ' + (e.patient_name || '') + ' — ' + Fmt.datetime(e.data)">
+              <span class="chip" :class="eventChip(e)" aria-hidden="true">
+                <svg class="icon"><use :href="'#i-' + eventIcon(e.tipo)"></use></svg>
+              </span>
+              <div class="grow">
+                <div class="title">
+                  <span x-text="e.titulo"></span>
+                  <template x-if="e.patient_name"><span class="sub" x-text="' · ' + e.patient_name"></span></template>
+                </div>
+                <div class="sub">
+                  <span x-text="e.resumo"></span>
+                  <template x-if="e.status"><span class="chip" :class="statusChip(e.status)" style="margin-left:6px" x-text="Fmt.sessionStatus(e.status)"></span></template>
+                </div>
+              </div>
+              <time class="sub" :datetime="e.data" :title="Fmt.datetime(e.data)" x-text="Fmt.relative(e.data)"></time>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </template>
+  </section>
+
   <!-- ══════════════════════════════ AGENDA ══════════════════════════════ -->
   <section class="card" id="agenda" x-data="agendaPanel()" x-init="load()" x-show="!$store.nav.patientId">
     <header>{{template "icon" "calendar"}}<h2 x-text="view === 'mes' ? 'Agenda do mês' : 'Agenda da semana'"></h2></header>
@@ -189,6 +253,8 @@
     </template>
 
     <nav class="tabs" aria-label="Seções do paciente">
+      <button class="tab" :class="{ active: tab === 'timeline' }" @click="go('timeline')">{{template "icon" "activity"}} Timeline</button>
+      <button class="tab" :class="{ active: tab === 'calendario' }" @click="go('calendario')">{{template "icon" "calendar"}} Calendário</button>
       <button class="tab" :class="{ active: tab === 'dados' }" @click="tab = 'dados'">{{template "icon" "user"}} Dados</button>
       <button class="tab" :class="{ active: tab === 'anamnese' }" @click="go('anamnese')">{{template "icon" "note"}} Anamnese</button>
       <button class="tab" :class="{ active: tab === 'prontuario' }" @click="go('prontuario')">{{template "icon" "heart"}} Prontuário</button>
@@ -197,6 +263,103 @@
       <button class="tab" :class="{ active: tab === 'custos' }" @click="go('custos')">{{template "icon" "chart"}} Custos</button>
       <button class="tab" :class="{ active: tab === 'arquivos' }" @click="go('arquivos')">{{template "icon" "doc"}} Arquivos</button>
     </nav>
+
+    <!-- Timeline: história completa do paciente (R4), visão base. -->
+    <div x-show="tab === 'timeline'" class="stack">
+      <!-- Métricas de sessão (R6.4–R6.5) -->
+      <div class="kpis" x-show="metrics">
+        <div class="kpi"><span class="n" x-text="metrics ? metrics.total : 0"></span><span class="k">Sessões</span></div>
+        <div class="kpi"><span class="n" x-text="metricCount('realizadas')"></span><span class="k">Realizadas</span></div>
+        <div class="kpi"><span class="n" x-text="metricCount('faltas')"></span><span class="k">Faltas</span></div>
+        <div class="kpi"><span class="n" x-text="metricCount('canceladas_paciente') + metricCount('canceladas_terapeuta') + metricCount('canceladas_sem_autor')"></span><span class="k">Canceladas</span></div>
+        <div class="kpi"><span class="n" x-text="pct(metrics && metrics.taxa_comparecimento)"></span><span class="k">Comparecimento</span></div>
+        <div class="kpi"><span class="n" x-text="pct(metrics && metrics.taxa_cancelamento)"></span><span class="k">Cancelamento</span></div>
+        <div class="kpi accent"><span class="n" x-text="Fmt.brl(metrics ? metrics.faturado_realizadas : 0)"></span><span class="k">Faturado (realizadas)</span></div>
+      </div>
+
+      <p class="muted">A história completa deste paciente, do mais recente ao mais antigo.</p>
+      <!-- Filtro por categoria -->
+      <div class="row" style="gap:6px;flex-wrap:wrap" role="group" aria-label="Filtrar a timeline">
+        <template x-for="f in historyFilters" :key="f.value">
+          <button class="chip" :class="{ info: historyFilter === f.value }"
+                  :aria-pressed="historyFilter === f.value"
+                  @click="historyFilter = f.value" x-text="f.label"></button>
+        </template>
+      </div>
+
+      <template x-if="loading && history.length === 0">
+        <p class="muted">Carregando a história…</p>
+      </template>
+      <template x-if="!loading && historyFiltered().length === 0">
+        <p class="empty">Nada por aqui ainda nesta categoria.</p>
+      </template>
+
+      <ul class="item-list">
+        <template x-for="(it, idx) in historyFiltered()" :key="idx">
+          <li class="item" :class="historyClickable(it) ? 'clickable' : ''"
+              @click="historyAction(it)"
+              :tabindex="historyClickable(it) ? 0 : -1"
+              @keydown.enter="historyAction(it)"
+              :aria-label="it.titulo + ' — ' + Fmt.datetime(it.data)">
+            <span class="chip" :class="historyChip(it.tipo)" aria-hidden="true">
+              <svg class="icon"><use :href="'#i-' + historyIcon(it.tipo)"></use></svg>
+            </span>
+            <div class="grow">
+              <div class="title" x-text="it.titulo"></div>
+              <div class="sub">
+                <span x-text="it.resumo"></span>
+              </div>
+            </div>
+            <time class="sub" :datetime="it.data" :title="Fmt.datetime(it.data)" x-text="Fmt.relative(it.data)"></time>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Calendário mensal do paciente (R2): sessões passadas e futuras. -->
+    <div x-show="tab === 'calendario'" class="stack">
+      <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div class="row" style="gap:6px;align-items:center">
+          <button class="btn ghost icon-only" @click="calPrev()" :disabled="loading" aria-label="Mês anterior">{{template "icon" "chevron-left"}}</button>
+          <strong x-text="calLabel()" style="min-width:9rem;text-align:center"></strong>
+          <button class="btn ghost icon-only" @click="calNext()" :disabled="loading" aria-label="Próximo mês">{{template "icon" "chevron-right"}}</button>
+        </div>
+        <button class="btn secondary" @click="calToday()" :disabled="loading">Hoje</button>
+      </div>
+
+      <div class="month-view">
+        <div class="month-weekdays" aria-hidden="true">
+          <template x-for="wd in calWeekdays" :key="wd">
+            <span class="month-wd" x-text="wd"></span>
+          </template>
+        </div>
+        <div class="month-grid" role="region" aria-live="polite">
+          <template x-for="cell in calCells" :key="cell.iso">
+            <div class="month-cell"
+                 :class="{ 'is-today': cell.isToday, 'is-outside': !cell.inMonth, 'has-sessions': cell.slots.length > 0 }"
+                 :role="cell.slots.length > 0 ? 'button' : null"
+                 :tabindex="cell.slots.length > 0 ? 0 : -1"
+                 :aria-label="cell.num + ', ' + cell.slots.length + ' sessão(ões).'"
+                 @click="cell.slots.length && openProntuarioSession(cell.slots[0].id)"
+                 @keydown.enter="cell.slots.length && openProntuarioSession(cell.slots[0].id)">
+              <div class="month-cell-head">
+                <span class="month-num" x-text="cell.num"></span>
+                <span class="month-count" x-show="cell.slots.length > 1" x-text="cell.slots.length"></span>
+              </div>
+              <div class="month-dots" x-show="cell.slots.length > 0">
+                <template x-for="s in cell.slots.slice(0, 4)" :key="s.id">
+                  <span class="month-dot" :class="'st-' + s.status"
+                        :title="fmtTime(s.starts_at) + ' · ' + Fmt.sessionStatus(s.status)"
+                        @click.stop="openProntuarioSession(s.id)"></span>
+                </template>
+                <span class="month-more" x-show="cell.slots.length > 4" x-text="'+' + (cell.slots.length - 4)"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+      <p class="muted" style="font-size:.82rem">Clique num dia com sessão para abrir o registro.</p>
+    </div>
 
     <!-- Dados -->
     <div x-show="tab === 'dados'" class="stack">
@@ -293,22 +456,34 @@
         <div class="kpi"><span class="n" x-text="ultimoRegistroLabel()"></span><span class="k">Último registro</span></div>
       </div>
 
-      <!-- Nova nota livre (sem vínculo com sessão) -->
+      <!-- Composição rápida de nota livre no topo do feed (R3.2) -->
       <div class="field wide">
-        <label>Nova anotação (nota livre)</label>
+        <label>Registrar o que aconteceu…</label>
         <div class="md-editor">
           <div class="md-tabs">
             <button type="button" class="md-tab" :class="{ active: !notePreview }" @click="notePreview = false">{{template "icon" "edit"}} Escrever</button>
             <button type="button" class="md-tab" :class="{ active: notePreview }" @click="notePreview = true">{{template "icon" "doc"}} Visualizar</button>
             <span class="hint">Markdown: # título, **negrito**, *itálico*, - lista, `código`</span>
           </div>
-          <textarea x-show="!notePreview" x-model="noteForm.content" placeholder="Anotação livre do acompanhamento (Markdown)…"></textarea>
+          <textarea x-show="!notePreview" x-model="noteForm.content" placeholder="O que aconteceu no acompanhamento? (Markdown)…"></textarea>
           <div x-show="notePreview" class="md-preview md-body" x-html="Md.toHtml(noteForm.content)"></div>
         </div>
       </div>
       <div class="row end">
-        <button class="btn primary" @click="addNote()" :disabled="loading">{{template "icon" "plus"}} Adicionar anotação</button>
+        <button class="btn primary" @click="addNote()" :disabled="loading">{{template "icon" "plus"}} Registrar anotação</button>
       </div>
+
+      <!-- Anamnese como card fundacional destacado no topo ("Ficha inicial") -->
+      <template x-if="anamnese && anamnese.content">
+        <section class="card tl-ficha" style="border-left:3px solid var(--primary)">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <strong>{{template "icon" "heart"}} Ficha inicial (anamnese)</strong>
+            <button class="btn ghost" @click="go('anamnese')">{{template "icon" "edit"}} Abrir anamnese</button>
+          </div>
+          <div class="md-body" x-html="Md.toHtml(anamnese.content)" style="margin-top:6px"></div>
+          <div class="sub" style="margin-top:6px" x-show="anamnese.updated_at" x-text="'Atualizada ' + Fmt.relative(anamnese.updated_at)" :title="Fmt.datetime(anamnese.updated_at)"></div>
+        </section>
+      </template>
 
       <!-- Estado vazio acolhedor (R1.2) -->
       <template x-if="!loading && timeline().length === 0">
@@ -382,6 +557,21 @@
             </ul>
           </section>
         </template>
+
+        <!-- Marco fundacional no fim da linha do tempo: início da história clínica -->
+        <template x-if="anamnese && anamnese.content">
+          <section class="tl-day tl-marco">
+            <h3 class="tl-date"><svg class="icon" aria-hidden="true"><use href="#i-heart"></use></svg> Início da história clínica</h3>
+            <ul class="item-list">
+              <li class="item tl-item tl-nota">
+                <div class="grow">
+                  <div class="sub">Anamnese — a ficha inicial do paciente.</div>
+                  <button class="btn secondary" style="margin-top:6px" @click="go('anamnese')">{{template "icon" "edit"}} Abrir anamnese</button>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </template>
       </div>
     </div>
 
@@ -397,15 +587,44 @@
             <span class="chip" :class="statusChip(sessionPanel.status)" x-text="Fmt.sessionStatus(sessionPanel.status)"></span>
           </div>
 
-          <!-- Transições de estado (quando aplicável) -->
-          <template x-if="sessionPanel.status === 'agendada'">
-            <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap">
-              <button class="btn primary" @click="finishSessionPanel()" :disabled="loading">{{template "icon" "check"}} Finalizar</button>
-              <button class="btn secondary" @click="noShowSessionPanel()" :disabled="loading">Falta</button>
-              <button class="btn danger" @click="cancelSessionPanel()" :disabled="loading">{{template "icon" "x"}} Cancelar</button>
-              <template x-if="sessionPanel.meet_url">
-                <a class="btn secondary" :href="sessionPanel.meet_url" target="_blank" rel="noopener">{{template "icon" "video"}} Meet</a>
-              </template>
+          <!-- Metadados de cancelamento (quando houver) -->
+          <template x-if="sessionPanel.status === 'cancelada' && sessionPanel.canceled_by">
+            <p class="sub" style="margin:0 0 12px">
+              Cancelada por <strong x-text="sessionPanel.canceled_by === 'paciente' ? 'paciente' : 'terapeuta'"></strong>
+              <template x-if="sessionPanel.cancel_reason"><span x-text="' · ' + sessionPanel.cancel_reason"></span></template>
+            </p>
+          </template>
+
+          <!-- Transições de estado (sessão agendada ou confirmada) -->
+          <template x-if="sessionPanel.status === 'agendada' || sessionPanel.status === 'confirmada'">
+            <div class="stack" style="margin-bottom:12px">
+              <div class="row" style="gap:8px;flex-wrap:wrap">
+                <template x-if="sessionPanel.status === 'agendada'">
+                  <button class="btn secondary" @click="confirmSessionPanel()" :disabled="loading">{{template "icon" "check"}} Confirmar</button>
+                </template>
+                <button class="btn primary" @click="finishSessionPanel()" :disabled="loading">{{template "icon" "check"}} Finalizar</button>
+                <button class="btn secondary" @click="noShowSessionPanel()" :disabled="loading">Falta</button>
+                <template x-if="sessionPanel.meet_url">
+                  <a class="btn secondary" :href="sessionPanel.meet_url" target="_blank" rel="noopener">{{template "icon" "video"}} Meet</a>
+                </template>
+              </div>
+              <!-- Cancelamento com autor + motivo -->
+              <div class="form-grid">
+                <div class="field">
+                  <label for="s-cancel-by">Cancelar — quem cancelou?</label>
+                  <select id="s-cancel-by" x-model="cancelForm.canceled_by">
+                    <option value="paciente">Paciente</option>
+                    <option value="terapeuta">Terapeuta</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="s-cancel-reason">Motivo (opcional)</label>
+                  <input id="s-cancel-reason" x-model="cancelForm.cancel_reason" placeholder="Ex.: imprevisto do paciente"/>
+                </div>
+              </div>
+              <div class="row end">
+                <button class="btn danger" @click="cancelSessionPanel()" :disabled="loading">{{template "icon" "x"}} Cancelar sessão</button>
+              </div>
             </div>
           </template>
 
@@ -517,6 +736,17 @@
             <input id="pl-valor" x-model="planForm.amount" inputmode="decimal" placeholder="0,00"/>
           </div>
         </template>
+        <template x-if="planNeedsAmount()">
+          <div class="field">
+            <label for="pl-venc">Dia de vencimento</label>
+            <select id="pl-venc" x-model.number="planForm.due_day">
+              <template x-for="d in 28" :key="d">
+                <option :value="d" x-text="'Dia ' + d"></option>
+              </template>
+            </select>
+            <span class="hint">A cobrança do período vence neste dia (1 a 28).</span>
+          </div>
+        </template>
         <div class="field">
           <label for="pl-ini">Início da vigência</label>
           <input id="pl-ini" type="date" x-model="planForm.starts_at"/>
@@ -544,6 +774,7 @@
               <div class="title" x-text="planLabel(p.type)"></div>
               <div class="sub">
                 <template x-if="p.amount"><span x-text="Fmt.brl(p.amount) + ' · '"></span></template>
+                <template x-if="p.due_day"><span x-text="'vence dia ' + p.due_day + ' · '"></span></template>
                 <span x-text="'desde ' + Fmt.short(p.starts_at)"></span>
                 <template x-if="p.ends_at"><span x-text="' até ' + Fmt.short(p.ends_at)"></span></template>
               </div>
@@ -1196,6 +1427,49 @@
     </div>
   </section>
 
+  <!-- ══════════════════ RELATÓRIO DE SESSÕES POR LOCAL ═══════════════════ -->
+  <section class="card" id="relatorio-local" x-data="locationReportPanel()" x-init="load()" x-show="!$store.nav.patientId">
+    <header>{{template "icon" "pin"}}<h2>Relatório de sessões por local</h2></header>
+    <p class="muted">Para repassar à clínica parceira: quantos atendimentos por categoria e o faturamento das realizadas no período.</p>
+
+    <div class="row" style="flex-wrap:wrap;gap:8px;align-items:flex-end">
+      <div class="field">
+        <label for="rl-local">Local</label>
+        <select id="rl-local" x-model="locationId" @change="load()">
+          <option value="">— Selecione —</option>
+          <template x-for="l in locations" :key="l.id">
+            <option :value="l.id" x-text="l.name"></option>
+          </template>
+        </select>
+      </div>
+      <div class="row" style="gap:6px;align-items:center">
+        <button class="btn ghost icon-only" @click="prevMonth()" :disabled="loading || !locationId" aria-label="Mês anterior">{{template "icon" "chevron-left"}}</button>
+        <strong x-text="monthLabel()" style="min-width:9rem;text-align:center"></strong>
+        <button class="btn ghost icon-only" @click="nextMonth()" :disabled="loading || !locationId" aria-label="Próximo mês">{{template "icon" "chevron-right"}}</button>
+      </div>
+      <button class="btn secondary" @click="thisMonth()" :disabled="loading || !locationId">Mês atual</button>
+    </div>
+
+    <template x-if="!locationId">
+      <p class="empty">Escolha um local para ver o relatório.</p>
+    </template>
+
+    <div x-show="report" style="margin-top:12px">
+      <ul class="item-list">
+        <template x-for="row in categoryRows()" :key="row.key">
+          <li class="item">
+            <div class="grow"><div class="title" x-text="row.label"></div></div>
+            <span class="chip info" x-text="row.count"></span>
+          </li>
+        </template>
+      </ul>
+      <div class="kpis" style="margin-top:10px">
+        <div class="kpi"><span class="n" x-text="report ? report.total : 0"></span><span class="k">Total de sessões</span></div>
+        <div class="kpi accent"><span class="n" x-text="Fmt.brl(report ? report.faturado_realizadas : 0)"></span><span class="k">Faturado (realizadas)</span></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ═══════════════════════ PERFIL DO TERAPEUTA ═════════════════════════ -->
   <section class="card" id="perfil-terapeuta" x-data="therapistPanel()" x-init="load()" x-show="!$store.nav.patientId">
     <header>{{template "icon" "user"}}<h2>Meu perfil (terapeuta)</h2></header>
@@ -1561,6 +1835,71 @@
 
   function adminApp() { return {}; }
 
+  // ── Feed do dia do terapeuta (R8) ──────────────────────────────────────
+  function dayFeedPanel() {
+    return {
+      ...panel(),
+      window: "hoje",
+      feed: null,
+      windows: [
+        { value: "hoje", label: "Hoje" },
+        { value: "proximos7", label: "Próximos 7 dias" },
+        { value: "recentes", label: "Recentes" },
+      ],
+      async load() {
+        const res = await this.run(() => Api.get(`/v1/admin/day-feed?window=${this.window}`));
+        this.feed = res ? (res.data || null) : null;
+      },
+      resumoCount(cat) { return (this.feed && this.feed.resumo.counts && this.feed.resumo.counts[cat]) || 0; },
+      eventIcon(tipo) {
+        return ({
+          sessao: "calendar", debito: "wallet", pagamento: "money",
+          arquivo: "doc", pedido: "clock", aprovacao: "check",
+        })[tipo] || "info";
+      },
+      eventChip(e) {
+        return ({
+          sessao: "info", debito: "warn", pagamento: "ok",
+          arquivo: "info", pedido: "warn", aprovacao: "ok",
+        })[e.tipo] || "info";
+      },
+      statusChip(status) {
+        return ({ realizada: "ok", agendada: "info", confirmada: "info", solicitada: "info", falta: "warn", cancelada: "danger" })[status] || "info";
+      },
+      // Faixa temporal legível a partir da data do evento vs agora (fuso local).
+      bandOf(iso) {
+        const d = new Date(iso);
+        const now = new Date();
+        const d0 = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const n0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const dayDiff = Math.round((d0 - n0) / 86400000);
+        if (dayDiff < 0) return "passado";
+        if (dayDiff === 0) return d.getTime() <= now.getTime() ? "agora" : "mais_tarde";
+        if (dayDiff === 1) return "amanha";
+        return "depois";
+      },
+      bands() {
+        const labels = {
+          agora: "Agora / já passou hoje", mais_tarde: "Mais tarde hoje",
+          amanha: "Amanhã", depois: "Próximos dias", passado: "Já passou",
+        };
+        const order = ["agora", "mais_tarde", "amanha", "depois", "passado"];
+        const groups = {};
+        order.forEach((k) => { groups[k] = []; });
+        (this.feed ? this.feed.eventos : []).forEach((e) => { groups[this.bandOf(e.data)].push(e); });
+        return order.map((k) => ({ key: k, label: labels[k], items: groups[k] }));
+      },
+      openEvent(e) {
+        if (!e.ref) return;
+        if ((e.ref.kind === "session" || e.ref.kind === "appointment_request") && e.patient_id) {
+          Alpine.store("nav").openSession(e.patient_id, e.ref.kind === "session" ? e.ref.id : null);
+        } else if (e.patient_id) {
+          Alpine.store("nav").openPatient(e.patient_id);
+        }
+      },
+    };
+  }
+
   // ── Agenda (visão semanal detalhada + visão mensal geral) ───────────────
   // Ambas consomem o MESMO endpoint GET /v1/admin/sessions?from=&to=, variando
   // apenas o intervalo pedido ao backend (semana seg–sáb ou grade do mês).
@@ -1758,7 +2097,7 @@
       // Clique no cartão abre o painel daquela sessão no detalhe do paciente (R2.1).
       openSession(s) { Alpine.store("nav").openSession(s.patient_id, s.id); },
       statusChip(status) {
-        return ({ realizada: "ok", agendada: "info", solicitada: "info", falta: "warn", cancelada: "danger" })[status] || "info";
+        return ({ realizada: "ok", agendada: "info", confirmada: "info", solicitada: "info", falta: "warn", cancelada: "danger" })[status] || "info";
       },
     };
   }
@@ -1768,9 +2107,23 @@
     return {
       ...panel(),
       id: null,
-      tab: "dados",
+      tab: "timeline",
       patient: null,
       origins: [],
+      history: [],
+      metrics: null,
+      historyFilter: "tudo",
+      historyFilters: [
+        { value: "tudo", label: "Tudo" },
+        { value: "clinico", label: "Clínico" },
+        { value: "financeiro", label: "Financeiro" },
+        { value: "agenda", label: "Agenda" },
+        { value: "arquivos", label: "Arquivos" },
+      ],
+      // Calendário mensal do paciente (R2).
+      calRef: null,
+      calCells: [],
+      calWeekdays: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"],
       editing: false,
       edit: { name: "", phone: "", email: "", cpf: "", origin_id: "" },
       anamnese: { content: "", updated_at: null },
@@ -1796,12 +2149,13 @@
       close() { this.id = null; Alpine.store("nav").closePatient(); },
 
       async bootstrap() {
-        this.tab = "dados";
+        this.tab = "timeline";
         this.loaded = {};
         this.editing = false;
         this.anamnesePreview = false;
         this.notePreview = false;
         this.patient = null;
+        this.history = []; this.metrics = null; this.historyFilter = "tudo";
         this.anamnese = { content: "", updated_at: null };
         this.sessions = []; this.notes = []; this.debts = []; this.files = []; this.plans = [];
         this.payments = {}; this.costs = {}; this.expandedDebt = null; this.confirmingPlanId = null; this.payingDebt = null; this.confirmingNoteId = null;
@@ -1817,6 +2171,9 @@
         await this.loadDebts();
         await this.loadFiles();
         await this.loadPlans();
+        // Timeline é a visão base: carrega a história assim que o paciente abre.
+        this.loaded["timeline"] = true;
+        await this.loadHistory();
         // Veio da Agenda pedindo para abrir uma sessão específica (R2.1)?
         const focusId = Alpine.store("nav").focusSessionId;
         if (focusId) {
@@ -1824,6 +2181,111 @@
           await this.openProntuarioSession(focusId);
         }
       },
+
+      // Carrega a timeline (história composta no servidor — R4) e as métricas.
+      async loadHistory() {
+        const res = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/history`));
+        if (res) this.history = res.data || [];
+        const mr = await this.run(() => Api.get(`/v1/admin/patients/${this.id}/session-metrics`));
+        if (mr) this.metrics = mr.data || null;
+      },
+      // Contagem de uma categoria nas métricas (zero quando ausente).
+      metricCount(cat) { return (this.metrics && this.metrics.counts && this.metrics.counts[cat]) || 0; },
+      // Fração 0..1 → percentual legível.
+      pct(frac) { return Math.round(((frac || 0) * 100)) + "%"; },
+      // Filtra os eventos pela categoria selecionada ("tudo" mostra todas).
+      historyFiltered() {
+        if (this.historyFilter === "tudo") return this.history;
+        return this.history.filter((it) => it.categoria === this.historyFilter);
+      },
+      // Ícone (sufixo do sprite #i-) por tipo de evento.
+      historyIcon(tipo) {
+        return ({
+          cadastro: "user", aprovacao: "check", sessao: "calendar",
+          remarcacao: "refresh", registro: "heart", nota_livre: "note",
+          anamnese: "heart", debito: "wallet", pagamento: "money", arquivo: "doc",
+        })[tipo] || "info";
+      },
+      // Cor do chip por tipo (coerente com a semântica do design).
+      historyChip(tipo) {
+        return ({
+          cadastro: "info", aprovacao: "ok", sessao: "info", remarcacao: "warn",
+          registro: "info", nota_livre: "info", anamnese: "info",
+          debito: "warn", pagamento: "ok", arquivo: "info",
+        })[tipo] || "info";
+      },
+      historyClickable(it) {
+        const k = it.ref && it.ref.kind;
+        return k === "session" || k === "debt" || k === "ged_file" || k === "anamnesis";
+      },
+      // Ação ao clicar num evento, conforme a referência da entidade.
+      async historyAction(it) {
+        if (!it.ref) return;
+        switch (it.ref.kind) {
+          case "session":
+            if (it.ref.id) await this.openProntuarioSession(it.ref.id);
+            break;
+          case "debt":
+            this.go("financeiro");
+            this.expandedDebt = it.ref.id;
+            break;
+          case "ged_file":
+            window.open(`/v1/admin/files/${it.ref.id}`, "_blank");
+            break;
+          case "anamnesis":
+            this.go("anamnese");
+            break;
+        }
+      },
+
+      // ── Calendário mensal do paciente (R2) ────────────────────────────────
+      fmtTime(iso) { return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); },
+      // Data local YYYY-MM-DD (agrupamento por dia no fuso local; evita o
+      // deslocamento de toISOString, que é UTC).
+      localISO(d) {
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      },
+      calLabel() {
+        if (!this.calRef) return "";
+        const s = this.calRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      },
+      async loadCalendar() {
+        if (!this.calRef) this.calRef = firstOfMonth(new Date());
+        const from = monthGridStart(this.calRef);           // domingo da 1ª linha
+        const to = new Date(from); to.setDate(to.getDate() + 42); // 6 semanas
+        const q = `patient_id=${this.id}&from=${from.toISOString()}&to=${to.toISOString()}`;
+        const res = await this.run(() => Api.get(`/v1/admin/sessions?${q}`));
+        const list = res ? (res.data || []) : [];
+        this.buildCalendar(from, list);
+      },
+      buildCalendar(gridStart, list) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const refMonth = this.calRef.getMonth();
+        const cells = [];
+        for (let i = 0; i < 42; i++) {
+          const d = new Date(gridStart); d.setDate(gridStart.getDate() + i);
+          cells.push({
+            iso: this.localISO(d), num: d.getDate(), date: d,
+            inMonth: d.getMonth() === refMonth,
+            isToday: d.getTime() === today.getTime(),
+            slots: [],
+          });
+        }
+        const byIso = {};
+        cells.forEach((c) => { byIso[c.iso] = c; });
+        // Todos os status entram (passado + futuro — R2.1); agrupa no fuso local.
+        list.forEach((s) => {
+          const iso = this.localISO(new Date(s.starts_at));
+          if (byIso[iso]) byIso[iso].slots.push(s);
+        });
+        cells.forEach((c) => c.slots.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)));
+        this.calCells = cells;
+      },
+      calPrev() { this.calRef.setMonth(this.calRef.getMonth() - 1); this.calRef = new Date(this.calRef); this.loadCalendar(); },
+      calNext() { this.calRef.setMonth(this.calRef.getMonth() + 1); this.calRef = new Date(this.calRef); this.loadCalendar(); },
+      calToday() { this.calRef = firstOfMonth(new Date()); this.loadCalendar(); },
 
       // Abre a aba Prontuário e o painel da sessão indicada (vindo da Agenda).
       async openProntuarioSession(sessionId) {
@@ -1837,6 +2299,10 @@
 
       go(tab) {
         this.tab = tab;
+        // A timeline reflete mudanças feitas em outras abas: sempre recarrega.
+        if (tab === "timeline") { this.loadHistory(); return; }
+        // O calendário também reflete mudanças de agenda: sempre recarrega.
+        if (tab === "calendario") { if (!this.calRef) this.calRef = firstOfMonth(new Date()); this.loadCalendar(); return; }
         if (this.loaded[tab]) return;
         this.loaded[tab] = true;
         if (tab === "anamnese") this.loadAnamnese();
@@ -1852,6 +2318,7 @@
         await this.loadSessions();
         await this.loadNotes();
         await this.loadLocations();
+        await this.loadAnamnese(); // Ficha inicial no feed clínico (R3.1)
       },
       async loadLocations() {
         if (this.locations.length) return;
@@ -1862,7 +2329,7 @@
       // Chip de status coerente com a semântica de cores (R5.3/R4).
       statusChip(status) {
         return ({
-          realizada: "ok", agendada: "info", solicitada: "info",
+          realizada: "ok", agendada: "info", confirmada: "info", solicitada: "info",
           falta: "warn", cancelada: "danger",
         })[status] || "info";
       },
@@ -1920,6 +2387,7 @@
       // ── Painel da sessão (R2.1–2.4) ───────────────────────────────────────
       sessionPanel: null,
       sessionEdit: { starts_at: "", ends_at: "", modality: "presencial", location_id: "" },
+      cancelForm: { canceled_by: "paciente", cancel_reason: "" },
       sessionNoteForm: { content: "" },
       sessionNotePreview: false,
       sessionIsTerminal(status) { return status === "realizada" || status === "cancelada" || status === "falta"; },
@@ -1936,6 +2404,7 @@
         this.sessionNoteForm = { content: "" };
         this.sessionNotePreview = false;
         this.confirmingNoteId = null;
+        this.cancelForm = { canceled_by: "paciente", cancel_reason: "" };
         this.sessionEdit = {
           starts_at: this.toLocalInput(s.starts_at),
           ends_at: this.toLocalInput(s.ends_at),
@@ -1976,6 +2445,11 @@
         if (res) { this.ok("Registro adicionado."); this.sessionNoteForm.content = ""; await this.loadNotes(); }
       },
       // Transições a partir do painel: aplicam e refletem o novo estado.
+      async confirmSessionPanel() {
+        if (!this.sessionPanel) return;
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/confirm`, {}));
+        if (res) { this.ok("Sessão confirmada."); this.sessionPanel = res.data; await this.loadSessions(); }
+      },
       async finishSessionPanel() {
         if (!this.sessionPanel) return;
         const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/finish`, { bill: true, consider_cost: true }));
@@ -1983,7 +2457,10 @@
       },
       async cancelSessionPanel() {
         if (!this.sessionPanel) return;
-        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/cancel`, {}));
+        const res = await this.run(() => Api.post(`/v1/admin/sessions/${this.sessionPanel.id}/cancel`, {
+          canceled_by: this.cancelForm.canceled_by,
+          cancel_reason: this.cancelForm.cancel_reason,
+        }));
         if (res) { this.ok("Sessão cancelada."); this.sessionPanel = res.data; await this.loadSessions(); }
       },
       async noShowSessionPanel() {
@@ -2030,7 +2507,7 @@
       },
 
       // Planos
-      planForm: { type: "pagamento_por_consulta", amount: "", starts_at: "", ends_at: "" },
+      planForm: { type: "pagamento_por_consulta", amount: "", due_day: 5, starts_at: "", ends_at: "" },
       confirmingPlanId: null,
       get planTypes() {
         return [
@@ -2049,8 +2526,11 @@
         if (res) this.plans = res.data || [];
       },
       async createPlan() {
-        const body = { patient_id: this.id, type: this.planForm.type, amount: 0 };
-        if (this.planNeedsAmount()) body.amount = Money.toCents(this.planForm.amount);
+        const body = { patient_id: this.id, type: this.planForm.type, amount: 0, due_day: 0 };
+        if (this.planNeedsAmount()) {
+          body.amount = Money.toCents(this.planForm.amount);
+          body.due_day = Number(this.planForm.due_day) || 1;
+        }
         // Datas de vigência em ISO-8601 (RFC3339) a partir do <input type=date>.
         body.starts_at = this.planForm.starts_at ? new Date(this.planForm.starts_at + "T00:00:00").toISOString() : new Date().toISOString();
         if (this.planNeedsAmount() && this.planForm.ends_at) {
@@ -2059,7 +2539,7 @@
         const res = await this.run(() => Api.post("/v1/admin/plans", body));
         if (res) {
           this.ok(res.message || "Plano criado.");
-          this.planForm = { type: "pagamento_por_consulta", amount: "", starts_at: "", ends_at: "" };
+          this.planForm = { type: "pagamento_por_consulta", amount: "", due_day: 5, starts_at: "", ends_at: "" };
           await this.loadPlans();
         }
       },
@@ -2323,6 +2803,55 @@
         const rr = await this.run(() => Api.get("/v1/admin/reports/roi" + qs));
         if (rr) this.roi = rr.data || [];
       },
+    };
+  }
+
+  // ── Relatório de sessões por local (R7) ─────────────────────────────────
+  function locationReportPanel() {
+    return {
+      ...panel(),
+      locations: [],
+      locationId: "",
+      monthRef: null,      // 1º dia do mês exibido
+      report: null,
+      // Rótulos PT-BR das categorias (ordem de exibição).
+      catOrder: [
+        { key: "realizadas", label: "Realizadas" },
+        { key: "faltas", label: "Faltas" },
+        { key: "canceladas_paciente", label: "Canceladas pelo paciente" },
+        { key: "canceladas_terapeuta", label: "Canceladas pelo terapeuta" },
+        { key: "canceladas_sem_autor", label: "Canceladas (sem autor)" },
+        { key: "agendadas_confirmadas", label: "Agendadas/Confirmadas" },
+        { key: "solicitadas", label: "Solicitadas" },
+      ],
+      async load() {
+        if (!this.monthRef) this.monthRef = firstOfMonth(new Date());
+        if (this.locations.length === 0) {
+          const lr = await this.run(() => Api.get("/v1/admin/locations"));
+          if (lr) this.locations = lr.data || [];
+        }
+        if (!this.locationId) { this.report = null; return; }
+        await this.loadReport();
+      },
+      async loadReport() {
+        const from = new Date(this.monthRef);
+        const to = new Date(this.monthRef); to.setMonth(to.getMonth() + 1);
+        const q = `from=${from.toISOString()}&to=${to.toISOString()}`;
+        const res = await this.run(() => Api.get(`/v1/admin/locations/${this.locationId}/session-report?${q}`));
+        this.report = res ? (res.data || null) : null;
+      },
+      monthLabel() {
+        if (!this.monthRef) return "";
+        const s = this.monthRef.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      },
+      categoryRows() {
+        const c = (this.report && this.report.counts) || {};
+        return this.catOrder.map((r) => ({ key: r.key, label: r.label, count: c[r.key] || 0 }));
+      },
+      prevMonth() { this.monthRef.setMonth(this.monthRef.getMonth() - 1); this.monthRef = new Date(this.monthRef); this.loadReport(); },
+      nextMonth() { this.monthRef.setMonth(this.monthRef.getMonth() + 1); this.monthRef = new Date(this.monthRef); this.loadReport(); },
+      thisMonth() { this.monthRef = firstOfMonth(new Date()); this.loadReport(); },
     };
   }
 

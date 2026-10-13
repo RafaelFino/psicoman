@@ -44,7 +44,23 @@ func (r *AuditRepo) List(ctx context.Context, limit int) ([]*domain.AuditLog, er
 		return nil, err
 	}
 	defer rows.Close()
+	return scanAuditRows(rows)
+}
 
+// ListByEntity devolve as entradas de uma entidade específica (mais recentes
+// primeiro). Usado pela composição do histórico do paciente (remarcações).
+func (r *AuditRepo) ListByEntity(ctx context.Context, entity, entityID string) ([]*domain.AuditLog, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, actor, action, entity, entity_id, metadata, created_at
+		 FROM audit_log WHERE entity=? AND entity_id=? ORDER BY created_at DESC`, entity, entityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAuditRows(rows)
+}
+
+func scanAuditRows(rows *sql.Rows) ([]*domain.AuditLog, error) {
 	var out []*domain.AuditLog
 	for rows.Next() {
 		var (

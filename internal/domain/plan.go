@@ -20,6 +20,9 @@ type Plan struct {
 	PatientID string
 	Type      string
 	Amount    int64 // centavos (para planos com valor fixo)
+	// DueDay é o dia de vencimento (1–28) dos planos fechados; 0 quando não
+	// aplicável (planos por sessão/social, que não geram ciclo).
+	DueDay    int
 	StartsAt  time.Time
 	EndsAt    time.Time // zero = sem fim
 	CreatedAt time.Time
@@ -63,6 +66,10 @@ func (p *Plan) Validate() error {
 	}
 	if p.Amount < 0 {
 		return errors.New("O valor não pode ser negativo.")
+	}
+	// Dia de vencimento: 0 (não aplicável) ou 1–28 (evita meses curtos).
+	if p.DueDay < 0 || p.DueDay > 28 {
+		return errors.New("O dia de vencimento deve estar entre 1 e 28.")
 	}
 	if p.StartsAt.IsZero() {
 		return errors.New("O início da vigência é obrigatório.")

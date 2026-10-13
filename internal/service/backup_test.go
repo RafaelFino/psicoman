@@ -56,7 +56,10 @@ func itoaBackup(n int) string {
 // fakeAudit descarta tudo (evita depender de repositório).
 type fakeAudit struct{}
 
-func (fakeAudit) Insert(context.Context, *domain.AuditLog) error        { return nil }
+func (fakeAudit) Insert(context.Context, *domain.AuditLog) error { return nil }
+func (fakeAudit) ListByEntity(context.Context, string, string) ([]*domain.AuditLog, error) {
+	return nil, nil
+}
 func (fakeAudit) List(context.Context, int) ([]*domain.AuditLog, error) { return nil, nil }
 
 func TestBackupRestoreRoundTrip(t *testing.T) {

@@ -39,6 +39,7 @@ type PlanInput struct {
 	PatientID string
 	Type      string
 	Amount    int64
+	DueDay    int
 	StartsAt  time.Time
 	EndsAt    time.Time
 }
@@ -55,7 +56,7 @@ func (s *PlanService) Create(ctx context.Context, in PlanInput) (*domain.Plan, e
 	}
 	p := &domain.Plan{
 		ID: ulid.New(), PatientID: in.PatientID, Type: in.Type, Amount: in.Amount,
-		StartsAt: starts, EndsAt: in.EndsAt, CreatedAt: now, UpdatedAt: now,
+		DueDay: in.DueDay, StartsAt: starts, EndsAt: in.EndsAt, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := p.Validate(); err != nil {
 		return nil, NewValidation(err.Error())

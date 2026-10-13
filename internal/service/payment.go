@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"time"
 
 	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
@@ -16,6 +17,8 @@ type PaymentRepository interface {
 	ListByDebt(ctx context.Context, debtID string) ([]*domain.Payment, error)
 	// SumByDebt devolve o total já pago de um débito.
 	SumByDebt(ctx context.Context, debtID string) (int64, error)
+	// ListByRange devolve os pagamentos recebidos (paid_at) em [from, to).
+	ListByRange(ctx context.Context, from, to time.Time) ([]*domain.Payment, error)
 }
 
 // PaymentService registra pagamentos, atualiza o status do débito conforme o

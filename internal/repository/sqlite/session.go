@@ -29,12 +29,14 @@ func boolToInt(b bool) int {
 func (r *SessionRepo) Create(ctx context.Context, s *domain.Session) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO session (id, patient_id, location_id, request_id, modality, starts_at, ends_at,
-		 status, bill, consider_cost, google_event_id, meet_url, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 status, bill, consider_cost, google_event_id, meet_url,
+		 confirmed_at, canceled_by, cancel_reason, canceled_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.PatientID, nullStr(s.LocationID), nullStr(s.RequestID), s.Modality,
 		clock.Format(s.StartsAt), clock.Format(s.EndsAt), s.Status,
 		boolToInt(s.Bill), boolToInt(s.ConsiderCost),
 		nullStr(s.GoogleEventID), nullStr(s.MeetURL),
+		nullTime(s.ConfirmedAt), nullStr(s.CanceledBy), nullStr(s.CancelReason), nullTime(s.CanceledAt),
 		clock.Format(s.CreatedAt), clock.Format(s.UpdatedAt))
 	return mapError(err)
 }
@@ -43,12 +45,15 @@ func (r *SessionRepo) Create(ctx context.Context, s *domain.Session) error {
 func (r *SessionRepo) Update(ctx context.Context, s *domain.Session) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE session SET location_id=?, request_id=?, modality=?, starts_at=?, ends_at=?,
-		 status=?, bill=?, consider_cost=?, google_event_id=?, meet_url=?, updated_at=?
+		 status=?, bill=?, consider_cost=?, google_event_id=?, meet_url=?,
+		 confirmed_at=?, canceled_by=?, cancel_reason=?, canceled_at=?, updated_at=?
 		 WHERE id=? AND deleted_at IS NULL`,
 		nullStr(s.LocationID), nullStr(s.RequestID), s.Modality,
 		clock.Format(s.StartsAt), clock.Format(s.EndsAt), s.Status,
 		boolToInt(s.Bill), boolToInt(s.ConsiderCost),
-		nullStr(s.GoogleEventID), nullStr(s.MeetURL), clock.Format(s.UpdatedAt), s.ID)
+		nullStr(s.GoogleEventID), nullStr(s.MeetURL),
+		nullTime(s.ConfirmedAt), nullStr(s.CanceledBy), nullStr(s.CancelReason), nullTime(s.CanceledAt),
+		clock.Format(s.UpdatedAt), s.ID)
 	if err != nil {
 		return mapError(err)
 	}
@@ -84,6 +89,24 @@ func (r *SessionRepo) ListByRange(ctx context.Context, from, to time.Time) ([]*d
 		clock.Format(from), clock.Format(to))
 }
 
+// ListByLocationRange devolve as sessões de um local cujo início está em
+// [from, to). Limites zero = sem limite (compara como ISO-8601, ordem
+// lexicográfica = cronológica).
+func (r *SessionRepo) ListByLocationRange(ctx context.Context, locationID string, from, to time.Time) ([]*domain.Session, error) {
+	q := sessionSelect + ` WHERE location_id=? AND deleted_at IS NULL`
+	args := []any{locationID}
+	if !from.IsZero() {
+		q += ` AND starts_at >= ?`
+		args = append(args, clock.Format(from))
+	}
+	if !to.IsZero() {
+		q += ` AND starts_at < ?`
+		args = append(args, clock.Format(to))
+	}
+	q += ` ORDER BY starts_at ASC`
+	return r.query(ctx, q, args...)
+}
+
 // SoftDelete marca uma sessão como removida.
 func (r *SessionRepo) SoftDelete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx,
@@ -93,7 +116,8 @@ func (r *SessionRepo) SoftDelete(ctx context.Context, id string) error {
 }
 
 const sessionSelect = `SELECT id, patient_id, location_id, request_id, modality, starts_at, ends_at,
-	status, bill, consider_cost, google_event_id, meet_url, created_at, updated_at FROM session`
+	status, bill, consider_cost, google_event_id, meet_url,
+	confirmed_at, canceled_by, cancel_reason, canceled_at, created_at, updated_at FROM session`
 
 func (r *SessionRepo) query(ctx context.Context, q string, args ...any) ([]*domain.Session, error) {
 	rows, err := r.db.QueryContext(ctx, q, args...)
@@ -122,15 +146,18 @@ func scanSession(row *sql.Row) (*domain.Session, error) {
 
 func scanSessionFrom(sc scanner) (*domain.Session, error) {
 	var (
-		s                     domain.Session
-		locationID, requestID sql.NullString
-		eventID, meetURL      sql.NullString
-		bill, considerCost    int
-		startsAt, endsAt      string
-		createdAt, updated    string
+		s                        domain.Session
+		locationID, requestID    sql.NullString
+		eventID, meetURL         sql.NullString
+		canceledBy, cancelReason sql.NullString
+		confirmedAt, canceledAt  sql.NullString
+		bill, considerCost       int
+		startsAt, endsAt         string
+		createdAt, updated       string
 	)
 	if err := sc.Scan(&s.ID, &s.PatientID, &locationID, &requestID, &s.Modality,
 		&startsAt, &endsAt, &s.Status, &bill, &considerCost, &eventID, &meetURL,
+		&confirmedAt, &canceledBy, &cancelReason, &canceledAt,
 		&createdAt, &updated); err != nil {
 		return nil, err
 	}
@@ -138,8 +165,20 @@ func scanSessionFrom(sc scanner) (*domain.Session, error) {
 	s.RequestID = requestID.String
 	s.GoogleEventID = eventID.String
 	s.MeetURL = meetURL.String
+	s.CanceledBy = canceledBy.String
+	s.CancelReason = cancelReason.String
 	s.Bill = bill == 1
 	s.ConsiderCost = considerCost == 1
+	if confirmedAt.Valid && confirmedAt.String != "" {
+		if t, err := clock.Parse(confirmedAt.String); err == nil {
+			s.ConfirmedAt = t
+		}
+	}
+	if canceledAt.Valid && canceledAt.String != "" {
+		if t, err := clock.Parse(canceledAt.String); err == nil {
+			s.CanceledAt = t
+		}
+	}
 	if t, err := clock.Parse(startsAt); err == nil {
 		s.StartsAt = t
 	}

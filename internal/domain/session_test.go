@@ -15,10 +15,16 @@ func TestSessionTransitions(t *testing.T) {
 		{SessionSolicitada, SessionCancelada, true},
 		{SessionSolicitada, SessionRealizada, false},
 		{SessionSolicitada, SessionFalta, false},
+		{SessionAgendada, SessionConfirmada, true},
 		{SessionAgendada, SessionRealizada, true},
 		{SessionAgendada, SessionCancelada, true},
 		{SessionAgendada, SessionFalta, true},
 		{SessionAgendada, SessionSolicitada, false},
+		{SessionConfirmada, SessionRealizada, true},
+		{SessionConfirmada, SessionCancelada, true},
+		{SessionConfirmada, SessionFalta, true},
+		{SessionConfirmada, SessionAgendada, false},
+		{SessionConfirmada, SessionSolicitada, false},
 		{SessionRealizada, SessionCancelada, false},
 		{SessionCancelada, SessionAgendada, false},
 		{SessionFalta, SessionRealizada, false},
@@ -64,5 +70,48 @@ func TestSessionValidate(t *testing.T) {
 	noPatient.PatientID = ""
 	if err := noPatient.Validate(); err == nil {
 		t.Error("sem paciente deveria falhar")
+	}
+
+	confirmada := *valid
+	confirmada.Status = SessionConfirmada
+	if err := confirmada.Validate(); err != nil {
+		t.Errorf("status confirmada deveria ser válido: %v", err)
+	}
+}
+
+func TestValidCancelBy(t *testing.T) {
+	for _, s := range []string{CancelByPatient, CancelByTherapist} {
+		if !ValidCancelBy(s) {
+			t.Errorf("%q deveria ser autor válido", s)
+		}
+	}
+	for _, s := range []string{"", "sistema", "outro"} {
+		if ValidCancelBy(s) {
+			t.Errorf("%q não deveria ser autor válido", s)
+		}
+	}
+}
+
+func TestSessionCategory(t *testing.T) {
+	cases := []struct {
+		name string
+		sess *Session
+		want string
+	}{
+		{"realizada", &Session{Status: SessionRealizada}, CategoryRealizada},
+		{"falta", &Session{Status: SessionFalta}, CategoryFalta},
+		{"cancelada paciente", &Session{Status: SessionCancelada, CanceledBy: CancelByPatient}, CategoryCanceladaPaciente},
+		{"cancelada terapeuta", &Session{Status: SessionCancelada, CanceledBy: CancelByTherapist}, CategoryCanceladaTerapeuta},
+		{"cancelada sem autor (legado)", &Session{Status: SessionCancelada}, CategoryCanceladaSemAutor},
+		{"agendada", &Session{Status: SessionAgendada}, CategoryAgendadaConfirmada},
+		{"confirmada", &Session{Status: SessionConfirmada}, CategoryAgendadaConfirmada},
+		{"solicitada", &Session{Status: SessionSolicitada}, CategorySolicitada},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SessionCategory(c.sess); got != c.want {
+				t.Errorf("SessionCategory = %q, quer %q", got, c.want)
+			}
+		})
 	}
 }

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
@@ -58,6 +59,39 @@ func (r *DebtRepo) List(ctx context.Context) ([]*domain.Debt, error) {
 // ListByPatient devolve os débitos de um paciente.
 func (r *DebtRepo) ListByPatient(ctx context.Context, patientID string) ([]*domain.Debt, error) {
 	return r.query(ctx, debtSelect+` WHERE patient_id=? AND deleted_at IS NULL ORDER BY created_at DESC`, patientID)
+}
+
+// ListBySessionIDs devolve os débitos vinculados a qualquer uma das sessões.
+func (r *DebtRepo) ListBySessionIDs(ctx context.Context, sessionIDs []string) ([]*domain.Debt, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]byte, 0, len(sessionIDs)*2)
+	args := make([]any, 0, len(sessionIDs))
+	for i, id := range sessionIDs {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, id)
+	}
+	q := debtSelect + ` WHERE session_id IN (` + string(placeholders) + `) AND deleted_at IS NULL ORDER BY created_at DESC`
+	return r.query(ctx, q, args...)
+}
+
+// ListByCreatedRange devolve os débitos criados em [from, to).
+func (r *DebtRepo) ListByCreatedRange(ctx context.Context, from, to time.Time) ([]*domain.Debt, error) {
+	return r.query(ctx,
+		debtSelect+` WHERE deleted_at IS NULL AND created_at >= ? AND created_at < ? ORDER BY created_at DESC`,
+		clock.Format(from), clock.Format(to))
+}
+
+// ListDueBetween devolve os débitos abertos/parciais com vencimento em [from, to).
+func (r *DebtRepo) ListDueBetween(ctx context.Context, from, to time.Time) ([]*domain.Debt, error) {
+	return r.query(ctx,
+		debtSelect+` WHERE deleted_at IS NULL AND status IN ('aberto','parcial')
+		 AND due_date IS NOT NULL AND due_date >= ? AND due_date < ? ORDER BY due_date ASC`,
+		clock.Format(from), clock.Format(to))
 }
 
 // UpdateStatus atualiza o status de um débito.

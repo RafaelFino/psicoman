@@ -35,6 +35,7 @@ func planView(p *domain.Plan) map[string]any {
 		"patient_id": p.PatientID,
 		"type":       p.Type,
 		"amount":     p.Amount,
+		"due_day":    p.DueDay,
 		"starts_at":  p.StartsAt,
 		"created_at": p.CreatedAt,
 	}
@@ -48,6 +49,7 @@ type planBody struct {
 	PatientID string `json:"patient_id"`
 	Type      string `json:"type"`
 	Amount    int64  `json:"amount"`
+	DueDay    int    `json:"due_day"`
 	StartsAt  string `json:"starts_at"`
 	EndsAt    string `json:"ends_at"`
 }
@@ -58,7 +60,7 @@ func (h *PlanHandlers) create(w http.ResponseWriter, r *http.Request) {
 		httpx.RespondError(w, r, err)
 		return
 	}
-	in := service.PlanInput{PatientID: b.PatientID, Type: b.Type, Amount: b.Amount}
+	in := service.PlanInput{PatientID: b.PatientID, Type: b.Type, Amount: b.Amount, DueDay: b.DueDay}
 	if b.StartsAt != "" {
 		if t, err := time.Parse(time.RFC3339, b.StartsAt); err == nil {
 			in.StartsAt = t

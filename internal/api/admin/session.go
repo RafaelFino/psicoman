@@ -28,13 +28,14 @@ func (h *SessionHandlers) Register(g *api.Group) {
 	g.Handle("GET", "/sessions/{id}", h.get)
 	g.Handle("PUT", "/sessions/{id}", h.update)
 	g.Handle("POST", "/sessions/{id}/schedule", h.schedule)
+	g.Handle("POST", "/sessions/{id}/confirm", h.confirm)
 	g.Handle("POST", "/sessions/{id}/finish", h.finish)
 	g.Handle("POST", "/sessions/{id}/cancel", h.cancel)
 	g.Handle("POST", "/sessions/{id}/no-show", h.noShow)
 }
 
 func sessionView(s *domain.Session) map[string]any {
-	return map[string]any{
+	v := map[string]any{
 		"id":            s.ID,
 		"patient_id":    s.PatientID,
 		"location_id":   s.LocationID,
@@ -49,6 +50,19 @@ func sessionView(s *domain.Session) map[string]any {
 		"created_at":    s.CreatedAt,
 		"updated_at":    s.UpdatedAt,
 	}
+	if !s.ConfirmedAt.IsZero() {
+		v["confirmed_at"] = s.ConfirmedAt
+	}
+	if s.CanceledBy != "" {
+		v["canceled_by"] = s.CanceledBy
+	}
+	if s.CancelReason != "" {
+		v["cancel_reason"] = s.CancelReason
+	}
+	if !s.CanceledAt.IsZero() {
+		v["canceled_at"] = s.CanceledAt
+	}
+	return v
 }
 
 type sessionBody struct {
@@ -188,8 +202,9 @@ func (h *SessionHandlers) schedule(w http.ResponseWriter, r *http.Request) {
 }
 
 type finishBody struct {
-	Bill         bool `json:"bill"`
-	ConsiderCost bool `json:"consider_cost"`
+	// Bill é opcional: ausente ⇒ padrão (cobrar); false ⇒ opt-out explícito.
+	Bill         *bool `json:"bill"`
+	ConsiderCost bool  `json:"consider_cost"`
 }
 
 func (h *SessionHandlers) finish(w http.ResponseWriter, r *http.Request) {
@@ -210,14 +225,33 @@ func (h *SessionHandlers) finish(w http.ResponseWriter, r *http.Request) {
 	httpx.Respond(w, r, http.StatusOK, "Sessão finalizada.", sessionView(s))
 }
 
-func (h *SessionHandlers) cancel(w http.ResponseWriter, r *http.Request) {
-	s, err := h.svc.Cancel(r.Context(), r.PathValue("id"))
+func (h *SessionHandlers) confirm(w http.ResponseWriter, r *http.Request) {
+	s, err := h.svc.Confirm(r.Context(), r.PathValue("id"))
 	if err != nil {
 		respondServiceError(w, r, err)
 		return
 	}
-	_ = h.audit.Record(r.Context(), httpx.Actor(r.Context()), domain.AuditActionUpdate, "session", s.ID,
-		map[string]any{"status": s.Status})
+	// A auditoria específica (session.confirm) é registrada no serviço.
+	httpx.Respond(w, r, http.StatusOK, "Sessão confirmada.", sessionView(s))
+}
+
+type cancelBody struct {
+	CanceledBy   string `json:"canceled_by"`   // paciente|terapeuta (obrigatório)
+	CancelReason string `json:"cancel_reason"` // texto livre, opcional
+}
+
+func (h *SessionHandlers) cancel(w http.ResponseWriter, r *http.Request) {
+	var b cancelBody
+	if err := httpx.DecodeJSON(r, &b); err != nil {
+		httpx.RespondError(w, r, err)
+		return
+	}
+	s, err := h.svc.Cancel(r.Context(), r.PathValue("id"), b.CanceledBy, b.CancelReason)
+	if err != nil {
+		respondServiceError(w, r, err)
+		return
+	}
+	// A auditoria específica (session.cancel, metadata {canceled_by}) é no serviço.
 	httpx.Respond(w, r, http.StatusOK, "Sessão cancelada.", sessionView(s))
 }
 

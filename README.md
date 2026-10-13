@@ -18,9 +18,14 @@ O escopo descrito na documentação corresponde ao **MVP**. Ideias futuras discu
 - Perfil do terapeuta (nome, CRP, contatos, foto, bio, locais de atendimento, links de plataformas como Doctoralia/Zenklub/Terapy).
 - Cadastro de pacientes (com origem de aquisição, email e CPF únicos) e locais de atendimento. Telefone normalizado (DDI 55) e exibido como link de WhatsApp no admin.
 - Agenda integrada ao Google Calendar, com checagem de conflito (freebusy) antes de confirmar, Google Meet e notificações delegadas ao Google. Visão semanal fluida (o dia cresce com a lotação).
-- Ciclo de vida de sessões (agendada → realizada / cancelada / falta) com controle explícito de cobrança e custo, e edição de sessão (data/hora, local, modalidade).
-- Planos e pagamentos com gatilho de débito por tipo de plano (por sessão, por fechamento de ciclo, ou nunca no caso do atendimento social), geração idempotente, PDF de cobrança, quitação com comprovantes.
-- Prontuário unificado: linha do tempo por data com sessões e seus registros + notas livres; anamnese à parte; templates em Markdown.
+- Ciclo de vida de sessões (agendada → confirmada → realizada / cancelada / falta) com confirmação opcional, autor e motivo de cancelamento, controle explícito de cobrança e custo, e edição de sessão (data/hora, local, modalidade; remarcação rastreável).
+- Planos e pagamentos com gatilho de débito por tipo de plano (por sessão automático com opt-out, ou por fechamento de ciclo a partir do dia de vencimento, ou nunca no caso do atendimento social), geração idempotente, PDF de cobrança, quitação com comprovantes.
+- Tela base do paciente é uma **timeline** (história completa, do mais recente ao mais antigo): cadastro, sessões, remarcações, registros clínicos, anamnese, débitos, pagamentos e arquivos, com filtro por categoria.
+- **Calendário mensal** do paciente, com as sessões passadas e futuras coloridas por status e navegação por mês.
+- **Métricas de sessão** por paciente (comparecimento, cancelamento, faturado das realizadas) e **relatório mensal por local** (categorias + total + faturado) para repasse a clínicas parceiras.
+- **Feed do dia** do terapeuta como visão inicial do admin: eventos de todos os pacientes (sessões, pagamentos, débitos, arquivos, pedidos) agrupados por faixa temporal, com resumo colapsável e janela ajustável.
+- Prontuário unificado: feed clínico do mais recente ao mais antigo, com a anamnese como ficha inicial em destaque e marco fundacional; composição rápida de anotação; templates em Markdown.
+- Título da aba do navegador sempre com a marca (`Psicoman · <contexto>`).
 - Controle de custos (local, CRP, infra, plataformas), rateio por sessão e ROI por canal de origem.
 - Relatórios financeiros e de custos.
 - Portal do paciente (self-service): login social Google (com vínculo por email a cadastro pré-existente), agenda aberta, pedido de agendamento, acompanhamento de sessões e débitos — com TLS e rate limiting próprios nas rotas públicas.

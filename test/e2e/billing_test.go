@@ -62,6 +62,73 @@ func TestBillingPerConsultaGeneratesDebt(t *testing.T) {
 	}
 }
 
+// TestBillingDefaultGeneratesWithoutFlag verifica o novo padrão (R1.3):
+// finalizar sem enviar o flag bill gera o débito automaticamente.
+func TestBillingDefaultGeneratesWithoutFlag(t *testing.T) {
+	env := StartAdmin(t)
+	defer env.Stop()
+
+	pid := env.createPatient(t, "autobill@example.com")
+	resp := env.AdminPOST(t, "/v1/admin/plans", map[string]any{
+		"patient_id": pid, "type": "pagamento_por_consulta", "amount": 12000,
+	})
+	resp.Body.Close()
+	start := time.Now().Add(2 * time.Hour).Format(time.RFC3339)
+	end := time.Now().Add(3 * time.Hour).Format(time.RFC3339)
+	resp = env.AdminPOST(t, "/v1/admin/sessions", map[string]any{
+		"patient_id": pid, "modality": "online", "starts_at": start, "ends_at": end, "status": "agendada",
+	})
+	var s struct {
+		ID string `json:"id"`
+	}
+	DecodeEnvelope(t, resp).DataAs(t, &s)
+	// Finaliza SEM enviar "bill" (corpo vazio) ⇒ padrão gera.
+	resp = env.AdminPOST(t, "/v1/admin/sessions/"+s.ID+"/finish", map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("finish status = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = env.AdminGET(t, "/v1/admin/debts?patient_id="+pid)
+	var debts []map[string]any
+	DecodeEnvelope(t, resp).DataAs(t, &debts)
+	if len(debts) != 1 {
+		t.Fatalf("débitos = %d, quer 1 (padrão gera sem flag)", len(debts))
+	}
+}
+
+// TestBillingOptOutNoDebt verifica o opt-out explícito (R1.3): bill=false
+// suprime a geração.
+func TestBillingOptOutNoDebt(t *testing.T) {
+	env := StartAdmin(t)
+	defer env.Stop()
+
+	pid := env.createPatient(t, "optout@example.com")
+	resp := env.AdminPOST(t, "/v1/admin/plans", map[string]any{
+		"patient_id": pid, "type": "pagamento_por_consulta", "amount": 12000,
+	})
+	resp.Body.Close()
+	start := time.Now().Add(2 * time.Hour).Format(time.RFC3339)
+	end := time.Now().Add(3 * time.Hour).Format(time.RFC3339)
+	resp = env.AdminPOST(t, "/v1/admin/sessions", map[string]any{
+		"patient_id": pid, "modality": "online", "starts_at": start, "ends_at": end, "status": "agendada",
+	})
+	var s struct {
+		ID string `json:"id"`
+	}
+	DecodeEnvelope(t, resp).DataAs(t, &s)
+	// Opt-out: bill=false explícito.
+	resp = env.AdminPOST(t, "/v1/admin/sessions/"+s.ID+"/finish", map[string]any{"bill": false})
+	resp.Body.Close()
+
+	resp = env.AdminGET(t, "/v1/admin/debts?patient_id="+pid)
+	var debts []map[string]any
+	DecodeEnvelope(t, resp).DataAs(t, &debts)
+	if len(debts) != 0 {
+		t.Errorf("débitos = %d, quer 0 (opt-out)", len(debts))
+	}
+}
+
 func TestBillingSocialNoDebtE2E(t *testing.T) {
 	env := StartAdmin(t)
 	defer env.Stop()

@@ -104,9 +104,9 @@ erDiagram
 
 **appointment_request** — patient_id, slot solicitado, status (`pendente`|`confirmado`|`recusado`). Registro interno; não toca o Google até confirmação.
 
-**session** — patient_id, location_id, modalidade, início/fim, status (`solicitada`|`agendada`|`realizada`|`cancelada`|`falta`), flags `bill` (haverá cobrança) e `consider_cost` (considerar custos), google_event_id, meet_url.
+**session** — patient_id, location_id, modalidade, início/fim, status (`solicitada`|`agendada`|`confirmada`|`realizada`|`cancelada`|`falta`), flags `bill` (haverá cobrança) e `consider_cost` (considerar custos), google_event_id, meet_url, e os metadados de status (Opção B, patient-timeline R6): `confirmed_at`, `canceled_by` (`paciente`|`terapeuta`), `cancel_reason` (texto livre opcional), `canceled_at`. Transições: `solicitada → agendada|cancelada`; `agendada → confirmada|realizada|cancelada|falta`; `confirmada → realizada|cancelada|falta`; demais terminais. A `SessionCategory(status, canceled_by)` deriva a categoria de relatório (realizadas, faltas, canceladas-paciente, canceladas-terapeuta, canceladas-sem-autor, agendadas/confirmadas, solicitadas), reutilizada pelas métricas e relatórios. O `CHECK` do status foi atualizado via **rebuild da tabela** na migration 0004 (SQLite não altera CHECK por ALTER).
 
-**plan** — patient_id, tipo (`pagamento_por_consulta`|`pagamento_por_mes`|`plano_fechado_mensal`|`plano_fechado_trimestral`|`atendimento_social`), valor (centavos, quando fixo), vigência.
+**plan** — patient_id, tipo (`pagamento_por_consulta`|`pagamento_por_mes`|`plano_fechado_mensal`|`plano_fechado_trimestral`|`atendimento_social`), valor (centavos, quando fixo), `due_day` (dia de vencimento 1–28 dos planos fechados; 0 = não aplicável), vigência.
 
 **debt** — patient_id, session_id (nullable — nulo para débitos de plano fechado), billing_period (nullable — `YYYY-MM` ou `YYYY-Q` quando aplicável), amount, due_date, status (`aberto`|`pago`|`parcial`), `idempotency_key` (UNIQUE) para geração idempotente. Composição da chave de idempotência por tipo de plano:
   - `pagamento_por_consulta`/`pagamento_por_mes`: `idempotency_key = session_id`.
@@ -166,9 +166,9 @@ sequenceDiagram
         S-->>API: sessão agendada
     end
 
-    T->>API: marcar Realizada (bill=true, consider_cost=true)
+    T->>API: marcar Realizada (bill opcional, consider_cost)
     API->>S: Finalizar(flags)
-    Note over S,F: plano por sessão -> gera débito agora; plano fechado -> não gera aqui (ver 4.1.1)
+    Note over S,F: padrão = cobrar; bill=false é opt-out. Plano por sessão -> gera débito; fechado -> não gera aqui (ver 4.1.1)
     S->>F: gerar débito se aplicável (idempotency_key=session_id)
     F-->>S: débito (ou existente)
     S->>C: atribuir custo (direto/rateio)
@@ -178,12 +178,35 @@ sequenceDiagram
 
 - **Checagem de conflito:** antes de criar/mover um evento, o `SessionService` consulta o Calendar (`freebusy`) do terapeuta para o horário pretendido. Cobre também compromissos não criados pelo Psicoman. Conflito bloqueia a confirmação (HTTP 409, mensagem PT-BR).
 - **Edição de sessão (`SessionService.Update`, prontuario-ux):** altera data/hora, local e modalidade de uma sessão não-terminal (sem trocar o paciente); reusa `SessionRepo.Update` (sem mudança de schema), revalida invariantes e refaz a checagem de conflito quando `agendada`. Estados terminais (realizada/cancelada/falta) recusam edição de horário/local (HTTP 422). **Não reconcilia o Google Calendar** nesta onda (o `SessionCalendar` só expõe `CreateEvent`); a UI avisa para ajustar o convite manualmente. Decisão em [`decisions.md`](./decisions.md).
+- **Geração automática por sessão (opt-out):** a cobrança é o padrão de uma sessão `realizada` de plano por-sessão. O flag `bill` em `POST /sessions/{id}/finish` é opcional: ausente ⇒ cobra; `false` ⇒ opt-out explícito. Sem plano vigente, não gera (sem base de valor) e registra audit `debt_skip_no_plan` para o terapeuta notar o cadastro faltante.
 - **Idempotência do débito (planos por sessão):** `INSERT ... ON CONFLICT(idempotency_key) DO NOTHING`; segunda chamada não duplica.
 - **Rateio (custo `diario`/`mensal`/`anual`):** `custo_periodo / nº_sessões_realizadas_no_local_no_periodo`. Recalculado ao fechar o período; `session_cost` guarda o valor no momento + base usada para auditoria.
+- **Remarcação rastreável (patient-timeline R4.3):** quando `SessionService.Update` altera o horário (`starts_at`/`ends_at`) de uma sessão `agendada`/`confirmada`, grava um audit `session.reschedule` com metadata `{session_id, from, to}` (datas, sem conteúdo clínico). É a fonte das entradas de "remarcação" na timeline.
+
+### 4.1.2 Timeline/história do paciente (composição no servidor)
+
+A história completa do paciente (`GET /patients/{id}/history`) é **derivada** no servidor a partir das fontes existentes — não há tabela de "eventos". O `HistoryService` agrega e normaliza em itens `{tipo, categoria, data, titulo, resumo, ref}`, ordenados do mais recente ao mais antigo:
+
+- `cadastro`/`aprovacao` (do paciente), `sessao` (status + autor/motivo de cancelamento), `remarcacao` (do audit `session.reschedule`), `registro`/`nota_livre` (notas), `anamnese`, `debito`, `pagamento`, `arquivo` (GED).
+- A composição é **no servidor** (não só no cliente) para centralizar a regra, viabilizar testes de contrato E2E e respeitar a auditoria de leitura clínica: cada carga registra um `AuditActionRead` sobre `patient_history` com metadata **sem** conteúdo clínico (R4.5). O resumo textual é legível para a UI, mas o conteúdo clínico cru não vai para metadados de auditoria.
+- Para as remarcações, o repositório de auditoria ganhou `ListByEntity(entity, entity_id)` (lista as entradas de uma sessão).
+
+### 4.1.3 Métricas de sessão e relatório por local (motor de agregação)
+
+Um **motor de agregação** compartilhado (`SessionMetricsService`) categoriza um conjunto de sessões por `SessionCategory` (status + autor de cancelamento) e soma o **faturado das realizadas** (débitos vinculados). É reutilizado por duas dimensões, mudando só o filtro de origem:
+
+- **Métricas do paciente** (`GET /patients/{id}/session-metrics`, `?from=&to=`, default histórico completo): contagem por categoria, **taxa de comparecimento** = realizadas / (realizadas + faltas + canceladas-paciente) e **taxa de cancelamento** = (canceladas-paciente + canceladas-terapeuta + canceladas-sem-autor) / total — ambas zero-safe, trafegadas como fração 0..1 (a UI formata em %).
+- **Relatório por local** (`GET /locations/{id}/session-report`, `?from=&to=`, default mês atual): contagem por categoria, total e faturado das realizadas do local no período, para repasse a clínicas parceiras.
+
+O recorte temporal é sempre por `starts_at` no fuso `America/Sao_Paulo`. O faturado usa `debts.ListByPatient` (paciente) ou `debts.ListBySessionIDs` (local) casando `debt.session_id` com as realizadas. Exportação CSV/impressão fica fora do escopo desta onda.
+
+### 4.1.4 Feed do dia do terapeuta (transversal)
+
+O `DayFeedService` (`GET /day-feed?window=hoje|proximos7|recentes`) compõe, no servidor, um feed **transversal a todos os pacientes** num intervalo: sessões (por `starts_at`), débitos gerados e vencimentos próximos, pagamentos recebidos, arquivos anexados e pedidos de agendamento pendentes. Reaproveita a normalização de eventos da timeline por-paciente e o motor de agregação (§4.1.3) para o bloco "Resumo do dia" (contagem por categoria, recebido, a receber). As janelas são calculadas no fuso local: `hoje` = dia atual; `proximos7` = hoje → +7 dias; `recentes` = −7 dias → fim de hoje; janela desconhecida cai em `hoje`. Não traz conteúdo clínico; cada carga registra `AuditActionRead` sobre `day_feed`. Novos repositórios de intervalo: `debts.ListByCreatedRange`/`ListDueBetween`, `payments.ListByRange`, `ged.ListByCreatedRange`.
 
 ### 4.1.1 Fechamento de ciclo — planos fechados
 
-Para `plano_fechado_mensal`/`plano_fechado_trimestral`, o débito não nasce da finalização de uma sessão, e sim de um **job de fechamento de ciclo** (cron diário que verifica planos cuja vigência de período iniciou):
+Para `plano_fechado_mensal`/`plano_fechado_trimestral`, o débito não nasce da finalização de uma sessão, e sim de um **job de fechamento de ciclo** (cron diário que verifica planos cuja vigência de período iniciou). O gatilho é o **dia de vencimento** (`plan.due_day`, 1–28): o débito do período só é gerado quando a data de referência alcança o vencimento (`ref >= vencimento`), e o `due_date` do débito é a data real do vencimento (ano/mês do período + `due_day`), não `now + 7 dias`. No trimestral, o vencimento é ancorado no 1º mês do trimestre; a idempotência por `plan_id + billing_period` garante uma única cobrança por período mesmo rodando o cron diário várias vezes:
 
 ```mermaid
 sequenceDiagram
@@ -274,7 +297,13 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 | CRUD | `/v1/admin/plans` | Planos por paciente |
 | GET/POST | `/v1/admin/sessions` | Sessões e transições de estado (checa conflito via freebusy do Calendar antes de confirmar) |
 | GET/PUT | `/v1/admin/sessions/{id}` | Obter / editar sessão (data/hora, local, modalidade; não troca paciente; bloqueado em estado terminal; auditado) |
-| POST | `/v1/admin/sessions/{id}/finish` | Finalizar (flags bill/consider_cost) |
+| POST | `/v1/admin/sessions/{id}/finish` | Finalizar (bill opcional: ausente=cobra, false=opt-out; consider_cost) |
+| POST | `/v1/admin/sessions/{id}/confirm` | Confirmar sessão (agendada → confirmada; grava confirmed_at; audita session.confirm) |
+| POST | `/v1/admin/sessions/{id}/cancel` | Cancelar (corpo `{canceled_by: paciente\|terapeuta, cancel_reason?}`; autor obrigatório; audita session.cancel) |
+| GET | `/v1/admin/patients/{id}/history` | Timeline do paciente: feed de eventos composto no servidor (ordenado desc; audita leitura clínica) |
+| GET | `/v1/admin/patients/{id}/session-metrics` | Métricas de sessão do paciente (contagem por categoria, taxas, faturado; `?from=&to=`) |
+| GET | `/v1/admin/locations/{id}/session-report` | Relatório de sessões por local (categorias + total + faturado; `?from=&to=`, default mês atual) |
+| GET | `/v1/admin/day-feed` | Feed do dia do terapeuta (transversal; `?window=hoje\|proximos7\|recentes`): eventos + resumo agregado |
 | GET/POST | `/v1/admin/appointment-requests` | Pedidos pendentes / confirmar |
 | CRUD | `/v1/admin/debts` | Débitos; PDF de cobrança |
 | POST | `/v1/admin/debts/{id}/pay` | Quitar (anexa comprovante) |

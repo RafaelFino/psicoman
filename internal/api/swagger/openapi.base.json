@@ -78,7 +78,7 @@
     },
     "/v1/admin/plans": {
       "get": { "tags": ["admin"], "summary": "Planos do paciente (?patient_id)", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["admin"], "summary": "Criar plano", "responses": { "201": { "description": "Criado" } } }
+      "post": { "tags": ["admin"], "summary": "Criar plano (campo due_day 1–28 nos planos fechados; dia de vencimento do ciclo)", "responses": { "201": { "description": "Criado" } } }
     },
     "/v1/admin/sessions": {
       "get": { "tags": ["admin"], "summary": "Listar sessões (?patient_id)", "responses": { "200": { "description": "OK" } } },
@@ -86,11 +86,17 @@
     },
     "/v1/admin/sessions/{id}": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-      "get": { "tags": ["admin"], "summary": "Obter sessão", "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" } } },
+      "get": { "tags": ["admin"], "summary": "Obter sessão (view inclui confirmed_at, canceled_by, cancel_reason, canceled_at quando houver)", "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" } } },
       "put": { "tags": ["admin"], "summary": "Editar sessão (data/hora, local, modalidade; não troca o paciente; bloqueado em estado terminal)", "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" }, "409": { "description": "Conflito de agenda" }, "422": { "description": "Validação (datas inválidas ou sessão já concluída)" } } }
     },
-    "/v1/admin/sessions/{id}/finish": { "post": { "tags": ["admin"], "summary": "Finalizar sessão (flags bill/consider_cost)", "responses": { "200": { "description": "OK" } } } },
+    "/v1/admin/sessions/{id}/finish": { "post": { "tags": ["admin"], "summary": "Finalizar sessão (bill opcional: ausente=cobra por padrão, false=opt-out; consider_cost)", "responses": { "200": { "description": "OK" } } } },
     "/v1/admin/sessions/{id}/schedule": { "post": { "tags": ["admin"], "summary": "Confirmar/agendar sessão", "responses": { "200": { "description": "OK" }, "409": { "description": "Conflito" } } } },
+    "/v1/admin/sessions/{id}/confirm": { "post": { "tags": ["admin"], "summary": "Confirmar sessão (agendada → confirmada; grava confirmed_at)", "responses": { "200": { "description": "OK" }, "422": { "description": "Transição inválida" } } } },
+    "/v1/admin/sessions/{id}/cancel": { "post": { "tags": ["admin"], "summary": "Cancelar sessão (corpo {canceled_by: paciente|terapeuta obrigatório, cancel_reason opcional})", "responses": { "200": { "description": "OK" }, "422": { "description": "Autor ausente/ inválido ou transição inválida" } } } },
+    "/v1/admin/patients/{id}/history": { "get": { "tags": ["admin"], "summary": "Timeline do paciente: feed de eventos (cadastro, sessões, remarcações, registros, anamnese, débitos, pagamentos, arquivos) ordenado desc; composto no servidor", "responses": { "200": { "description": "OK" }, "404": { "description": "Paciente não encontrado" } } } },
+    "/v1/admin/patients/{id}/session-metrics": { "get": { "tags": ["admin"], "summary": "Métricas de sessão do paciente (?from=&to= opcionais, default=histórico): contagem por categoria, taxas de comparecimento/cancelamento (fração 0..1) e faturado das realizadas", "responses": { "200": { "description": "OK" }, "404": { "description": "Paciente não encontrado" } } } },
+    "/v1/admin/locations/{id}/session-report": { "get": { "tags": ["admin"], "summary": "Relatório de sessões por local (?from=&to= opcionais, default=mês atual): contagem por categoria, total e faturado das realizadas (agrupa por starts_at)", "responses": { "200": { "description": "OK" }, "404": { "description": "Local não encontrado" } } } },
+    "/v1/admin/day-feed": { "get": { "tags": ["admin"], "summary": "Feed do dia do terapeuta (?window=hoje|proximos7|recentes, default=hoje): eventos transversais a todos os pacientes (sessões, débitos, vencimentos, pagamentos, arquivos, pedidos) + resumo agregado", "responses": { "200": { "description": "OK" } } } },
     "/v1/admin/appointment-requests": { "get": { "tags": ["admin"], "summary": "Pedidos pendentes", "responses": { "200": { "description": "OK" } } } },
     "/v1/admin/appointment-requests/{id}/confirm": { "post": { "tags": ["admin"], "summary": "Confirmar pedido (cria evento)", "responses": { "201": { "description": "Criado" }, "409": { "description": "Conflito" } } } },
     "/v1/admin/debts": { "get": { "tags": ["admin"], "summary": "Listar débitos (?patient_id)", "responses": { "200": { "description": "OK" } } } },
