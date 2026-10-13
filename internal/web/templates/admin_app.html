@@ -456,22 +456,34 @@
         <div class="kpi"><span class="n" x-text="ultimoRegistroLabel()"></span><span class="k">Último registro</span></div>
       </div>
 
-      <!-- Nova nota livre (sem vínculo com sessão) -->
+      <!-- Composição rápida de nota livre no topo do feed (R3.2) -->
       <div class="field wide">
-        <label>Nova anotação (nota livre)</label>
+        <label>Registrar o que aconteceu…</label>
         <div class="md-editor">
           <div class="md-tabs">
             <button type="button" class="md-tab" :class="{ active: !notePreview }" @click="notePreview = false">{{template "icon" "edit"}} Escrever</button>
             <button type="button" class="md-tab" :class="{ active: notePreview }" @click="notePreview = true">{{template "icon" "doc"}} Visualizar</button>
             <span class="hint">Markdown: # título, **negrito**, *itálico*, - lista, `código`</span>
           </div>
-          <textarea x-show="!notePreview" x-model="noteForm.content" placeholder="Anotação livre do acompanhamento (Markdown)…"></textarea>
+          <textarea x-show="!notePreview" x-model="noteForm.content" placeholder="O que aconteceu no acompanhamento? (Markdown)…"></textarea>
           <div x-show="notePreview" class="md-preview md-body" x-html="Md.toHtml(noteForm.content)"></div>
         </div>
       </div>
       <div class="row end">
-        <button class="btn primary" @click="addNote()" :disabled="loading">{{template "icon" "plus"}} Adicionar anotação</button>
+        <button class="btn primary" @click="addNote()" :disabled="loading">{{template "icon" "plus"}} Registrar anotação</button>
       </div>
+
+      <!-- Anamnese como card fundacional destacado no topo ("Ficha inicial") -->
+      <template x-if="anamnese && anamnese.content">
+        <section class="card tl-ficha" style="border-left:3px solid var(--primary)">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <strong>{{template "icon" "heart"}} Ficha inicial (anamnese)</strong>
+            <button class="btn ghost" @click="go('anamnese')">{{template "icon" "edit"}} Abrir anamnese</button>
+          </div>
+          <div class="md-body" x-html="Md.toHtml(anamnese.content)" style="margin-top:6px"></div>
+          <div class="sub" style="margin-top:6px" x-show="anamnese.updated_at" x-text="'Atualizada ' + Fmt.relative(anamnese.updated_at)" :title="Fmt.datetime(anamnese.updated_at)"></div>
+        </section>
+      </template>
 
       <!-- Estado vazio acolhedor (R1.2) -->
       <template x-if="!loading && timeline().length === 0">
@@ -542,6 +554,21 @@
                   </template>
                 </li>
               </template>
+            </ul>
+          </section>
+        </template>
+
+        <!-- Marco fundacional no fim da linha do tempo: início da história clínica -->
+        <template x-if="anamnese && anamnese.content">
+          <section class="tl-day tl-marco">
+            <h3 class="tl-date"><svg class="icon" aria-hidden="true"><use href="#i-heart"></use></svg> Início da história clínica</h3>
+            <ul class="item-list">
+              <li class="item tl-item tl-nota">
+                <div class="grow">
+                  <div class="sub">Anamnese — a ficha inicial do paciente.</div>
+                  <button class="btn secondary" style="margin-top:6px" @click="go('anamnese')">{{template "icon" "edit"}} Abrir anamnese</button>
+                </div>
+              </li>
             </ul>
           </section>
         </template>
@@ -2291,6 +2318,7 @@
         await this.loadSessions();
         await this.loadNotes();
         await this.loadLocations();
+        await this.loadAnamnese(); // Ficha inicial no feed clínico (R3.1)
       },
       async loadLocations() {
         if (this.locations.length) return;

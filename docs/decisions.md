@@ -6,6 +6,20 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-12 — Onda "patient-timeline" (Fase H): feed de prontuário e título com a marca
+
+**Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R3 e R5. O terapeuta quer ler o prontuário como feed cronológico reverso com a anamnese como marco fundacional, e que o título da aba sempre carregue a marca "Psicoman".
+
+**Decisões.**
+1. **Prontuário já era feed desc; reforço da anamnese + composição.** A aba Prontuário (herdada de `prontuario-ux`) já ordena do mais recente ao mais antigo e já tinha composição de nota livre no topo. Esta fase: a composição foi rotulada "Registrar o que aconteceu…" (R3.2) e a **Anamnese** passou a aparecer como **card fundacional destacado no topo** ("Ficha inicial") E como **marco no fim** da linha do tempo ("Início da história clínica") — evita a ambiguidade de onde ordenar a anamnese (decisão D3.1). `loadProntuario` passou a carregar a anamnese. Nenhuma regressão: editar/salvar anamnese e add/remove nota seguem iguais. Spec R3.1–R3.3 · D3.
+2. **Título da aba com a marca, sem duplicar na topbar.** O `<title>` é computado no template `head` como `Psicoman · {{.Title}}` (admin e portal, todas as páginas); as strings de contexto em `web.go` ficam inalteradas e a topbar continua `Psicoman <span class="sub">{{.Title}}</span>` — assim o navegador mostra "Psicoman · Painel" sem a topbar virar "Psicoman · Psicoman · Painel". Spec R5.1 · D5.
+
+**Consequências.**
+- UI only (sem backend/contrato novo). `layout.html` head com a marca; prontuário com Ficha inicial + marco fundacional + composição rotulada.
+- Testes: smoke de parse + asserts (`<title>Psicoman · ` em admin e portal; "Registrar o que aconteceu" e "Ficha inicial" no prontuário). Verificação manual do `<title>` renderizado.
+
+---
+
 ## 2026-10-12 — Onda "patient-timeline" (Fase G): feed do dia do terapeuta
 
 **Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R8. O admin abria na agenda (grade de horários). O terapeuta quer um **feed do dia** transversal a todos os pacientes, didático, que conte "o que aconteceu" e "o que vem".

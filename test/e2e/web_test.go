@@ -21,6 +21,10 @@ func TestAdminWebPages(t *testing.T) {
 	if !strings.Contains(string(body), "administração") {
 		t.Error("home admin sem conteúdo esperado")
 	}
+	// patient-timeline R5: título da aba sempre com a marca "Psicoman".
+	if !strings.Contains(string(body), "<title>Psicoman · ") {
+		t.Error("título da página admin sem a marca Psicoman")
+	}
 	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/html") {
 		t.Errorf("content-type = %q", ct)
 	}
@@ -79,6 +83,14 @@ func TestAdminWebPages(t *testing.T) {
 	if !strings.Contains(string(appBody), `aria-controls="resumo-dia"`) {
 		t.Error("feed do dia sem o resumo colapsável acessível")
 	}
+
+	// patient-timeline R3: prontuário com composição rápida e anamnese como ficha inicial.
+	if !strings.Contains(string(appBody), "Registrar o que aconteceu") {
+		t.Error("prontuário sem a composição rápida de nota no topo")
+	}
+	if !strings.Contains(string(appBody), "Ficha inicial") {
+		t.Error("prontuário sem a anamnese destacada como ficha inicial")
+	}
 	if strings.Contains(string(appBody), "tab === 'sessoes'") || strings.Contains(string(appBody), "tab === 'notas'") {
 		t.Error("abas antigas (Sessões/Notas) ainda presentes no markup")
 	}
@@ -134,6 +146,10 @@ func TestPortalWebPages(t *testing.T) {
 	resp.Body.Close()
 	if !strings.Contains(string(body), "Entrar com Google") {
 		t.Error("home portal sem botão de login")
+	}
+	// patient-timeline R5: título do portal também com a marca.
+	if !strings.Contains(string(body), "<title>Psicoman · ") {
+		t.Error("título da página do portal sem a marca Psicoman")
 	}
 
 	resp = env.GET(t, "/app/")

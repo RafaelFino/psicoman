@@ -179,19 +179,19 @@ Convenções:
 
 ## Fase H — Feed de prontuário e título (R3, R5)
 
-- [ ] **H1. Prontuário como feed cronológico reverso** (dep: D1)
+- [x] **H1. Prontuário como feed cronológico reverso** (dep: D1)
   - Reordenar o feed clínico desc (mais recente no topo); Anamnese como card fundacional destacado no topo ("Ficha inicial") e marco no fim; composição rápida de nota livre no topo; preservar editar/salvar anamnese e add/remove nota.
   - **Aceite:** feed clínico ordenado do mais recente ao mais antigo; anamnese destacada; adicionar nota pelo topo funciona; nenhuma regressão.
   - **Testes:** ordenação testada onde couber; smoke de parse; verificação manual registrada.
   - **Refs:** R3.1–R3.3 · D3.
 
-- [ ] **H2. Título com a marca "Psicoman"** (dep: —)
+- [x] **H2. Título com a marca "Psicoman"** (dep: —)
   - `layout.html` (`head`): `<title>Psicoman · {{.Title}}</title>`; topbar inalterada (usa só `{{.Title}}`), sem duplicar a marca.
   - **Aceite:** aba do navegador mostra "Psicoman · …" em admin e portal, todas as páginas.
   - **Testes:** smoke de parse; verificação manual do `<title>` registrada.
   - **Refs:** R5.1 · D5.
 
-- [ ] **Fechamento Fase H:** `docs/requirements.md`/`README.md`; `make check` verde → commit "patient-timeline Fase H: feed de prontuário e título com a marca".
+- [x] **Fechamento Fase H:** `docs/requirements.md`/`README.md`; `make check` verde → commit "patient-timeline Fase H: feed de prontuário e título com a marca".
 
 ---
 
