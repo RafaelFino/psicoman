@@ -197,7 +197,7 @@ Convenções:
 
 ## Fase I — Fechamento da onda
 
-- [ ] **I1. Revisão integrada e release notes** (dep: A–H)
+- [x] **I1. Revisão integrada e release notes** (dep: A–H)
   - Conferir Definição de Pronto em todas as fases; `docs/release-notes.md` com a entrada da onda (Novidades: débito automático por sessão, ciclo por vencimento, controle completo de status da sessão, timeline do paciente, calendário mensal, métricas de sessão no prontuário, relatório por local, feed do dia do terapeuta, feed de prontuário; Melhorias: título com marca; Notas de operação: migrations `0003`/`0004`, rebuild da `session`, cron de ciclo).
   - `make check` verde na branch inteira.
   - **Push da branch `patient-timeline`** (fim da onda) e abertura de PR para `main`.

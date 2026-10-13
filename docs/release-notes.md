@@ -4,6 +4,32 @@ O que muda a cada onda de trabalho, em linguagem para quem usa o sistema. Detalh
 
 ---
 
+## 2026-10-12 — A história do paciente numa linha do tempo e o seu dia num feed (onda `patient-timeline`)
+
+Transforma a tela do paciente na história completa dele e dá ao seu dia um resumo didático; o faturamento por sessão passa a ser automático e os planos fechados cobram no dia certo. Detalhe técnico em [`decisions.md`](./decisions.md).
+
+**Novidades**
+- **Timeline do paciente.** Ao abrir um paciente, a primeira coisa que você vê é a **história completa dele** num feed do mais recente ao mais antigo: cadastro, sessões, remarcações, relatórios clínicos, anamnese, débitos, pagamentos e arquivos. Dá para **filtrar** por tema (Clínico, Financeiro, Agenda, Arquivos) e clicar em cada evento para abrir a sessão, o débito ou o arquivo.
+- **Calendário mensal do paciente.** Uma visão de calendário com todas as sessões daquele paciente — passadas e futuras — coloridas por status, com navegação por mês. Clique num dia para abrir o registro da sessão.
+- **Métricas de sessão no paciente.** No topo da timeline, um resumo com realizadas, faltas, canceladas, **taxa de comparecimento**, **taxa de cancelamento** e o valor faturado das sessões realizadas.
+- **Débito automático a cada sessão realizada.** Marcar a sessão como realizada já gera a cobrança, sem depender de lembrar de marcar um campo. Se quiser que uma sessão específica **não** gere cobrança, basta desmarcar na finalização.
+- **Planos fechados cobram no dia de vencimento.** Cada plano fechado tem um **dia de vencimento** (1 a 28); a cobrança do período é gerada a partir dessa data, com o vencimento certo — não mais "sete dias depois".
+- **Controle completo do status da sessão.** Agora há um passo opcional de **confirmação** e, ao cancelar, você registra **quem cancelou** (paciente ou terapeuta) e o **motivo**. Tudo isso aparece na história do paciente, inclusive as **remarcações** de horário.
+- **Relatório de sessões por local.** Para repassar a clínicas parceiras: por local e por mês, quantos atendimentos houve por categoria e o faturamento das sessões realizadas.
+- **Feed do dia do terapeuta.** O painel passa a abrir num **feed do seu dia**, transversal a todos os pacientes: o que aconteceu (sessões, pagamentos, arquivos) e o que vem (próximas sessões, vencimentos, pedidos pendentes), agrupado por "agora", "mais tarde", "amanhã". Você escolhe a janela (hoje, próximos 7 dias, recentes). A agenda em grade continua a um clique no menu.
+- **Prontuário como feed clínico.** O prontuário mostra os registros do mais recente ao mais antigo, com a **anamnese em destaque** como ficha inicial e um atalho para registrar rapidamente o que aconteceu.
+
+**Melhorias**
+- **Resumo do dia enxuto.** No feed do dia, o bloco de números (resumo agregado) começa recolhido para não poluir — você expande quando quiser; os eventos do dia ficam sempre à vista.
+- **Marca no título da aba.** O título da aba do navegador agora traz sempre "Psicoman · …", no admin e no portal.
+
+**Notas de migração/operação**
+- Esta versão aplica automaticamente duas atualizações no banco no primeiro boot (aditivas e idempotentes): o **dia de vencimento** nos planos (planos fechados pré-existentes recebem o dia 5 como padrão) e os **novos campos de status da sessão** (confirmação, autor/motivo/data de cancelamento). Nenhum dado é perdido.
+- O **job diário** que fecha os ciclos dos planos fechados passa a respeitar o dia de vencimento: ele pode rodar todo dia sem gerar cobrança duplicada.
+- A **exportação do relatório por local** (CSV/impressão) ainda não entra nesta versão; o relatório é legível na tela para repasse.
+
+---
+
 ## 2026-10-12 — Prontuário num lugar só, WhatsApp e visual novo (onda `prontuario-ux`)
 
 Deixa o acompanhamento clínico mais fácil de ler e registrar, aproxima o contato com o paciente e renova a cara do sistema. Detalhe técnico em [`decisions.md`](./decisions.md).
