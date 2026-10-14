@@ -6,6 +6,20 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-13 — Observabilidade: detalhe técnico dos erros 5xx vai para o log
+
+**Contexto.** Ao investigar o 500 do agendamento, o diagnóstico foi dificultado porque o `RespondError` escrevia o envelope de erro mas **nunca registrava o `Internal`** (detalhe técnico) — o corpo da resposta esconde o detalhe por segurança (correto) e o middleware de logging só registra o status. Resultado: 500 opacos, sem rastro da causa.
+
+**Decisão.** O `httpx.RespondError` passa a **logar o detalhe técnico dos erros 5xx** (nível error), correlacionado por `request_id`, `code` e `path` — nunca no corpo da resposta (o `detail` ao cliente continua `null`). Erros 4xx não são logados como erro interno. Um logger de pacote é injetado no boot via `httpx.SetLogger(log)` (em `bootstrap`, vale para admin e portal); sem logger, o log é omitido sem panic. A interface `httpx.ErrorLogger` desacopla o `httpx` do pacote de logger concreto.
+
+**Consequências.**
+- `internal/api/httpx/envelope.go`: `ErrorLogger` + `SetLogger` + log do `Internal` nos 5xx em `RespondError`.
+- `internal/app/app.go`: `httpx.SetLogger(log)` no `bootstrap`.
+- Testes unitários (`envelope_test.go`): 5xx loga o detalhe e não vaza no corpo; 4xx não loga; sem logger não entra em panic.
+- `docs/architecture.md §6`: nota de que o detalhe dos 5xx vai ao log.
+
+---
+
 ## 2026-10-13 — Fix: agendar/backup sem Google configurado não deve dar 500
 
 **Contexto.** Em `dev_mode` (ou numa instância ainda não autorizada no Google), criar uma sessão já como `agendada` retornava **HTTP 500**: o `buildAdmin` injetava o cliente Google **real** sempre que não havia mock, mesmo sem credenciais OAuth; ao criar o evento no Calendar, a chamada falhava no OAuth sem token. Reproduzido com o seed ("dia lotado"): as sessões `agendada` davam 500 e as `solicitada` passavam. Bug **pré-existente** (anterior à onda `patient-timeline`), exposto ao rodar o seed na stack local. O backup/restore tinha o mesmo risco: `BackupService` chamaria `drive.Upload`/`List` com `drive` nil → panic.

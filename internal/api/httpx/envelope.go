@@ -12,6 +12,21 @@ import (
 	"time"
 )
 
+// ErrorLogger registra o detalhe técnico de erros 5xx (nunca exposto no corpo).
+// Satisfeita por *slog.Logger e pelo logger do projeto. Opcional: sem logger
+// configurado, o log é silenciosamente omitido.
+type ErrorLogger interface {
+	Error(msg string, args ...any)
+}
+
+// pkgLogger é o logger de pacote usado por RespondError para registrar o
+// detalhe interno dos erros 5xx. Configurado uma vez no boot via SetLogger.
+var pkgLogger ErrorLogger
+
+// SetLogger injeta o logger usado para registrar erros internos (5xx). Deve ser
+// chamado no boot de cada binário. Passar nil desliga o log de erro.
+func SetLogger(l ErrorLogger) { pkgLogger = l }
+
 // ctxKey é o tipo das chaves de contexto deste pacote.
 type ctxKey int
 
@@ -37,12 +52,38 @@ func Respond(w http.ResponseWriter, r *http.Request, status int, message string,
 }
 
 // RespondError escreve um erro no envelope, mapeando APIError para HTTP.
+// Erros 5xx têm o detalhe técnico (Internal) registrado no log — nunca no corpo
+// da resposta — correlacionado pelo request_id, para diagnóstico.
 func RespondError(w http.ResponseWriter, r *http.Request, err error) {
 	apiErr := AsAPIError(err)
+	if apiErr.Status >= http.StatusInternalServerError && pkgLogger != nil {
+		detail := apiErr.Internal
+		if detail == nil {
+			detail = apiErr
+		}
+		reqID := ""
+		if r != nil {
+			reqID = RequestID(r.Context())
+		}
+		pkgLogger.Error("erro interno na requisição",
+			"error", detail.Error(),
+			"code", apiErr.Code,
+			"path", requestPath(r),
+			"request_id", reqID,
+		)
+	}
 	writeEnvelope(w, r, apiErr.Status, apiErr.Message, nil, map[string]any{
 		"code":   apiErr.Code,
 		"detail": apiErr.detailForClient(),
 	})
+}
+
+// requestPath devolve o caminho da requisição (vazio se r for nil).
+func requestPath(r *http.Request) string {
+	if r == nil || r.URL == nil {
+		return ""
+	}
+	return r.URL.Path
 }
 
 func writeEnvelope(w http.ResponseWriter, r *http.Request, status int, message string, data, errObj any) {

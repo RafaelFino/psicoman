@@ -11,6 +11,7 @@ import (
 
 	"github.com/RafaelFino/psicoman/internal/api"
 	"github.com/RafaelFino/psicoman/internal/api/admin"
+	"github.com/RafaelFino/psicoman/internal/api/httpx"
 	"github.com/RafaelFino/psicoman/internal/api/portal"
 	"github.com/RafaelFino/psicoman/internal/api/swagger"
 	"github.com/RafaelFino/psicoman/internal/config"
@@ -75,6 +76,8 @@ func bootstrap(cfg *config.Config, component string) (*deps, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Registra o logger para o detalhe técnico dos erros 5xx (nunca no corpo).
+	httpx.SetLogger(log)
 
 	db, err := sqlite.Open(sqlite.Options{Path: cfg.Paths.SQLite})
 	if err != nil {

@@ -337,6 +337,7 @@ Ambas as aplicações ficam atrás do Pangolin, que termina TLS. O Pangolin apli
 ## 6. Observabilidade
 
 - **Logger** com níveis (debug/warn/info/error) e rotação diária (por data). Structured logging (JSON) com request-id.
+- **Erros 5xx**: o `httpx.RespondError` registra o **detalhe técnico** (o `Internal` do erro) no log, no nível error, correlacionado por `request_id`/`code`/`path`. O detalhe **nunca** aparece no corpo da resposta (o cliente recebe só a mensagem PT-BR e `detail: null`). Erros 4xx não são logados como erro interno.
 - **Métricas**: latência por rota, contagem por status, débitos gerados, jobs de backup, falhas de refresh Google.
 - **Healthchecks**: `readyz` inclui checagem do SQLite e da validade do token Google (reautorização pendente = degraded).
 
