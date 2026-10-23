@@ -53,6 +53,14 @@ Ordem: mais recente no topo.
 - **Drive vira fallback/DR** (hook de backup → `drivesync`); **Gemini opt-in** por instância.
 - `docs/requirements.md` e `docs/architecture.md` **serão reescritos** para esta arquitetura pela fase de fechamento das tasks da onda (**não** por esta entrada, que cobre ADR + spec + steerings).
 
+**Refinamento (validação da spec, mesma data).** Uma revisão crítica da spec antes de implementar fechou lacunas que teriam custado retrabalho. Ajustes incorporados ao design/requirements:
+- **Cifra via interface, não acoplamento direto.** O domínio conhece só a interface `Cipher` (`Seal`/`Open`); a implementação concreta em `platform/crypto` encapsula o primitivo AES-256-GCM e o `KeyProvider`. Mesmo padrão de porta para toda lib externa (persistência, Calendar, IA) — o domínio nunca importa a lib.
+- **Leitura de prontuário repensada (sem `MarshalJSON` mágico).** A cifra/decifra acontece na **borda de persistência** (`platform/pb`): grava o envelope, lê e decifra para `SealedText` em memória. `SealedText` **não** tem `MarshalJSON` que exponha o claro; a saída para a API passa por **DTO explícito** — o terapeuta lê o claro via `Reveal()` (fluxo central do produto), e nenhum DTO do portal inclui campo clínico. Isso elimina a tensão de "ler o prontuário" que a regra anterior criava.
+- **Modelo de dados canônico (MER).** O design ganhou a seção D4b com o MER (entidades, campos, constraints, relations) preservando o modelo maduro das ondas anteriores e adicionando `contract`, `ai_summary`, `tag_index` e os campos `SealedText`. Vira a fonte de verdade das coleções e dos agregados.
+- **Regras de negócio portadas, não reinventadas.** As tasks referenciam explicitamente as regras existentes (billing por sessão/ciclo com idempotência, rateio de custo, ROI, ciclo de vida da sessão, timeline, métricas) a portar para os bounded contexts.
+- **Rotas segregadas por ator (para o `Pangolin`).** Paths distintos por ator — `/v1/app/*` (terapeuta, que é a operadora/"admin" no single-tenant), `/v1/portal/*` (paciente, aberto), `/v1/admin/*` (operação técnica) — para o `Pangolin` aplicar controle de acesso por prefixo. O gate de aprovação do paciente é imposto no **middleware do grupo do portal** (ponto por onde a requisição passa), com hook de coleção como reforço.
+- **Gmail fora do escopo.** A plataforma **gera o PDF de cobrança** (armazenado no GED); o envio é por WhatsApp, fora da plataforma. `internal/integration/google` cobre só Calendar e Drive.
+
 ---
 
 ## 2026-10-13 — Observabilidade: detalhe técnico dos erros 5xx vai para o log

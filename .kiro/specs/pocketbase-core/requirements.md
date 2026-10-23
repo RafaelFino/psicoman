@@ -18,7 +18,7 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 - Toda mensagem ao usuário em **PT-BR**, tom acolhedor, zero jargão (público leigo).
 - Valores monetários em centavos (`int64`, BRL); datas/horas no fuso `America/Sao_Paulo` em ISO-8601.
 - Toda regra sensível é **imposta no servidor** (defense-in-depth), mesmo com o `Pangolin` na frente; a UI apenas reflete.
-- **Nomenclatura canônica** (idêntica em toda a documentação da onda): PocketBase **como framework**, binário único; gateway `Pangolin`; tipo de cifra `SealedText`; adapter de persistência `platform/pb` (pacote `internal/platform/pb`); pacote de cripto `internal/platform/crypto`; bounded contexts `patient`, `clinical`, `billing`, `scheduling`, `costs`, `therapist`; envelope de resposta `{ message, elapsed_ms, data, error }` (`message` em PT-BR); prefixo de rotas próprias `/v1/*` (namespaces lógicos `admin`/`portal`); envelope da cifra `versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext` (base64); algoritmo AES-256-GCM.
+- **Nomenclatura canônica** (idêntica em toda a documentação da onda): PocketBase **como framework**, binário único; gateway `Pangolin`; tipo de cifra `SealedText`; adapter de persistência `platform/pb` (pacote `internal/platform/pb`); pacote de cripto `internal/platform/crypto`; bounded contexts `patient`, `clinical`, `billing`, `scheduling`, `costs`, `therapist`; envelope de resposta `{ message, elapsed_ms, data, error }` (`message` em PT-BR); prefixo de rotas próprias `/v1/*` segregado por ator (`/v1/app/*` terapeuta, `/v1/portal/*` paciente, `/v1/admin/*` operação); envelope da cifra `versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext` (base64); algoritmo AES-256-GCM.
 
 ## Resumo das evoluções
 
@@ -58,9 +58,10 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 
 **Contexto:** como tudo roda atrás do `Pangolin` e nunca é exposto direto à internet, não há ganho em separar admin e portal em processos distintos.
 
-### R2.1 Segregação lógica
-- O sistema DEVE segregar **admin** e **portal** de forma **lógica** (namespaces de rota `/v1/admin/*` e `/v1/portal/*` + regras de auth por grupo), não por processos físicos separados.
-- QUANDO uma requisição chega a um namespace, o sistema DEVE aplicar a cadeia de middleware e as regras de autorização daquele namespace, independentemente de compartilhar o mesmo binário.
+### R2.1 Segregação lógica por ator, em paths distintos
+- O sistema DEVE segregar as superfícies por **ator**, em **paths distintos**, de forma lógica (não por processos físicos): `/v1/app/*` (terapeuta — também a operadora/"admin" da instância no single-tenant), `/v1/portal/*` (paciente) e `/v1/admin/*` (operação técnica da instância).
+- Os paths DEVEM ser desenhados para que o `Pangolin` aplique **controle de acesso por prefixo**: `/v1/portal/*` aberto (só o necessário), `/v1/app/*` e `/v1/admin/*` restritos à terapeuta autenticada no gateway.
+- QUANDO uma requisição chega a um path de ator, o sistema DEVE aplicar a cadeia de middleware e as regras de autorização daquele ator, independentemente de compartilhar o mesmo binário.
 
 ### R2.2 Exposição controlada
 - O sistema DEVE expor de forma controlada, para a internet (via `Pangolin`), apenas o que o paciente precisa (cadastro/login e os recursos mínimos do portal).
@@ -72,17 +73,18 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 
 **Contexto:** o `Pangolin` é a barreira forte; o app confia no gateway e mantém só o mínimo de defense-in-depth. O gate de aprovação do paciente (herdado das ondas anteriores) permanece como regra de negócio.
 
-### R3.1 Identidade do admin
-- O sistema DEVE reconhecer a identidade do admin a partir de um **header injetado pelo `Pangolin`**, sem exigir um fluxo de login próprio para o administrador.
-- QUANDO o header de identidade do `Pangolin` estiver ausente numa rota `/v1/admin/*`, o sistema DEVE recusar o acesso (defense-in-depth), mesmo confiando no gateway.
+### R3.1 Identidade da terapeuta (e operação) via `Pangolin`
+- O sistema DEVE reconhecer a identidade da terapeuta a partir de um **header injetado pelo `Pangolin`**, sem exigir um fluxo de login próprio.
+- QUANDO o header de identidade do `Pangolin` estiver ausente numa rota `/v1/app/*` ou `/v1/admin/*`, o sistema DEVE recusar o acesso (defense-in-depth), mesmo confiando no gateway.
 
 ### R3.2 Cadastro/login do paciente
-- O sistema DEVE expor cadastro e login do paciente via auth do PocketBase (coleção de auth), restrito ao namespace `/v1/portal/*`.
+- O sistema DEVE expor cadastro e login do paciente via auth do PocketBase (coleção de auth), restrito ao path `/v1/portal/*`.
 
 ### R3.3 Gate de aprovação
 - O paciente recém-cadastrado DEVE nascer com estado de aprovação `pendente`.
-- QUANDO o terapeuta aprova ou rejeita um paciente, o sistema DEVE registrar o estado (`aprovado` | `rejeitado`) e DEVE impor essa decisão **no servidor** via hook do PocketBase.
-- QUANDO um paciente `pendente` ou `rejeitado` tenta acessar recursos do portal além do próprio cadastro, o sistema DEVE negar (403), independentemente do que a UI permita.
+- QUANDO o terapeuta aprova ou rejeita um paciente, o sistema DEVE registrar o estado (`aprovado` | `rejeitado`).
+- QUANDO um paciente `pendente` ou `rejeitado` tenta acessar recursos do portal além do próprio cadastro/estado, o sistema DEVE negar (403), independentemente do que a UI permita.
+- O enforcement do gate DEVE viver no **middleware do grupo `/v1/portal/*`** (ponto por onde a requisição às rotas próprias efetivamente passa); um **hook do PocketBase** nas coleções sensíveis DEVE reforçar o bloqueio como defesa em profundidade, não como único ponto de controle.
 
 ---
 
@@ -122,22 +124,22 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 
 **Contexto:** o conteúdo clínico sensível (corpo da sessão, anamnese, notas, resumo de IA) precisa ficar cifrado em repouso, mas sem perder a capacidade de buscar/indexar os metadados não sensíveis. A escolha é **cifra por campo** via um tipo de domínio.
 
-### R6.1 Tipo `SealedText`
-- Os campos clínicos sensíveis DEVEM ser representados pelo tipo wrapper `SealedText`, que guarda o texto cifrado em repouso.
-- O `SealedText` DEVE expor o texto em claro **somente** sob demanda, via `Reveal(ctx)`.
+### R6.1 Interface `Cipher` e tipo `SealedText`
+- O domínio DEVE conhecer a cifra **apenas por uma interface** `Cipher` (`Seal`/`Open`); a implementação concreta (em `internal/platform/crypto`) encapsula o primitivo e o `KeyProvider`. O domínio NÃO DEVE importar a lib de cripto nem o PocketBase.
+- Os campos clínicos sensíveis DEVEM ser representados pelo valor de domínio `SealedText`, que carrega o texto em claro **em memória** durante a vida do agregado e expõe o claro, para montar DTO, via `Reveal()`.
 
 ### R6.2 Envelope de cifra
-- A serialização do `SealedText` para persistência DEVE produzir o envelope `versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext` (campos em base64, separados por ponto).
-- O algoritmo DEVE ser **AES-256-GCM**, implementado no pacote `internal/platform/crypto`.
-- O campo `id_da_chave` DEVE habilitar **rotação de chave**; os campos `versao_do_esquema` e `algoritmo` DEVEM habilitar a evolução do esquema/algoritmo sem quebrar dados antigos.
+- A cifra para persistência DEVE produzir o envelope `versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext` (campos em base64, separados por ponto), montado/parseado em `internal/platform/crypto`.
+- O algoritmo DEVE ser **AES-256-GCM**.
+- O campo `id_da_chave` DEVE habilitar **rotação de chave**; `versao_do_esquema` e `algoritmo` DEVEM habilitar a evolução do esquema/algoritmo sem quebrar dados antigos.
 
-### R6.3 Serialização nunca vaza o claro
-- QUANDO o `SealedText` é serializado para JSON (`MarshalJSON`), o sistema DEVE emitir **sempre o envelope cifrado**, nunca o texto em claro.
-- QUANDO o `SealedText` é desserializado (`UnmarshalJSON`), o sistema DEVE manter o conteúdo **cifrado** (parse do envelope), sem decifrar automaticamente.
+### R6.3 Onde cifra/decifra; nunca vaza o claro
+- A cifra/decifra DEVE acontecer na **borda de persistência** (`internal/platform/pb`): grava o envelope ao persistir, decifra ao ler. O conteúdo em repouso DEVE ser **sempre o envelope**, nunca o claro.
+- `SealedText` NÃO DEVE ter um `MarshalJSON` que exponha o claro; a saída para a API DEVE passar por **DTO explícito**. O DTO de leitura do terapeuta inclui o claro (via `Reveal()`); **nenhum** DTO do portal do paciente inclui campo clínico.
 
 ### R6.4 Chave via `KeyProvider`
 - A chave de cifra DEVE ser obtida via configuração, atrás de uma interface `KeyProvider` (resolve a chave por `id_da_chave` e informa o `id` corrente).
-- O `KeyProvider` DEVE permitir, no futuro, trocar a origem da chave (config, vault externo) sem mudar o `SealedText`.
+- O `KeyProvider` DEVE permitir, no futuro, trocar a origem da chave (config, vault externo) sem mudar a interface `Cipher`.
 
 ### R6.5 Cifra por campo, busca por tags
 - A cifra DEVE ser **por campo**: apenas os campos clínicos sensíveis ficam cifrados. Nome, email, telefone, datas, status e valores DEVEM permanecer em claro e indexáveis.
@@ -150,7 +152,7 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 **Contexto:** o contrato de API é revisado do zero. As rotas próprias vivem sob `/v1/*`, registradas sobre o router do PocketBase; a REST automática do PocketBase não é o contrato público.
 
 ### R7.1 Rotas próprias versionadas
-- As rotas próprias DEVEM viver sob o prefixo `/v1/*`, com namespaces lógicos `/v1/admin/*` e `/v1/portal/*`.
+- As rotas próprias DEVEM viver sob o prefixo `/v1/*`, segregadas por ator: `/v1/app/*` (terapeuta), `/v1/portal/*` (paciente), `/v1/admin/*` (operação técnica).
 - A REST automática gerada pelo PocketBase NÃO DEVE ser o contrato público do sistema; o contrato são as rotas `/v1/*` próprias.
 
 ### R7.2 Envelope de resposta
@@ -185,6 +187,11 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 - QUANDO o PocketBase conclui um **backup** (snapshot), um hook DEVE disparar o sync do snapshot para o Google Drive (pasta fria de DR).
 - O sync para o Drive DEVE viver em `internal/drivesync` e PODE rodar como segundo processo/hook, isolado do caminho de request.
 - O escopo OAuth do Drive DEVE permanecer mínimo (`drive.file`) e o snapshot DEVE ser cifrado antes do upload.
+
+### R9.3 Cobrança: PDF sim, Gmail não
+- O sistema DEVE **gerar o PDF de cobrança** a partir do débito (itens, valor, vencimento, dados do paciente/terapeuta) e armazená-lo no GED (file storage do PocketBase).
+- O sistema NÃO DEVE implementar envio de cobrança por **email/Gmail** — o envio é feito por fora da plataforma (WhatsApp). Gerar o documento é suficiente.
+- O `internal/integration/google` DEVE cobrir apenas Calendar (síncrono) e Drive (fallback/DR); **Gmail está fora do escopo** desta arquitetura.
 
 ---
 
@@ -233,11 +240,13 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 - **Vault externo de chave.** A chave de cifra fica atrás do `KeyProvider`; integrar um vault externo (KMS/Secrets Manager) é evolução futura — o `KeyProvider` só deixa a porta aberta.
 - **Migração de dados reais.** A V1 não foi publicada; não há dados reais a migrar.
 - **UI de produto nova** além do necessário à reorganização (binário único, portal mínimo). Reengenharia visual de telas não é objetivo desta onda.
+- **Envio de cobrança por email (Gmail).** A plataforma gera o PDF; o envio é por fora (WhatsApp). Integração de email está fora do escopo (R9.3).
 
 ## Glossário
 
 - **PocketBase como framework** — PocketBase usado como biblioteca Go embarcada no nosso binário (não como servidor standalone separado), com `pocketbase.New()` + `app.OnServe()`.
-- **`SealedText`** — tipo de domínio que guarda texto clínico cifrado em repouso; expõe o claro só via `Reveal(ctx)` e serializa sempre o envelope cifrado.
+- **`SealedText`** — valor de domínio para texto clínico; carrega o claro em memória durante a vida do agregado e é cifrado/decifrado na borda de persistência (`platform/pb`) via a interface `Cipher`. O claro só sai para a API por DTO explícito (`Reveal`); em repouso só existe o envelope cifrado.
+- **`Cipher`** — interface de cifra que o domínio conhece; a implementação concreta (em `platform/crypto`) encapsula o primitivo AES-256-GCM e o `KeyProvider`, mantendo o domínio desacoplado da lib.
 - **Envelope de cifra** — `versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext` (base64, separado por ponto); `id_da_chave` habilita rotação, `versao_do_esquema`/`algoritmo` habilitam evolução.
 - **`platform/pb`** — pacote `internal/platform/pb`, o único que conhece o PocketBase; mapeia domínio↔`Record`.
 - **Bounded context** — recorte de domínio autônomo (`patient`, `clinical`, `billing`, `scheduling`, `costs`, `therapist`).
