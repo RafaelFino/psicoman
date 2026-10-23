@@ -62,6 +62,7 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 - O sistema DEVE segregar as superfícies por **ator**, em **paths distintos**, de forma lógica (não por processos físicos): `/v1/app/*` (terapeuta — também a operadora/"admin" da instância no single-tenant), `/v1/portal/*` (paciente) e `/v1/admin/*` (operação técnica da instância).
 - Os paths DEVEM ser desenhados para que o `Pangolin` aplique **controle de acesso por prefixo**: `/v1/portal/*` aberto (só o necessário), `/v1/app/*` e `/v1/admin/*` restritos à terapeuta autenticada no gateway.
 - QUANDO uma requisição chega a um path de ator, o sistema DEVE aplicar a cadeia de middleware e as regras de autorização daquele ator, independentemente de compartilhar o mesmo binário.
+- A **admin UI nativa do PocketBase** (`/_/`) DEVE ficar sob a **mesma política de borda do `Pangolin`** que o `/v1/admin/*` (acesso só para a terapeuta autenticada no gateway).
 
 ### R2.2 Exposição controlada
 - O sistema DEVE expor de forma controlada, para a internet (via `Pangolin`), apenas o que o paciente precisa (cadastro/login e os recursos mínimos do portal).
@@ -85,6 +86,10 @@ Quarta onda de evolução do Psicoman e a primeira que é uma **reescrita da bas
 - QUANDO o terapeuta aprova ou rejeita um paciente, o sistema DEVE registrar o estado (`aprovado` | `rejeitado`).
 - QUANDO um paciente `pendente` ou `rejeitado` tenta acessar recursos do portal além do próprio cadastro/estado, o sistema DEVE negar (403), independentemente do que a UI permita.
 - O enforcement do gate DEVE viver no **middleware do grupo `/v1/portal/*`** (ponto por onde a requisição às rotas próprias efetivamente passa); um **hook do PocketBase** nas coleções sensíveis DEVE reforçar o bloqueio como defesa em profundidade, não como único ponto de controle.
+
+### R3.4 Admin UI do PocketBase (Dashboard)
+- A admin UI nativa (`/_/`) DEVE ser acessível apenas pela política de borda do `Pangolin` (mesma do `/v1/admin/*`); além disso, exige **login de superuser** do PocketBase (segundo fator) — não há SSO com o header do `Pangolin`.
+- QUANDO o superuser inspeciona coleções pela admin UI, os campos clínicos DEVEM aparecer como **envelope cifrado** (nunca em claro) — a cifra é da camada `SealedText`/`Cipher`, não do PocketBase. O acesso ao clínico em claro DEVE permanecer exclusivo de `/v1/app/*` (DTO + `Reveal()`).
 
 ---
 

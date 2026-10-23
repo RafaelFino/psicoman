@@ -60,6 +60,7 @@ Ordem: mais recente no topo.
 - **Regras de negócio portadas, não reinventadas.** As tasks referenciam explicitamente as regras existentes (billing por sessão/ciclo com idempotência, rateio de custo, ROI, ciclo de vida da sessão, timeline, métricas) a portar para os bounded contexts.
 - **Rotas segregadas por ator (para o `Pangolin`).** Paths distintos por ator — `/v1/app/*` (terapeuta, que é a operadora/"admin" no single-tenant), `/v1/portal/*` (paciente, aberto), `/v1/admin/*` (operação técnica) — para o `Pangolin` aplicar controle de acesso por prefixo. O gate de aprovação do paciente é imposto no **middleware do grupo do portal** (ponto por onde a requisição passa), com hook de coleção como reforço.
 - **Gmail fora do escopo.** A plataforma **gera o PDF de cobrança** (armazenado no GED); o envio é por WhatsApp, fora da plataforma. `internal/integration/google` cobre só Calendar e Drive.
+- **Admin UI do PocketBase (`/_/`) sob o `Pangolin` + superuser.** O Dashboard nativo do PocketBase é servido sob a mesma política de borda do `/v1/admin/*` (só a terapeuta autenticada no `Pangolin` alcança), e exige adicionalmente o login de superuser do PocketBase — não há SSO unificado com o header do `Pangolin` (são dois passos). Como a cifra do prontuário é da nossa camada (`SealedText`/`Cipher`), o superuser vê os campos clínicos como **envelope cifrado**, não em claro; o clínico em claro é exclusivo de `/v1/app/*` via DTO + `Reveal()`. Isso é intencional: o Dashboard serve à operação técnica, não à leitura clínica.
 
 ---
 
