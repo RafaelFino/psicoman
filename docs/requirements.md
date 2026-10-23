@@ -4,6 +4,8 @@ Especificação de requisitos da plataforma de gestão de atendimentos para psic
 
 > Este documento responde **o quê** e **por quê**. O **como** está em [`architecture.md`](./architecture.md); o **plano de implementação** em [`.kiro/specs/mvp/tasks.md`](../.kiro/specs/mvp/tasks.md); a **visão geral** em [`../README.md`](../README.md).
 
+> **Onda `pocketbase-core`.** O contrato de produto `/v1` desta onda (rotas por ator, envelope de resposta, DTOs e regra de não-vazamento de dado clínico) está descrito na spec [`../.kiro/specs/pocketbase-core/`](../.kiro/specs/pocketbase-core/), em `architecture.md` §0.6 e no Swagger servido em `GET /v1/swagger`. A reescrita integral deste documento canônico acontece na Fase 10 da onda.
+
 ---
 
 ## 1. Visão Geral

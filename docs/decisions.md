@@ -6,6 +6,23 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-21 — Onda "pocketbase-core" (Fase 4): contrato `/v1` por ator
+
+**Contexto.** A Fase 4 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) expõe o contrato HTTP público `/v1/*` (envelope, DTOs, segregação por ator, Swagger) sobre o adapter das fases anteriores. Design em [`../.agents/tasks/pocketbase-core/fase4-design.md`](../.agents/tasks/pocketbase-core/fase4-design.md). Esta entrada registra só as decisões de contrato novas; D2/D6.3/D7/D13 não são reabertas.
+
+**Decisões.**
+1. **REST automática do PocketBase trancada por regra nula (sem migration nova).** As coleções do MER nascem com regras de acesso nulas (Fase 3), o que o PocketBase trata como "somente superuser" — `/api/collections/.../records` responde 403 a qualquer acesso não-superuser. O contrato público é **exclusivamente** `/v1/*`. A Fase 4 apenas documenta isso e blinda com um teste de contrato (D13); mesmo um superuser lê o campo clínico como envelope cifrado, nunca o claro. Não adicionamos hook para remover `/api/*` no binário (defesa é `nil`-rules + Pangolin + cifra); bloqueio ativo fica em aberto (PA-3), a confirmar se desejado.
+2. **`message` de erro 4xx é sempre frase PT-BR curta do serviço; nunca `err.Error()` de I/O.** Os tipos `*ValidationError`/`*ConflictError` carregam só mensagens fixas de regra de negócio; erro de I/O (DB/rede) cai no ramo 500 com detalhe **apenas** no log. O helper `Fail` trunca a `message` a 300 chars como guarda. O `request_id` vai no header `X-Request-Id`, não no envelope (R7.2 define exatamente `{message, elapsed_ms, data, error}`).
+3. **Config de cifra via ambiente, com boot fail-closed.** `buildServices` lê `PSICOMAN_CIPHER_KEY_ID` + `PSICOMAN_CIPHER_KEYS` (`id:base64,...`); ausência/base64 inválido aborta o boot. Troca para arquivo (`config.*.yaml`) muda só `loadCipherConfig`, sem mexer na assinatura de `Register` (PA-4).
+
+**Consequências.**
+- `internal/api/{httpx,app,portal,admin,swagger,service}` + `wiring.go`; novo `app.ProntuarioService` em `internal/app`.
+- `internal/archtest/arch_test.go` ganha `TestAppNaoImportaPocketBase` (app não importa `platform/pb` nem `pocketbase`), mantendo `TestDomainNaoImportaPocketBase`.
+- `test/e2e/boot_test.go` passa a exportar a env de cifra de teste antes do boot (o binário real exige cifra para subir).
+- `docs/architecture.md §0.6` documenta o contrato `/v1`.
+
+---
+
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 3): coleções/migrations e adapter `platform/pb`
 
 **Contexto.** A Fase 3 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a camada de persistência prevista na ADR-base (decisões 5 e 6): as coleções do PocketBase derivadas do MER canônico (D4b) e o adapter `internal/platform/pb` que implementa as portas de `internal/app/ports.go`, com cifra por campo na borda. Plano completo em [`../.agents/tasks/pocketbase-core/fase3-plan.md`](../.agents/tasks/pocketbase-core/fase3-plan.md). Esta entrada registra as decisões que não eram triviais e valem como lastro; a arquitetura-base não é reaberta.

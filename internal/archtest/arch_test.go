@@ -42,3 +42,23 @@ func TestDomainNaoImportaPocketBase(t *testing.T) {
 		}
 	}
 }
+
+// TestAppNaoImportaPocketBase garante que a camada de aplicação (internal/app)
+// orquestra o domínio pelos ports e NÃO conhece o framework (PocketBase) nem o
+// adapter de persistência platform/pb. internal/app PODE importar platform/clock,
+// platform/ulid e platform/crypto (ports/helpers) — só os dois abaixo são
+// proibidos (R5/D5, psicoman-golang.md; enunciado da Fase 4, M1).
+func TestAppNaoImportaPocketBase(t *testing.T) {
+	proibidos := []string{
+		"github.com/pocketbase/pocketbase",
+		modulePath + "/internal/platform/pb",
+	}
+
+	for _, dep := range deps(t, modulePath+"/internal/app/...") {
+		for _, proibido := range proibidos {
+			if dep == proibido || strings.HasPrefix(dep, proibido+"/") {
+				t.Errorf("internal/app não pode importar %q (dependência proibida encontrada: %q)", proibido, dep)
+			}
+		}
+	}
+}

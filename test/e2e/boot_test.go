@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -49,6 +50,12 @@ func TestBootServeHealth(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "serve", "--http", addr, "--dir", dataDir)
+	// A partir da Fase 4 o boot exige a config de cifra (buildServices aborta sem
+	// ela); provê a mesma KeySpec fixa de teste usada em pb_test.go (H2).
+	cmd.Env = append(os.Environ(),
+		"PSICOMAN_CIPHER_KEY_ID=k1",
+		"PSICOMAN_CIPHER_KEYS=k1:wPb6Yex4abAI5VpFY6SIonnjtPOmtuGP2MJVnezqUKY=",
+	)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("iniciando o binário: %v", err)
 	}

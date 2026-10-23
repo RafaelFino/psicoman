@@ -77,6 +77,19 @@ A Fase 3 materializa a camada de persistência: as **coleções do PocketBase** 
 
 **Cifra na borda (D6.3).** Apenas o `ProntuarioRepository` (coleções `anamnesis`/`note`) cifra campo clínico: ao gravar, `env, _ := domain.SealFor(ctx, cipher, agg.Content); rec.Set("conteudo", env)`; ao ler, `agg.Content, _ = domain.OpenInto(ctx, cipher, rec.GetString("conteudo"))`. O banco guarda **somente** o envelope (`v1.aes-256-gcm.id_da_chave.nonce.ciphertext`); o claro nunca é escrito (nunca `rec.Set("conteudo", agg.Content.Reveal())`). As colunas `ai_summary.resumo` e `google_token.token` também guardam envelope, mas ainda não têm adapter nesta fase.
 
+### 0.6 Contrato `/v1` por ator (Fase 4)
+
+A Fase 4 expõe o **contrato HTTP público** `/v1/*`, segregado por ator para o Pangolin dividir por prefixo (D2/D7). Pacotes em `internal/api`: `httpx` (transversal: envelope, erros, chain), `app`/`portal`/`admin` (handlers por ator, nenhum importa o outro), `swagger` (OpenAPI do `/v1`), `service` (container `Services` montado pelo wiring). O wiring entra por `api.Register(app)`: monta repos+cipher+serviços dentro do `OnServe` e registra os grupos.
+
+- **Atores e prefixos.** `/v1/app/*` (terapeuta — único que lê clínico em claro), `/v1/portal/*` (paciente — nunca recebe clínico), `/v1/admin/*` (operação). `/v1/health` e `/v1/swagger[.json]` ficam na raiz do `/v1`.
+- **Envelope.** Toda resposta usa `{ message, elapsed_ms, data, error }` (ordem é contrato, R7.2; garantida por struct, nunca `map`). `message` sempre PT-BR; sucesso → `error:null`, falha → `data:null`. O id de correlação vai no header `X-Request-Id`, não no corpo.
+- **Middleware chain** (grupo `/v1`): `recover → request-id → timing → logging`; a **auth** fica no subgrupo de cada ator (stub no-op na Fase 4; Pangolin/gate na Fase 5).
+- **Mapeamento erro→HTTP** (via `errors.Is`): `ErrNotFound`→404 `nao_encontrado`; `ErrConflict`→409 `conflito`; `ErrValidation`→422 `validacao`; corpo malformado→400 `requisicao_invalida` (helper `FailBadRequest`, antes de `Fail`, não cai no 500); demais→500 `erro_interno` (detalhe só no log). A `message` de 4xx é sempre a frase PT-BR curta do serviço, truncada a 300 chars.
+- **DTOs por ator (não-vazamento, D6.3/R6.3).** Nenhum DTO embute `domain.SealedText`. O ator `app` revela o clínico em claro via `.Reveal()` (só nos mappers de `internal/api/app`); nenhum DTO do `portal` tem campo clínico (`internal/api/portal` não importa `internal/domain/clinical` nem referencia `.Reveal(`). Dinheiro em `*_cents int64`; tempo via `httpx.FmtTime` (instante zero → `""`).
+- **Prontuário.** Novo `app.ProntuarioService` (gera ULID/tempo, monta `SealedText`, valida) serve `POST /v1/app/patients/{id}/notes` e `PUT /v1/app/patients/{id}/anamnesis` (upsert 1:1); `GET /v1/app/patients/{id}` devolve o prontuário legível (anamnese opcional + notas).
+- **REST automática trancada (D13).** As coleções do MER têm regras nulas → o PocketBase responde **403** a `/api/collections/.../records` para não-superuser; mesmo um superuser lê o campo clínico como envelope cifrado, nunca o claro. O contrato público é **exclusivamente** `/v1/*` (sem migration nova: só documentação + teste de contrato).
+- **Config de cifra no boot.** `buildServices` lê a chave de `PSICOMAN_CIPHER_KEY_ID` + `PSICOMAN_CIPHER_KEYS` (`id:base64,...`); ausência/inválida aborta o boot (fail-closed). Não subir o servidor sem cifra.
+
 ---
 
 ## 1. Objetivo e Escopo
