@@ -56,6 +56,27 @@ Serviços enxutos, um por área, recebendo as portas por injeção (construtores
 
 ULID em toda entidade (`internal/platform/ulid`), dinheiro em `int64` centavos BRL, instantes em `America/Sao_Paulo` via `internal/platform/clock`, erros ao usuário em PT-BR (sentinelas `ErrNotFound`/`ErrConflict`/`ErrValidation` em `internal/app/errors.go`), `context.Context` como 1º parâmetro de toda porta/serviço com I/O, e idempotência de efeito financeiro por chave única.
 
+### 0.5 Coleções/migrations e adapter `platform/pb` (Fase 3)
+
+A Fase 3 materializa a camada de persistência: as **coleções do PocketBase** derivadas do MER canônico (D4b) e o **adapter** `internal/platform/pb`, único pacote que importa o PocketBase e que implementa as portas de `internal/app/ports.go`. O domínio continua limpo (archtest verde; `go list -deps ./internal/domain/...` sem `pocketbase`/`platform/pb`).
+
+**Coleções e migrations.** As coleções vivem no subpacote `internal/platform/pb/migrations`, um arquivo por grupo do MER, cada um registrado via `migrations.Register(up, down, nome)` em `init()` e aplicado no boot por `RunAllMigrations()` (idempotente: reexecução é no-op). `cmd/psicoman/main.go` faz o blank import do subpacote. Os três grupos:
+
+- `0010_patient_scheduling` — `origin`, `location`, `patient`, `availability`, `appointment_request`, `session`.
+- `0020_billing_costs` — `cost_category`, `cost_item`, `contract`, `plan`, `debt`, `payment`, `session_cost` (ciclos `contract↔plan` e `session→contract/plan` resolvidos por patch de relation após ambas as coleções existirem).
+- `0030_clinical_therapist_transversais` — `anamnesis`, `note`, `ai_summary`, `tag_index`, `therapist_profile`, `therapist_platform_link`, `ged_file`, `audit_log`, `google_token`.
+
+**Convenções do schema (psicoman-sqlite.md):**
+
+- **`id` ULID custom.** Em cada coleção o campo `id` default do PocketBase (15 chars `[a-z0-9]`, autogerado) é substituído por um `TextField{PrimaryKey, System, Required, Min:26, Max:26, Pattern:"^[0-9A-HJKMNP-TV-Z]{26}$"}` **sem** `AutogeneratePattern`. O PB não autogera; o adapter grava o ULID do agregado via `rec.Set("id", agg.ID)`. `initIdField` respeita o `id` pré-existente.
+- **Timestamps TEXT ISO-8601.** `created_at`/`updated_at`/`deleted_at` são `TextField` serializados pela aplicação (`clock.Format` = RFC3339 em America/Sao_Paulo), nunca `AutodateField` nem `DEFAULT CURRENT_TIMESTAMP` (que usa UTC). `deleted_at` vazio = ativo.
+- **Dinheiro** em `NumberField{OnlyInt:true}` (centavos).
+- **Constraints.** UNIQUE `email` e UNIQUE parcial `cpf` em `patient`; UNIQUE `idempotency_key` em `debt` (idempotência de efeito financeiro); UNIQUE `session_id` em `session_cost` (1:1); UNIQUE `patient_id` em `anamnesis` (1:1).
+
+**Adapter (um repositório por porta).** Cada repositório é um struct com um `core.App` (e um `domain.Cipher` nos que têm campo clínico). Mapeia agregado↔`core.Record` via `rec.Set(...)` (gravação) e `rec.GetString/GetInt64/GetBool` (leitura), propagando `context.Context` por `SaveWithContext`/`DeleteWithContext`. Erros do PocketBase são traduzidos para os sentinelas de `internal/app`: `sql.ErrNoRows → ErrNotFound`; violação de UNIQUE → `ErrConflict`. Soft-delete seta `deleted_at` e as listagens filtram `deleted_at = ''`. Asserts de compilação (`var _ app.XRepository = (*xRepo)(nil)`) garantem a conformidade com as portas.
+
+**Cifra na borda (D6.3).** Apenas o `ProntuarioRepository` (coleções `anamnesis`/`note`) cifra campo clínico: ao gravar, `env, _ := domain.SealFor(ctx, cipher, agg.Content); rec.Set("conteudo", env)`; ao ler, `agg.Content, _ = domain.OpenInto(ctx, cipher, rec.GetString("conteudo"))`. O banco guarda **somente** o envelope (`v1.aes-256-gcm.id_da_chave.nonce.ciphertext`); o claro nunca é escrito (nunca `rec.Set("conteudo", agg.Content.Reveal())`). As colunas `ai_summary.resumo` e `google_token.token` também guardam envelope, mas ainda não têm adapter nesta fase.
+
 ---
 
 ## 1. Objetivo e Escopo

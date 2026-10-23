@@ -6,6 +6,25 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-21 — Onda "pocketbase-core" (Fase 3): coleções/migrations e adapter `platform/pb`
+
+**Contexto.** A Fase 3 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a camada de persistência prevista na ADR-base (decisões 5 e 6): as coleções do PocketBase derivadas do MER canônico (D4b) e o adapter `internal/platform/pb` que implementa as portas de `internal/app/ports.go`, com cifra por campo na borda. Plano completo em [`../.agents/tasks/pocketbase-core/fase3-plan.md`](../.agents/tasks/pocketbase-core/fase3-plan.md). Esta entrada registra as decisões que não eram triviais e valem como lastro; a arquitetura-base não é reaberta.
+
+**Decisões.**
+1. **`id` ULID via `TextField` custom, não o id default do PocketBase.** O campo `id` padrão do PB é 15 chars `[a-z0-9]` com autogeração, incompatível com o ULID do projeto (26 chars Crockford base32 maiúsculo). Em cada coleção substituímos o `id` por um `TextField{PrimaryKey, System, Required, Min:26, Max:26, Pattern:"^[0-9A-HJKMNP-TV-Z]{26}$"}` **sem** `AutogeneratePattern` — o PB não autogera e o adapter grava o ULID do agregado (`rec.Set("id", agg.ID)`). Confirmado na fonte (v0.40.6) que `initIdField` respeita um `id` pré-existente e que o `TextField` só autogera quando há `AutogeneratePattern`. *Consequência:* o ULID permanece a identidade canônica, gerado em Go (`internal/platform/ulid`), nunca pelo framework.
+2. **Timestamps TEXT ISO-8601 gerados pela aplicação.** `created_at`/`updated_at`/`deleted_at` são `TextField` preenchidos pela app via `clock.Format` (RFC3339 em America/Sao_Paulo), não `AutodateField` do PB (que usa UTC e formato próprio) nem `DEFAULT CURRENT_TIMESTAMP`. Mantém o fuso do projeto e a comparação lexicográfica por string nos filtros de período. `deleted_at` vazio = ativo; listagens filtram `deleted_at = ''`.
+3. **Coleção de auth do paciente adiada para a Fase 9 (portal).** Nenhuma porta de `ports.go` precisa dela: `patient` é a coleção de negócio (não-auth) e o gate de aprovação opera sobre `patient.approval_status`. A spec e o MER (D4b.2) colocam a auth do paciente no portal; `core.NewAuthCollection` arrasta configuração (password, tokenKey, OAuth) que é assunto da Fase 9. Todas as coleções da Fase 3 são `core.NewBaseCollection`.
+4. **Coleção `google_token` existe, mas sem porta/adapter nesta fase.** O MER lista `google_token` (token cifrado, escopos, expiry) e a coleção é criada na migration do grupo C. Porém não há agregado de domínio nem porta em `ports.go` para ela — o repositório chega junto do OAuth do Google (Fase 6/7). Na Fase 3 a coluna `token` apenas reserva o formato de envelope cifrado.
+5. **Tradução de erros do PocketBase para os sentinelas de `internal/app`.** O adapter mapeia `sql.ErrNoRows → app.ErrNotFound` e violação de índice único → `app.ErrConflict` (o PB surfaça a unicidade como validação "must be unique"; o SQLite como "UNIQUE constraint failed" — cobrimos ambas). `InsertIfAbsent` (débito) checa a `idempotency_key` antes de inserir e trata colisão de UNIQUE como `created=false`; `UpsertSessionCost` respeita o UNIQUE `session_id` fazendo find-then-update.
+
+**Consequências.**
+- `internal/platform/pb/migrations/{0010,0020,0030}_*.go` com as coleções do MER e os índices; `internal/platform/pb/*_repo.go` com um repositório por porta de `ports.go` (patient, origin, session+costSessionSource, appointment, location+availability, plan, contract, debt, payment, cost, report, prontuário com cifra, ged_file, audit).
+- Cifra por campo na borda **somente** no `ProntuarioRepository`; testes de integração garantem round-trip do claro e **não-vazamento** (a coluna guarda só o envelope `v1.aes-256-gcm.…`, nunca o claro).
+- `internal/archtest/arch_test.go` continua verde: o domínio não importa `pocketbase`/`platform/pb`.
+- `docs/architecture.md §0.5` documenta as coleções/migrations e o adapter desta fase.
+
+---
+
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 2): domínio rico por bounded context
 
 **Contexto.** A Fase 2 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a decisão 4 da ADR abaixo (domínio rico) e as tasks 2.1/2.1b/2.2: agregados por bounded context com comportamento próprio, regras de negócio portadas das ondas anteriores (não reinventadas) e serviços enxutos em `internal/app`. Esta entrada registra as decisões de granularidade que não eram triviais e que valem como lastro; a arquitetura-base não é reaberta. Plano completo em [`../.agents/tasks/pocketbase-core/fase2-plan.md`](../.agents/tasks/pocketbase-core/fase2-plan.md).
