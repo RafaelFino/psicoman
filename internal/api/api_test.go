@@ -303,6 +303,61 @@ func TestRESTAutomaticaTrancada(t *testing.T) {
 	}
 }
 
+// newSuperuserToken cria um superuser determinístico e devolve um token de auth
+// válido para a REST automática do PocketBase (usado no caso D13 de superuser).
+func newSuperuserToken(t *testing.T, app *tests.TestApp) string {
+	t.Helper()
+	col, err := app.FindCollectionByNameOrId(core.CollectionNameSuperusers)
+	if err != nil {
+		t.Fatalf("coleção _superusers: %v", err)
+	}
+	su := core.NewRecord(col)
+	su.SetEmail("root@exemplo.com")
+	su.SetPassword("1234567890")
+	if err := app.Save(su); err != nil {
+		t.Fatalf("salvar superuser: %v", err)
+	}
+	tok, err := su.NewAuthToken()
+	if err != nil {
+		t.Fatalf("token de superuser: %v", err)
+	}
+	return tok
+}
+
+// TestRESTSuperuserDevolveCifrado (D13, §6/§10 caso 6): mesmo autenticado como
+// superuser, a REST automática devolve o campo clínico como ENVELOPE CIFRADO —
+// nunca o claro. Prova que a REST não é via de vazamento mesmo com credencial
+// máxima.
+func TestRESTSuperuserDevolveCifrado(t *testing.T) {
+	app := newTestApp(t)
+	c := newClient(t, app)
+	const claro = "conteudo clinico SUPERUSER_NAO_VE_CLARO_NA_REST"
+
+	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Lia","phone":"11999990006","email":"lia@exemplo.com"}`, nil)
+	pid := extractID(res.body)
+	if pid == "" {
+		t.Fatalf("id do paciente não extraído: %s", res.body)
+	}
+	nres := c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, nil)
+	if nres.status != http.StatusCreated {
+		t.Fatalf("criar nota: status %d (%s)", nres.status, nres.body)
+	}
+
+	tok := newSuperuserToken(t, app)
+	hdr := map[string]string{"Authorization": tok}
+	rest := c.do(http.MethodGet, "/api/collections/note/records", "", hdr)
+	if rest.status != http.StatusOK {
+		t.Fatalf("REST com superuser: quero 200, veio %d (%s)", rest.status, rest.body)
+	}
+	// O corpo deve conter a nota (há 1 registro) mas com o campo clínico cifrado.
+	if strings.Contains(rest.body, claro) {
+		t.Errorf("o claro vazou na REST autenticada como superuser: %s", rest.body)
+	}
+	if !strings.Contains(rest.body, "v1.aes-256-gcm.") {
+		t.Errorf("REST não devolveu o campo clínico no envelope de cifra: %s", rest.body)
+	}
+}
+
 // TestSwaggerServido: /v1/swagger.json e /v1/swagger respondem 200.
 func TestSwaggerServido(t *testing.T) {
 	app := newTestApp(t)
