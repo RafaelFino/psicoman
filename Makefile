@@ -50,14 +50,26 @@ vet:
 	$(GO) vet ./...
 
 ## lint: golangci-lint se instalado (advisory); gate obrigatório é fmt+vet
+# Advisory de verdade: nenhuma falha do golangci-lint pode derrubar o `make check`.
+# Um probe barato detecta a incompatibilidade de toolchain (golangci-lint v1.x não
+# decodifica o export data do Go 1.27 -> "export data version N"): nesse caso o lint
+# é pulado com aviso, evitando a varredura pesada de ./... que trava/crasha o gate.
+# Quando o golangci-lint é compatível, roda normal e absorve avisos. Gate real = gofmt + go vet.
 lint: fmt-check vet
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 	  echo "==> golangci-lint (advisory)"; \
-	  golangci-lint run ./... || echo "!! golangci-lint reportou avisos (não bloqueia o check)."; \
+	  probe="$$(timeout 60 golangci-lint run --no-config --disable-all --enable=govet ./internal/platform/clock/... 2>&1 || true)"; \
+	  case "$$probe" in \
+	    *"export data version"*|*"could not load export data"*) \
+	      echo "!! golangci-lint $$(golangci-lint version 2>/dev/null | awk '{print $$4}') é incompatível com este toolchain Go (não decodifica o export data); pulando. Gate real = gofmt + go vet. Atualize o golangci-lint para voltar a rodar o lint." ;; \
+	    *) \
+	      ( timeout 180 golangci-lint run ./... ) || echo "!! golangci-lint reportou avisos ou não concluiu (não bloqueia o check)." ;; \
+	  esac; \
 	else \
 	  echo "==> golangci-lint não instalado; gate = gofmt + go vet."; \
 	  echo "    Instale (opcional): https://golangci-lint.run/usage/install/"; \
 	fi
+	@true
 
 ## check: gate de qualidade (fmt + vet + build + testes + e2e); lint é advisory
 check: fmt-check vet build test-unit e2e
