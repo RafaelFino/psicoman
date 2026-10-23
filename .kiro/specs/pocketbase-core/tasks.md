@@ -19,52 +19,52 @@ Convenções:
 
 ## Fase 0 — Fundação pocketbase-core (R1)
 
-- [ ] **0.1. Binário único com PocketBase embarcado** (dep: —)
+- [x] **0.1. Binário único com PocketBase embarcado** (dep: —)
   - `cmd/psicoman/main.go` com `app := pocketbase.New()` + registro de rotas no hook `app.OnServe()`.
   - `go.mod`: adicionar o PocketBase como dependência; remover os antigos `cmd/admin` e `cmd/portal`.
   - **Aceite:** `make build` produz **um** executável que sobe o PocketBase e serve a admin UI.
   - **Testes:** smoke de boot (sobe e responde health na porta configurada).
   - **Refs:** R1.1, R1.2 · D1.
 
-- [ ] **0.2. Esqueleto de pacotes e Makefile** (dep: 0.1)
+- [x] **0.2. Esqueleto de pacotes e Makefile** (dep: 0.1)
   - Criar `internal/platform/{crypto,pb}`, `internal/app`, `internal/domain/{patient,clinical,billing,scheduling,costs,therapist}`, `internal/integration/{google,gemini}`, `internal/drivesync`, `internal/api` (pacotes vazios/esboço).
   - Makefile: `build` de **binário único** (saída = arquivo, não diretório), `check` (fmt + vet + build + testes), `test-unit`, `e2e`.
   - **Aceite:** `make check` passa no esqueleto; a regra de dependência (domínio não importa PB) está documentada no pacote.
   - **Testes:** `go vet`/build do esqueleto; teste trivial de que `internal/domain` não importa `platform/pb`.
   - **Refs:** R1.1, R5.1 · D0, D5.
 
-- [ ] **Fechamento Fase 0:** `docs/decisions.md` já cobre a arquitetura (2026-10-21); conferir estrutura de pastas; `make check` verde → commit "pocketbase-core Fase 0: fundação do binário único com PocketBase embarcado".
+- [x] **Fechamento Fase 0:** `docs/decisions.md` já cobre a arquitetura (2026-10-21); conferir estrutura de pastas; `make check` verde → commit "pocketbase-core Fase 0: fundação do binário único com PocketBase embarcado".
 
 ---
 
 ## Fase 1 — `platform/crypto` + `SealedText` (R6)
 
-- [ ] **1.1. Pacote `platform/crypto` (AES-256-GCM + `KeyProvider`)** (dep: 0.2)
+- [x] **1.1. Pacote `platform/crypto` (AES-256-GCM + `KeyProvider`)** (dep: 0.2)
   - `internal/platform/crypto`: `Seal`/`Open` com `crypto/aes`+`crypto/cipher`; `KeyProvider` (resolve chave por `id`, informa `CurrentID()`); montagem/parse do envelope `versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext` (base64).
   - **Aceite:** cifrar/decifrar round-trip; decifrar com `id_da_chave` antigo após trocar o corrente (rotação).
   - **Testes:** unit de round-trip, rotação por `id_da_chave`, nonce único por operação, falha ao decifrar com chave errada.
   - **Refs:** R6.2, R6.4 · D6, D11.
 
-- [ ] **1.2. Tipo de domínio `SealedText`** (dep: 1.1)
+- [x] **1.2. Tipo de domínio `SealedText`** (dep: 1.1)
   - `internal/domain` (tipo de valor compartilhado): `MarshalJSON` emite sempre o envelope cifrado; `UnmarshalJSON` faz parse e mantém cifrado; `Reveal(ctx)` decifra sob demanda; `Seal(ctx, plaintext)`.
   - **Aceite:** `MarshalJSON` nunca emite o claro; `Reveal` devolve o claro; `UnmarshalJSON(MarshalJSON(x))` preserva o envelope.
   - **Testes:** round-trip `Seal → MarshalJSON → UnmarshalJSON → Reveal`; **não-vazamento** (`MarshalJSON` só envelope); log do tipo não expõe o claro.
   - **Refs:** R6.1, R6.3, R6.5 · D6.
 
-- [ ] **Fechamento Fase 1:** `docs/architecture.md` (cifra por campo), `docs/decisions.md` (se refinar envelope), Swagger não muda ainda; `make check` verde → commit "pocketbase-core Fase 1: SealedText e cripto por campo".
+- [x] **Fechamento Fase 1:** `docs/architecture.md` (cifra por campo), `docs/decisions.md` (se refinar envelope), Swagger não muda ainda; `make check` verde → commit "pocketbase-core Fase 1: SealedText e cripto por campo".
 
 ---
 
 ## Fase 2 — Domínio rico por bounded context (R4)
 
-- [ ] **2.1. Agregados dos bounded contexts** (dep: 1.2)
+- [x] **2.1. Agregados dos bounded contexts** (dep: 1.2)
   - `internal/domain/{patient,clinical,billing,scheduling,costs,therapist}`: agregados conforme o **MER canônico (D4b)**, com comportamento, validação, serialização e formatação de log (sem vazar clínico). Campos clínicos sensíveis em `clinical` usam `SealedText` (D6).
   - Padrões: ULID em toda entidade; dinheiro `int64` centavos; instantes `America/Sao_Paulo` ISO-8601; idempotência de efeito financeiro.
   - **Aceite:** cada agregado valida-se e transita de estado por conta própria; serviços não concentram regra de domínio.
   - **Testes:** unit por context (validação, transições da sessão em `scheduling`, idempotência em `billing`, `SealedText` em `clinical`).
   - **Refs:** R4.1, R4.2, R4.3, R11.2 · D4, D4b, D6.
 
-- [ ] **2.1b. Portar as regras de negócio existentes para os contexts** (dep: 2.1)
+- [x] **2.1b. Portar as regras de negócio existentes para os contexts** (dep: 2.1)
   - Reimplementar no domínio rico, por bounded context, as regras já maduras do Psicoman (fonte: `docs/requirements.md §3.3–§3.6` e os services atuais) — **não** reinventar um billing pobre:
     - `billing`: geração de débito por sessão realizada (opt-out via `bill`), fechamento de ciclo de planos fechados por `due_day` com idempotência (`plan_id + billing_period`), `atendimento_social` nunca gera débito, cálculo de status de pagamento (parcial/pago).
     - `costs`: rateio de custo por período, custo por sessão/paciente, ROI por origem.
@@ -74,13 +74,13 @@ Convenções:
   - **Testes:** unit por regra (feliz + borda: dupla geração idempotente, período vazio, social sem débito, rateio por período).
   - **Refs:** R4.1, R11.2 · D4, D4b.
 
-- [ ] **2.2. Portas de repositório + serviços enxutos** (dep: 2.1)
+- [x] **2.2. Portas de repositório + serviços enxutos** (dep: 2.1)
   - Definir no domínio/app as **interfaces de porta** (repositórios) por context; `internal/app` com serviços enxutos que orquestram agregados + portas.
   - **Aceite:** o domínio não importa o PocketBase; os serviços dependem só das portas.
   - **Testes:** unit dos serviços com **fakes** das portas.
   - **Refs:** R4.1, R5.1 · D4, D5.
 
-- [ ] **Fechamento Fase 2:** `docs/architecture.md` (bounded contexts + domínio rico); `make check` verde → commit "pocketbase-core Fase 2: domínio rico por bounded context".
+- [x] **Fechamento Fase 2:** `docs/architecture.md` (bounded contexts + domínio rico); `make check` verde → commit "pocketbase-core Fase 2: domínio rico por bounded context".
 
 ---
 
@@ -88,56 +88,56 @@ Convenções:
 
 > **Fonte das coleções:** o **MER canônico (D4b)** é a referência única de entidades, campos, constraints e relations. Cada sub-task abaixo materializa um grupo do MER como coleções do PocketBase (migrations).
 
-- [ ] **3.1a. Coleções `patient` + `scheduling`** (dep: 2.2)
+- [x] **3.1a. Coleções `patient` + `scheduling`** (dep: 2.2)
   - Coleções `patient` (UNIQUE `email`; UNIQUE parcial `cpf`; `approval_status`; relation `origin`), `origin`, `appointment_request`, `session` (relations `patient`/`location`; status + metadados de cancelamento), `availability`, `location`. Conforme D4b.2.
   - **Aceite:** boot cria as coleções; UNIQUE de email/CPF e relations ativos.
   - **Testes:** migração no boot (base nova, idempotente); violar UNIQUE de email/CPF falha.
   - **Refs:** R11.1 · D4b, D5.
 
-- [ ] **3.1b. Coleções `billing` + `costs`** (dep: 3.1a)
+- [x] **3.1b. Coleções `billing` + `costs`** (dep: 3.1a)
   - Coleções `contract`, `plan` (relation `contract`), `debt` (UNIQUE `idempotency_key`; relations `patient`/`session`/`plan`), `payment` (relation `debt`), `cost_category`, `cost_item` (relation `origin`), `session_cost` (UNIQUE `session_id`). Conforme D4b.2/D4b.3.
   - **Aceite:** chave de idempotência de débito e 1:1 de `session_cost` ativos; reprocessar não duplica.
   - **Testes:** violar `ux_debt_idempotency` falha; dupla geração idempotente de débito.
   - **Refs:** R11.1, R11.2 · D4b, D5.
 
-- [ ] **3.1c. Coleções `clinical` + `therapist` + transversais** (dep: 3.1a)
+- [x] **3.1c. Coleções `clinical` + `therapist` + transversais** (dep: 3.1a)
   - Coleções `anamnesis` (UNIQUE `patient_id`; campo 🔒), `note` (campo 🔒; relation `session` nullable), `ai_summary` (campo 🔒; relation `session`), `tag_index` (tags em claro), `therapist_profile`, `therapist_platform_link`, `ged_file`, `audit_log`, `google_token` (token cifrado). Conforme D4b.2.
   - **Aceite:** campos 🔒 guardam envelope (nunca claro); `tag_index` com tags em claro; 1:1 de anamnese.
   - **Testes:** migração no boot; conferir que coluna clínica aceita o envelope string.
   - **Refs:** R6.5, R11.1 · D4b, D5, D6.
 
-- [ ] **3.2. Adapter `platform/pb` (domínio↔Record) + cifra na borda** (dep: 3.1a, 3.1b, 3.1c)
+- [x] **3.2. Adapter `platform/pb` (domínio↔Record) + cifra na borda** (dep: 3.1a, 3.1b, 3.1c)
   - `internal/platform/pb` implementa as portas de repositório, mapeando agregado↔`core.Record`. Ao gravar campo clínico, cifra via `Cipher` e persiste o **envelope** como string; ao ler, decifra para `SealedText` em memória (D6.3). Único pacote que importa o PocketBase.
   - **Aceite:** CRUD por context round-trip via adapter; nada clínico em claro no banco (só envelope).
   - **Testes:** integração do adapter contra o PB embarcado (round-trip, incl. cifra→envelope→decifra); teste de que o domínio não importa `platform/pb`.
   - **Refs:** R5.1, R5.2, R6.3 · D5, D6.
 
-- [ ] **Fechamento Fase 3:** `docs/architecture.md` (coleções/migrations + adapter); `make check` verde → commit "pocketbase-core Fase 3: adapter platform/pb e coleções com constraints".
+- [x] **Fechamento Fase 3:** `docs/architecture.md` (coleções/migrations + adapter); `make check` verde → commit "pocketbase-core Fase 3: adapter platform/pb e coleções com constraints".
 
 ---
 
 ## Fase 4 — API `/v1` + envelope + Swagger + segregação por ator (R2, R7)
 
-- [ ] **4.1. Router `/v1` + envelope + middleware chain** (dep: 3.2)
+- [x] **4.1. Router `/v1` + envelope + middleware chain** (dep: 3.2)
   - `internal/api`: grupos por ator `/v1/app/*` (terapeuta), `/v1/portal/*` (paciente), `/v1/admin/*` (operação) sobre o router do PB (via `app.OnServe()`); envelope `{ message, elapsed_ms, data, error }` (PT-BR); middleware recover/request-id/timing/logging.
   - Restringir a REST automática do PocketBase para que **não** seja o contrato público.
   - **Aceite:** rotas `/v1` respondem no envelope padrão; `elapsed_ms` preenchido; paths por ator separados; REST automática não expõe o contrato.
   - **Testes:** E2E do envelope (sucesso e erro); teste de que a REST automática não serve dado clínico em claro.
   - **Refs:** R2.1, R7.1, R7.2 · D2, D7, D13.
 
-- [ ] **4.1b. DTOs de resposta (leitura de prontuário sem vazar o claro)** (dep: 4.1)
+- [x] **4.1b. DTOs de resposta (leitura de prontuário sem vazar o claro)** (dep: 4.1)
   - DTOs explícitos por resposta: o DTO do terapeuta (`/v1/app/*`) inclui o campo clínico em claro via `Reveal()`; **nenhum** DTO do portal inclui campo clínico (D6.3). Nenhuma resposta serializa `SealedText` direto.
   - **Aceite:** `GET /v1/app/...` devolve o prontuário legível; o portal nunca recebe campo clínico.
   - **Testes:** E2E lê prontuário no app (claro) e confirma ausência de clínico em qualquer rota do portal; teste de não-vazamento.
   - **Refs:** R6.3 · D6.3.
 
-- [ ] **4.2. Rotas de negócio + Swagger** (dep: 4.1b)
+- [x] **4.2. Rotas de negócio + Swagger** (dep: 4.1b)
   - Rotas por context nos paths certos (ex.: `POST /v1/app/sessions`, `GET /v1/app/patients/{id}/debts`, `GET /v1/portal/me`), handlers finos que orquestram os serviços; Swagger/OpenAPI do `/v1`.
   - **Aceite:** rotas principais exercitadas por E2E; Swagger descreve o contrato.
   - **Testes:** E2E de contrato das rotas principais; validação do Swagger.
   - **Refs:** R7.1, R7.3, R11.1 · D7.
 
-- [ ] **Fechamento Fase 4:** `docs/architecture.md` (contrato `/v1` por ator + DTOs), `docs/requirements.md`, Swagger; `make check` verde → commit "pocketbase-core Fase 4: contrato /v1 com envelope, DTOs e segregação por ator".
+- [x] **Fechamento Fase 4:** `docs/architecture.md` (contrato `/v1` por ator + DTOs), `docs/requirements.md`, Swagger; `make check` verde → commit "pocketbase-core Fase 4: contrato /v1 com envelope, DTOs e segregação por ator".
 
 ---
 
