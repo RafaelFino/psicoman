@@ -6,6 +6,55 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-21 — Onda "pocketbase-core": PocketBase como framework, binário único, domínio rico e cripto por campo
+
+**Contexto.** A V1 do Psicoman **ainda não foi publicada** — não há lastro, não há dados reais em produção e a base técnica pode ser reescrita à vontade. A plataforma é **single-tenant** (uma VM por terapeuta) e roda **sempre atrás do [`Pangolin`](https://docs.fossorial.io/)**, nunca exposta diretamente à internet. A demanda de concorrência é mínima: um único terapeuta operando e, nos dias mais agitados, dois ou três cadastros de paciente. Ao longo da evolução anterior ficou claro que faltavam **invariantes transacionais** (unicidade de email/CPF, FK, transação, idempotência de efeito financeiro) que as ideias de arquitetura exploradas até aqui não entregavam de forma barata. Esta entrada fixa a arquitetura-alvo da onda `pocketbase-core` e a **nomenclatura canônica** que as specs e steerings desta onda consomem.
+
+**Alternativas consideradas e descartadas.** Avaliamos (não como passado a corrigir, mas como caminhos possíveis) três arquiteturas antes de escolher a atual:
+
+- **Alt.1 — SQLite local primário puro (da POC original).**
+  - *Prós:* simples, zero dependência externa, controle total do schema e das transações; invariantes transacionais nativos.
+  - *Contras:* não entrega HTTP server, file storage/server, auth/OAuth2, admin UI nem migrations prontos — tudo isso teria de ser reimplementado à mão, inflando o código de infraestrutura em vez de código de negócio.
+  - *Motivo do descarte:* reescreveríamos à mão várias peças que um framework já resolve, sem ganho de negócio.
+
+- **Alt.2 — Google Drive como fonte da verdade** (ver `/tmp/evolucao-ref.md`).
+  - *Prós:* acervo legível e portável, backup implícito, nenhum banco a operar.
+  - *Contras:* **sem constraints/FK/UNIQUE/transação**, consistência apenas eventual, sujeito a rate-limit e latência de rede no caminho de request. Inviável para invariantes financeiros (idempotência de débito) e de unicidade.
+  - *Motivo do descarte:* perde exatamente as garantias transacionais que motivam a onda; o Drive no caminho de escrita torna cada operação de negócio frágil.
+
+- **Alt.3 — Corte híbrido "acervo no Drive + controle no SQLite".**
+  - *Prós:* tira o conteúdo pesado (markdown clínico) do banco e mantém o controle relacional (sessões, débitos) com constraints.
+  - *Contras:* mantém o Drive no **caminho de escrita/verdade** do acervo e exige **sync bidirecional**; passam a existir dois lados de verdade a reconciliar, com janelas de inconsistência.
+  - *Motivo do descarte:* a complexidade de sync bidirecional e o duplo lado de verdade não compensam frente a um único banco transacional.
+
+**Motivo geral do descarte:** nenhuma dessas alternativas recupera, de forma barata, **invariantes transacionais + HTTP + file-server + auth + admin num binário único** atrás do `Pangolin`. É isso que a decisão abaixo entrega.
+
+**Decisão.** Adotamos o **PocketBase como framework** (biblioteca Go), e esta passa a ser a **arquitetura padrão da V1** — substitui integralmente as explorações anteriores (sem lastro, porque a plataforma não foi publicada). Nove pontos:
+
+1. **PocketBase como framework → binário único.** Importamos o PocketBase como lib Go em `cmd/psicoman/main.go` (`pocketbase.New()` + hook `app.OnServe()` para registrar as rotas próprias). Aproveitamos do PB o SQLite relacional com constraints/relations, o HTTP server, o file storage/server, o logging, o auth/OAuth2, as migrations e a admin UI. Isso recupera os invariantes transacionais (UNIQUE, FK, ON CONFLICT, transação) que a ideia de Drive-como-banco não dava.
+2. **Binário único** substitui os antigos `cmd/admin` + `cmd/portal`. A segregação admin/portal deixa de ser **física** (dois processos) e passa a ser **lógica** (grupos de rota + regras de auth), já que tudo roda atrás do `Pangolin` e nunca é exposto direto à internet. Um binário simplifica o roll out.
+3. **Auth simplificada.** O `Pangolin` é a barreira forte de borda; o app confia no gateway e mantém só o mínimo de defense-in-depth. Expomos de forma controlada apenas cadastro/login do paciente. A identidade do admin chega via header do `Pangolin`. O **gate de aprovação do paciente** (`pendente`/`aprovado`/`rejeitado`, com enforcement no servidor via hook) permanece.
+4. **Domínio rico** substitui o "domínio magro". Agregados por bounded context carregam comportamento, serialização/desserialização, formatação de log e ações no próprio domínio (OO bem feita); os serviços de negócio ficam enxutos, apenas orquestrando. Bounded contexts: `patient`, `clinical`, `billing`, `scheduling`, `costs`, `therapist`.
+5. **Ports & Adapters — `platform/pb`.** O mapeamento domínio↔Record do PocketBase fica isolado no pacote `internal/platform/pb`. Os agregados de domínio são a autoridade e **não** dependem do PocketBase; trocar o PB por outra base significa reescrever só o adapter.
+6. **Cripto por campo (`SealedText`).** Campos clínicos sensíveis (corpo da sessão, anamnese, notas, resumo de IA) usam o tipo wrapper `SealedText`, cuja serialização para persistência produz o envelope `versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext` (base64) e cujo `MarshalJSON` emite sempre o envelope **cifrado**, nunca o claro; o claro só sai via `Reveal(ctx)`. Algoritmo **AES-256-GCM**, pacote `internal/platform/crypto`, chave via config atrás de um `KeyProvider` (o `id_da_chave` no envelope habilita rotação; `versao_do_esquema`/`algoritmo` habilitam evolução sem quebrar dados antigos). A cifra é **por campo**: nome, email, telefone, datas, status e valores ficam em claro e indexáveis; a busca clínica se dá pelas **tags** da IA (em claro), não pelo corpo (cifrado). O PocketBase expõe `security.Encrypt`/`security.Decrypt` (AES-256-GCM, chave de 32 chars), mas o PB **não** cifra arquivo/DB sozinho — a cifra é do **nosso** `SealedText`.
+7. **Contrato de API revisado do zero.** Rotas próprias sob o prefixo `/v1/*` (namespaces lógicos `admin`/`portal`) registradas sobre o router do PocketBase; a REST automática do PB **não** é o contrato público. Envelope de resposta `{ message, elapsed_ms, data, error }` (`message` em PT-BR), rotas versionadas e Swagger.
+8. **Integrações.** O Google Calendar permanece **síncrono** (agenda/Meet, checagem de conflito via freebusy antes de confirmar a sessão) — é o único Google no caminho de request. O Google Drive **deixa de ser síncrono** e vira **fallback/DR**: um hook no ciclo de **backup** do PocketBase dispara o sync do snapshot para o Drive (em `internal/drivesync`, podendo ser segundo processo/hook); o Drive nunca mais é fonte da verdade nem caminho de request. A IA fica em `internal/integration/gemini` (Gemini pago com proteção de dados): resumo clínico + tagueamento com índice invertido de tags por paciente/ano, disparo explícito pelo terapeuta, resultado revisável antes de consolidar, **opt-in por instância** (default off), auditoria `ai.process` sem conteúdo clínico e minimização. Base legal: os dados são da própria terapeuta (controladora), que já faz esse trabalho manualmente.
+9. **Persistência.** Coleções PocketBase com constraints/relations recuperam unicidade (email/CPF), idempotência de débito (chave `UNIQUE`), FK e transação. Os padrões de domínio permanecem não-negociáveis: ULID em toda entidade, dinheiro `int64` em centavos BRL, tempo `America/Sao_Paulo` em ISO-8601, idempotência de efeito financeiro por chave única.
+
+**Estrutura de pastas alvo:** `cmd/psicoman/main.go` (único); `internal/domain/{patient,clinical,billing,scheduling,costs,therapist}` + o tipo `SealedText`; `internal/app` (serviços enxutos); `internal/platform/{crypto,pb}`; `internal/integration/{google,gemini}`; `internal/drivesync`; `internal/api` (rotas `/v1/*` próprias, envelope PT-BR, sobre o router do PB).
+
+**Consequências.**
+- **Steerings reescritos nesta onda:** [`psicoman-golang.md`](../.kiro/steering/psicoman-golang.md) (domínio rico + binário único + estrutura de pastas nova), com ajustes alinhados em [`psicoman-seguranca-lgpd.md`](../.kiro/steering/psicoman-seguranca-lgpd.md) (binário único com segregação lógica, gate de aprovação via hook, `SealedText` por campo, Drive como fallback/DR) e [`psicoman-google-api.md`](../.kiro/steering/psicoman-google-api.md) (Calendar síncrono, Drive fallback via hook de backup).
+- **Nasce a spec** [`.kiro/specs/pocketbase-core/`](../.kiro/specs/pocketbase-core/requirements.md) (requirements/design/tasks) descrevendo a reescrita por fases.
+- **Binário único** (`cmd/psicoman`) substitui `cmd/admin` + `cmd/portal`; segregação admin/portal vira lógica.
+- **Domínio rico** por bounded context; serviços enxutos em `internal/app`.
+- **Cripto por campo** via `SealedText` (AES-256-GCM, envelope com `id_da_chave` para rotação, `KeyProvider`).
+- **Contrato `/v1`** revisto com envelope `{ message, elapsed_ms, data, error }` e Swagger.
+- **Drive vira fallback/DR** (hook de backup → `drivesync`); **Gemini opt-in** por instância.
+- `docs/requirements.md` e `docs/architecture.md` **serão reescritos** para esta arquitetura pela fase de fechamento das tasks da onda (**não** por esta entrada, que cobre ADR + spec + steerings).
+
+---
+
 ## 2026-10-13 — Observabilidade: detalhe técnico dos erros 5xx vai para o log
 
 **Contexto.** Ao investigar o 500 do agendamento, o diagnóstico foi dificultado porque o `RespondError` escrevia o envelope de erro mas **nunca registrava o `Internal`** (detalhe técnico) — o corpo da resposta esconde o detalhe por segurança (correto) e o middleware de logging só registra o status. Resultado: 500 opacos, sem rastro da causa.

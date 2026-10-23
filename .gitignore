@@ -42,6 +42,9 @@ go.work.sum
 !.kiro/specs/
 !.kiro/steering/
 
+# Artefatos transitórios de workflow de agente
+.agents/
+
 # Config real da instância (nunca versionar segredos)
 config.yaml
 config.local.yaml
