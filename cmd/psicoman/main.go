@@ -15,6 +15,9 @@ import (
 	"github.com/pocketbase/pocketbase"
 
 	"github.com/RafaelFino/psicoman/internal/api"
+	// Blank import: registra as migrations do schema (coleções do MER D4b) em
+	// AppMigrations via init(); o PocketBase as aplica no boot (RunAllMigrations).
+	_ "github.com/RafaelFino/psicoman/internal/platform/pb/migrations"
 )
 
 func main() {
