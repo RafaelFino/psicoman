@@ -50,3 +50,6 @@ config.yaml
 config.local.yaml
 config.dev.yaml
 data-dev/
+
+# Data dir do PocketBase (binário único) — local de dev; nunca versionar
+pb_data/

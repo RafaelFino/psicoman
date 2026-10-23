@@ -1,17 +1,15 @@
 # Psicoman — Makefile
-# Qualidade: make check (fmt + vet + lint + testes + e2e).
+# Binário único (cmd/psicoman) com o PocketBase embarcado como framework.
+# Gate de qualidade: make check (fmt + vet + build + test-unit + e2e; lint advisory).
 
 GO         ?= go
 BIN_DIR    ?= bin
-ADMIN_BIN  := $(BIN_DIR)/psicoman-admin
-PORTAL_BIN := $(BIN_DIR)/psicoman-portal
-CONFIG     ?= config.yaml
-DEV_CONFIG ?= config.dev.yaml
+BIN        := $(BIN_DIR)/psicoman
+DATA_DIR   ?= ./pb_data
+HTTP_ADDR  ?= 127.0.0.1:8090
 
-.PHONY: help all build build-admin build-portal test test-unit e2e \
-        fmt fmt-check vet lint check tidy migrate \
-        run-admin run-portal run-local deploy update clean \
-        stack-up stack-down stack-seed stack-logs
+.PHONY: help all build test test-unit e2e \
+        fmt fmt-check vet lint check tidy serve clean
 
 ## help: lista os alvos disponíveis
 help:
@@ -20,25 +18,19 @@ help:
 
 all: build
 
-## build: compila os dois binários (saída = arquivo, não diretório)
-build: build-admin build-portal
-
-build-admin:
+## build: compila o binário único (saída = ARQUIVO, nunca diretório)
+build:
 	@mkdir -p $(BIN_DIR)
-	$(GO) build -o $(ADMIN_BIN) ./cmd/admin
-
-build-portal:
-	@mkdir -p $(BIN_DIR)
-	$(GO) build -o $(PORTAL_BIN) ./cmd/portal
+	$(GO) build -o $(BIN) ./cmd/psicoman
 
 ## test: TODOS os testes (unitários + E2E)
 test: test-unit e2e
 
 ## test-unit: testes unitários (exclui a suíte E2E)
 test-unit:
-	$(GO) test ./internal/... ./cmd/...
+	$(GO) test ./internal/...
 
-## e2e: testes end-to-end
+## e2e: testes end-to-end sobre o binário único
 e2e:
 	$(GO) test ./test/e2e/...
 
@@ -76,75 +68,11 @@ check: fmt-check vet build test-unit e2e
 tidy:
 	$(GO) mod tidy
 
-## migrate: as migrations rodam no boot; alvo informativo p/ CI
-migrate: build-admin
-	@echo "As migrations são aplicadas automaticamente no boot do binário."
+## serve: sobe o binário único localmente (PocketBase + rotas /v1 + admin UI em /_/)
+serve: build
+	@echo "Subindo Psicoman em $(HTTP_ADDR) — admin UI em http://$(HTTP_ADDR)/_/  (Ctrl-C para parar)."
+	$(BIN) serve --http $(HTTP_ADDR) --dir $(DATA_DIR)
 
-## run-admin: executa o admin com $(CONFIG)
-run-admin: build-admin
-	$(ADMIN_BIN) -config $(CONFIG)
-
-## run-portal: executa o portal com $(CONFIG)
-run-portal: build-portal
-	$(PORTAL_BIN) -config $(CONFIG)
-
-## run-local: sobe admin+portal em MODO DEV (auth desligada) para validar local
-run-local: build $(DEV_CONFIG)
-	@echo "Subindo Psicoman em MODO DEV (autenticação DESLIGADA). Ctrl-C para parar."
-	@echo "Admin:  http://localhost:8080   Portal: http://localhost:8081"
-	@trap 'kill 0' INT TERM; \
-	 $(ADMIN_BIN)  -config $(DEV_CONFIG) & \
-	 $(PORTAL_BIN) -config $(DEV_CONFIG) & \
-	 wait
-
-# Gera um config de desenvolvimento local se ainda não existir.
-$(DEV_CONFIG):
-	@echo "Gerando $(DEV_CONFIG) (modo dev, dados em ./data-dev) ..."
-	@printf '%s\n' \
-	  '# Config de DESENVOLVIMENTO LOCAL — auth desligada. Não use em produção.' \
-	  'dev_mode: true' \
-	  'admin:' \
-	  '  host: "0.0.0.0"' \
-	  '  port: 8080' \
-	  'portal:' \
-	  '  host: "0.0.0.0"' \
-	  '  port: 8081' \
-	  'paths:' \
-	  '  sqlite: "./data-dev/psicoman.db"' \
-	  '  ged_root: "./data-dev/ged"' \
-	  '  log_dir: "./data-dev/logs"' \
-	  'admin_auth:' \
-	  '  email: "dev@local"' \
-	  'crypto:' \
-	  "  key: \"$$(openssl rand -base64 32 2>/dev/null || echo MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=)\"" \
-	  'log:' \
-	  '  level: "debug"' \
-	  > $(DEV_CONFIG)
-
-## stack-up: sobe a STACK LOCAL em Docker (admin+portal, dev) e aplica o seed
-stack-up:
-	./scripts/stack-up.sh
-
-## stack-seed: aplica (ou reaplica) a carga inicial na stack já no ar
-stack-seed:
-	./scripts/seed.sh
-
-## stack-logs: segue os logs da stack local (Ctrl-C para sair)
-stack-logs:
-	docker compose logs -f
-
-## stack-down: derruba a stack local e LIMPA TUDO (containers, volume, imagem)
-stack-down:
-	./scripts/stack-down.sh
-
-## deploy: instalação interativa (ver docs/deploy.md)
-deploy:
-	sudo ./scripts/deploy.sh
-
-## update: atualiza a instância a partir do GitHub (backup + validação + rollback)
-update:
-	sudo ./scripts/update-server.sh
-
-## clean: remove binários e o config de dev
+## clean: remove binários e o data dir local
 clean:
-	rm -rf $(BIN_DIR) $(DEV_CONFIG)
+	rm -rf $(BIN_DIR) $(DATA_DIR)
