@@ -3,6 +3,59 @@
 
 Design técnico da plataforma. Complementa [`requirements.md`](./requirements.md) (requisitos) e antecede [`../.kiro/specs/mvp/tasks.md`](../.kiro/specs/mvp/tasks.md) (plano de implementação).
 
+> **Onda `pocketbase-core` em curso.** As seções numeradas 1–9 abaixo descrevem a arquitetura anterior (dois binários, domínio magro, repositório SQLite próprio) e **serão reescritas na Fase 10** da onda. Até lá, a seção **0 (abaixo)** documenta o incremento já entregue por esta onda. A decisão-base está na ADR `2026-10-21` de [`decisions.md`](./decisions.md).
+
+---
+
+## 0. Onda `pocketbase-core` — domínio rico por bounded context (Fase 2)
+
+Incremento entregue pela Fase 2 da onda `pocketbase-core`. Cobre a camada de domínio (agregados ricos) e a camada de aplicação (serviços enxutos + portas). A fundação do binário único (Fase 0) e a cifra por campo `SealedText` (Fase 1) já estão na base; as coleções/adapter `platform/pb` (Fase 3) e o contrato `/v1` (Fase 4) chegam nas fases seguintes. Fonte do modelo de dados: D4b (MER canônico) em [`../.kiro/specs/pocketbase-core/design.md`](../.kiro/specs/pocketbase-core/design.md).
+
+### 0.1 Camadas e regra de dependência
+
+```
+internal/domain/<context>   núcleo de regras (agregados ricos) — não importa PB, app, api
+      ↑ (interfaces de porta tipadas contra o domínio)
+internal/app                serviços enxutos + portas de repositório/integração
+      ↑
+internal/platform/pb        adapter (Fase 3) — único a importar o PocketBase
+```
+
+- **Domínio puro.** `internal/domain/*` só pode acoplar-se a `internal/platform/{ulid,clock}` e aos tipos transversais `domain.Cipher`/`domain.SealedText`. **Não** importa o PocketBase, `platform/pb`, `app` nem `api`. Imposto pelo teste de arquitetura `internal/archtest/arch_test.go` (`TestDomainNaoImportaPocketBase`), parte do gate.
+- **Serviços enxutos.** `internal/app` orquestra os agregados e depende apenas das **portas** (interfaces), nunca de uma lib externa concreta. A lógica de negócio vive no agregado; o serviço só coordena I/O, auditoria e disparo de hooks.
+- **Portas em `internal/app`.** As interfaces de repositório e de integração ficam em `internal/app` (não no domínio), junto do serviço que as consome (`internal/app/ports.go`). Mantém o domínio como núcleo puro, sem portas órfãs. O adapter `platform/pb` (Fase 3) implementa essas portas.
+
+### 0.2 Bounded contexts
+
+Seis contexts, cada um um pacote Go com seus agregados, validação, transições e funções puras:
+
+| Context (`internal/domain/…`) | Agregados / tipos principais | Responsabilidade |
+|---|---|---|
+| `patient` | `Patient`, `Origin` | Cadastro, telefone/CPF canônico, gate de aprovação (`pendente`/`aprovado`/`rejeitado`), emissão de recibo. |
+| `scheduling` | `Session`, `Location`, `Availability`, `AppointmentRequest` | Ciclo de vida da sessão (transições, confirmação, cancelamento com autor/motivo, remarcação) e `SessionCategory`. **Kernel compartilhado:** dono das constantes de `modalidade`, `período` e categoria de sessão. |
+| `billing` | `Contract`, `Plan`, `Debt`, `Payment` | Débito por sessão (opt-out `bill`), fechamento de ciclo por `due_day` com idempotência (`session_id` ou `plan_id+billing_period`), `atendimento_social` nunca gera débito, status de pagamento (`aberto`/`parcial`/`pago`). |
+| `costs` | `CostCategory`, `CostItem`, `SessionCost`, ROI | Custo direto/rateado por sessão, rateio por período, ROI por origem. |
+| `clinical` | `Anamnesis`, `Note`, `AISummary`, `TagIndex`, timeline, métricas | Prontuário com campos clínicos em `SealedText`; timeline/métricas derivadas; tags do `tag_index` em **claro** (indexáveis), corpo cifrado. |
+| `therapist` | `TherapistProfile`, `TherapistPlatformLink` | Perfil do terapeuta e links de plataformas (reusa `origin`). |
+
+**Dependências entre contexts (unidirecionais e explícitas):**
+
+- `scheduling` é o **kernel compartilhado**: não importa nenhum context irmão.
+- `costs → scheduling` — para as constantes de período (`PeriodDiario/Mensal/Anual`) usadas no rateio.
+- `clinical → scheduling` — o motor de métricas consome `scheduling.SessionCategory`.
+- `clinical → billing` — a timeline referencia débitos/pagamentos do paciente.
+- Onde um serviço precisa cruzar contexts sem criar import (ex.: finalizar sessão → gerar débito), a orquestração vive em `internal/app`, passando dados primitivos (IDs, valores, flags) em vez de importar o pacote irmão.
+
+Transversais no pacote raiz `internal/domain`: `AuditLog` (`audit.go`), `GEDFile` (`ged.go`), além de `Cipher`/`SealedText` (Fase 1). Mantidos na raiz por não carregarem regra de um context específico.
+
+### 0.3 Serviços de aplicação (`internal/app`)
+
+Serviços enxutos, um por área, recebendo as portas por injeção (construtores `New…Service`) e um `clock.Clock` injetável para testes determinísticos: `SessionService`, `BillingService`, `PaymentService`, `CostService`, `ReportService`, `SessionMetricsService` (via `metrics_service.go`), `HistoryService`, `DayFeedService`, `PatientService`, `AuditService`. As regras de negócio maduras das ondas anteriores foram **portadas** (não reinventadas) para os agregados + serviços, com paridade de comportamento verificada por testes unitários (feliz + borda) usando fakes das portas.
+
+### 0.4 Invariantes de domínio preservados
+
+ULID em toda entidade (`internal/platform/ulid`), dinheiro em `int64` centavos BRL, instantes em `America/Sao_Paulo` via `internal/platform/clock`, erros ao usuário em PT-BR (sentinelas `ErrNotFound`/`ErrConflict`/`ErrValidation` em `internal/app/errors.go`), `context.Context` como 1º parâmetro de toda porta/serviço com I/O, e idempotência de efeito financeiro por chave única.
+
 ---
 
 ## 1. Objetivo e Escopo
