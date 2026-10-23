@@ -74,6 +74,13 @@ func boolField(name string) *core.BoolField {
 	return &core.BoolField{Name: name}
 }
 
+// jsonField cria um JSONField (listas/objetos estruturados sem conteúdo clínico:
+// session_ids, contacts, location_ids, scopes, metadata de auditoria).
+// MaxSize zero aplica o limite padrão de 1MB do PocketBase.
+func jsonField(name string) *core.JSONField {
+	return &core.JSONField{Name: name}
+}
+
 // timestamps adiciona created_at/updated_at (sempre) à coleção.
 func timestamps(col *core.Collection) {
 	col.Fields.Add(isoTextField("created_at"))

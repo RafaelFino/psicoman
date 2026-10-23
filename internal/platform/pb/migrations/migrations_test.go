@@ -265,10 +265,116 @@ func criaSession(t *testing.T, app core.App, patientID string) string {
 	return id
 }
 
+// grupoC são as coleções criadas pela migration 0030.
+var grupoC = []string{
+	"anamnesis",
+	"note",
+	"ai_summary",
+	"tag_index",
+	"therapist_profile",
+	"therapist_platform_link",
+	"ged_file",
+	"audit_log",
+	"google_token",
+}
+
+func TestGrupoCColecoesExistem(t *testing.T) {
+	app := newTestApp(t)
+	for _, name := range grupoC {
+		if _, err := app.FindCollectionByNameOrId(name); err != nil {
+			t.Errorf("coleção %q deveria existir após a migração: %v", name, err)
+		}
+	}
+}
+
+// TestAnamneseUniquePatient garante o 1:1 anamnese<->patient (UNIQUE patient_id).
+func TestAnamneseUniquePatient(t *testing.T) {
+	app := newTestApp(t)
+	patientID := criaPatient(t, app, "anamnese@exemplo.com")
+
+	col, err := app.FindCollectionByNameOrId("anamnesis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	novo := func() *core.Record {
+		rec := core.NewRecord(col)
+		rec.Set("id", ulid.New())
+		rec.Set("patient_id", patientID)
+		rec.Set("conteudo", "v1.aes-256-gcm.k1.nonce.ciphertext")
+		return rec
+	}
+
+	if err := app.Save(novo()); err != nil {
+		t.Fatalf("1ª anamnese deveria salvar: %v", err)
+	}
+	if err := app.Save(novo()); err == nil {
+		t.Error("2ª anamnese para o mesmo patient_id deveria falhar (UNIQUE ux_anamnesis_patient)")
+	}
+}
+
+// TestColunaClinicaAceitaEnvelope confere que a coluna clínica (anamnesis.conteudo)
+// aceita uma string de envelope cifrado e a relê sem alteração — o PocketBase não
+// impõe validação de formato que atrapalhe o envelope versao.algo.keyid.nonce.ct.
+func TestColunaClinicaAceitaEnvelope(t *testing.T) {
+	app := newTestApp(t)
+	patientID := criaPatient(t, app, "envelope@exemplo.com")
+
+	col, err := app.FindCollectionByNameOrId("anamnesis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const envelope = "v1.aes-256-gcm.chave01.YWJjZGVmZ2hpamts.Y2lwaGVydGV4dC1vcGFjbw"
+	id := ulid.New()
+	rec := core.NewRecord(col)
+	rec.Set("id", id)
+	rec.Set("patient_id", patientID)
+	rec.Set("conteudo", envelope)
+	if err := app.Save(rec); err != nil {
+		t.Fatalf("gravar envelope na coluna clínica deveria funcionar: %v", err)
+	}
+	got, err := app.FindRecordById(col, id)
+	if err != nil {
+		t.Fatalf("FindRecordById: %v", err)
+	}
+	if got.GetString("conteudo") != envelope {
+		t.Errorf("envelope alterado na coluna: quero %q, veio %q", envelope, got.GetString("conteudo"))
+	}
+}
+
+// TestTagIndexTagEmClaro confere que tag_index.tag persiste em claro (não é
+// campo cifrado) e é relido sem alteração.
+func TestTagIndexTagEmClaro(t *testing.T) {
+	app := newTestApp(t)
+	patientID := criaPatient(t, app, "tag@exemplo.com")
+
+	col, err := app.FindCollectionByNameOrId("tag_index")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const tag = "ansiedade"
+	id := ulid.New()
+	rec := core.NewRecord(col)
+	rec.Set("id", id)
+	rec.Set("patient_id", patientID)
+	rec.Set("ano", 2026)
+	rec.Set("tag", tag)
+	rec.Set("session_ids", []string{ulid.New(), ulid.New()})
+	if err := app.Save(rec); err != nil {
+		t.Fatalf("gravar tag_index deveria funcionar: %v", err)
+	}
+	got, err := app.FindRecordById(col, id)
+	if err != nil {
+		t.Fatalf("FindRecordById: %v", err)
+	}
+	if got.GetString("tag") != tag {
+		t.Errorf("tag deveria persistir em claro: quero %q, veio %q", tag, got.GetString("tag"))
+	}
+}
+
 func TestMigracaoIdempotente(t *testing.T) {
 	app := newTestApp(t)
 
-	todas := append(append([]string{}, grupoA...), grupoB...)
+	todas := append(append(append([]string{}, grupoA...), grupoB...), grupoC...)
 	antes := make(map[string]string, len(todas))
 	for _, name := range todas {
 		col, err := app.FindCollectionByNameOrId(name)
