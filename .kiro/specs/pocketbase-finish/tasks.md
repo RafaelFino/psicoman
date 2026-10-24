@@ -8,51 +8,52 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ---
 
-## ⚠️ Antes de começar — decisões pendentes do Rafael
+## ✅ Decisões do Rafael (2026-10-24) — resolvidas
 
-Esta spec **não deve ser implementada** até o Rafael resolver (ver `design.md`):
-1. **⟨R1⟩** Recorte: todas as 4 sub-fases de R1 nesta onda, ou fatiar (sub-fases 3/4 → onda seguinte)?
-2. **⟨R2⟩** O env `PSICOMAN_GOOGLE_REFRESH_TOKEN` continua como fallback de dev depois do fluxo OAuth real?
-3. **⟨R4⟩** Verificação de email do portal: manter desligada (recomendado) ou ligar (exige transporte SMTP)?
-4. **⟨R5⟩** Métricas: endpoint dedicado nesta onda ou só `/readyz`+`/livez` agora (métricas adiadas)?
+1. **⟨R1⟩ Recorte:** **fatiar.** Sub-fases 1 e 2 (Fases 4 e 5) entram nesta onda; sub-fases 3 e 4 (Fases 6 e 7) vão para onda seguinte. Entrega o "produto utilizável ponta a ponta" (locais+planos+feed+história) num escopo coeso.
+2. **⟨R2⟩ Env fallback:** **manter como fallback só em dev, com precedência do repo.** O `google_token` cifrado é o caminho primário; o env `PSICOMAN_GOOGLE_REFRESH_TOKEN` só entra quando o repo está vazio, e o boot loga a origem.
+3. **⟨R4⟩ Verificação de email:** **manter desligada (Opção A).** O gate de aprovação humana já é o controle de acesso efetivo; ligar SMTP não fecha buraco e adiciona infra. Fase 9 fora de escopo.
+4. **⟨R5⟩ Métricas:** **só `/readyz`+`/livez` nesta onda; endpoint de métricas adiado** (timing por rota já é logado). Registrado como adiamento consciente em `docs/decisions.md`.
 
-A ordem e o escopo das fases abaixo assumem a recomendação do `design.md`; ajustar conforme as respostas.
+**Diretriz transversal (Rafael):** testes em TODA a plataforma — unit, E2E de jornada, mocks de tudo que é externo (Google, OAuth). Muitas mudanças pesadas de arquitetura foram feitas; validar que tudo funciona é prioridade. Gate obrigatório por fase.
+
+**Escopo da onda:** Fases 1, 2, 3, 4, 5, 8, 10. **Fora de escopo** (onda seguinte): Fases 6, 7, 9.
 
 ---
 
 ## 📊 Status ao vivo da onda
 
-> `✅ concluída` · `🔄 em progresso` · `⬜ pendente` · `⏸️ aguardando decisão`.
+> `✅ concluída` · `🔄 em progresso` · `⬜ pendente` · `🚫 fora de escopo`.
 
 | Fase | Estado | Commit | Observação |
 |------|--------|--------|------------|
-| 0 — Spec (requirements/design/tasks) | ✅ concluída | _(pendente)_ | aguardando decisões do Rafael antes de implementar |
-| 1 — Perfil do terapeuta (R3) | ⏸️ aguardando decisão | — | independente; destrava o cabeçalho da cobrança |
-| 2 — OAuth 3-legged real + `google_token` (R2) | ⏸️ aguardando decisão | — | remove o seam de env; estado de reautorização |
-| 3 — Observabilidade `/readyz` + `/livez` (R5) | ⏸️ aguardando decisão | — | `/readyz` reflete o OAuth (dep. Fase 2) |
-| 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ⏸️ aguardando decisão | — | destrava o débito por sessão via API |
-| 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ⏸️ aguardando decisão | — | handlers finos sobre serviços existentes |
-| 6 — R1 sub-fase 3: financeiro/custos (custos/ROI completo + relatório por local) | ⏸️ aguardando decisão | — | candidata a onda seguinte (⟨R1⟩) |
-| 7 — R1 sub-fase 4: agendamento pelo portal (pedidos) | ⏸️ aguardando decisão | — | candidata a onda seguinte (⟨R1⟩) |
-| 8 — Docs operacionais (R6) | ⏸️ aguardando decisão | — | dep. Fase 2 (descreve a autorização real) |
-| 9 — Verificação de email do portal (R4) | ⏸️ aguardando decisão | — | só se o Rafael escolher a Opção B |
+| 0 — Spec (requirements/design/tasks) | ✅ concluída | `ac3519d` | decisões resolvidas em 2026-10-24 |
+| 1 — Perfil do terapeuta (R3) | ✅ concluída | _(a seguir)_ | porta+adapter+serviço+rotas+cabeçalho na cobrança; make check verde |
+| 2 — OAuth 3-legged real + `google_token` (R2) | ⬜ pendente | — | remove o seam de env; estado de reautorização |
+| 3 — Observabilidade `/readyz` + `/livez` (R5) | ⬜ pendente | — | `/readyz` reflete o OAuth (dep. Fase 2) |
+| 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ⬜ pendente | — | destrava o débito por sessão via API |
+| 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ⬜ pendente | — | handlers finos sobre serviços existentes |
+| 6 — R1 sub-fase 3: financeiro/custos | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
+| 7 — R1 sub-fase 4: agendamento pelo portal | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
+| 8 — Docs operacionais (R6) | ⬜ pendente | — | dep. Fase 2 (descreve a autorização real) |
+| 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** spec redigida (Fase 0). **Bloqueada aguardando as 4 decisões acima** antes de qualquer implementação.
+**Agora:** Fase 1 (perfil do terapeuta) concluída e verde — commit a seguir. **Próximo:** Fase 2 (OAuth 3-legged real + `google_token` cifrado).
 
 ---
 
 ## Fase 1 — Perfil do terapeuta (R3)
 
-- [ ] **1.1 Porta + adapter + serviço `therapist`** (dep: —)
+- [x] **1.1 Porta + adapter + serviço `therapist`** (dep: —)
   - Porta `TherapistRepository` em `internal/app/ports.go`; adapter em `platform/pb` sobre `therapist_profile`/`therapist_platform_link`; `TherapistService` (Get/Upsert singleton 1:1, links, locais associados).
-  - **Testes:** unit do serviço (upsert idempotente); adapter round-trip.
+  - **Testes:** unit do serviço (upsert idempotente); adapter round-trip. ✅
   - **Refs:** R3.1 · D3.
-- [ ] **1.2 Rotas `/v1/app/therapist` + `/v1/portal/therapist` + cabeçalho na cobrança** (dep: 1.1)
+- [x] **1.2 Rotas `/v1/app/therapist` + `/v1/portal/therapist` + cabeçalho na cobrança** (dep: 1.1)
   - `GET/PUT /v1/app/therapist`, `POST/DELETE /v1/app/therapist/platform-links`; `GET /v1/portal/therapist` (só `PublicView()`). `InvoiceService.compose` passa a imprimir nome/CRP.
-  - **Testes:** E2E do contrato; E2E da cobrança com cabeçalho; portal vê só público.
+  - **Testes:** E2E do contrato; E2E da cobrança com cabeçalho; portal vê só público. ✅
   - **Refs:** R3.2–R3.4 · D3.
-- [ ] **Fechamento Fase 1:** docs (architecture + Swagger), `make check` verde → commit.
+- [x] **Fechamento Fase 1:** docs (architecture §0.13 + decisions + Swagger), `make check` verde → commit.
 
 ---
 

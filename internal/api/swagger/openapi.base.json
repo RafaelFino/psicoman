@@ -155,6 +155,33 @@
           "timestamp": { "type": "string" },
           "meta": { "type": "object", "additionalProperties": true }
         }
+      },
+      "TherapistProfileDTO": {
+        "type": "object",
+        "description": "Perfil do terapeuta (singleton 1:1 por instância). Exposto completo no ator app; o portal recebe só a visão pública.",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "crp": { "type": "string" },
+          "email": { "type": "string" },
+          "bio": { "type": "string" },
+          "contacts": { "type": "object", "additionalProperties": { "type": "string" } },
+          "photo_file_id": { "type": "string" },
+          "location_ids": { "type": "array", "items": { "type": "string" } },
+          "links": { "type": "array", "items": { "$ref": "#/components/schemas/TherapistPlatformLinkDTO" } },
+          "created_at": { "type": "string" },
+          "updated_at": { "type": "string" }
+        }
+      },
+      "TherapistPlatformLinkDTO": {
+        "type": "object",
+        "description": "Link de plataforma do terapeuta (Doctoralia etc.), opcionalmente vinculado a uma origem.",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "url": { "type": "string" },
+          "origin_id": { "type": "string" }
+        }
       }
     }
   },
@@ -330,6 +357,34 @@
         ],
         "responses": { "200": { "description": "OK" }, "400": { "description": "Período inválido" } }
       }
+    },
+    "/v1/app/therapist": {
+      "get": {
+        "tags": ["app"], "summary": "Perfil do terapeuta + links de plataforma.", "security": [{ "pangolinHeader": [] }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TherapistProfileDTO" } } } }, "404": { "description": "Perfil ainda não configurado" } }
+      },
+      "put": {
+        "tags": ["app"], "summary": "Cria ou atualiza o perfil do terapeuta (singleton 1:1).", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "crp": { "type": "string" }, "email": { "type": "string" }, "bio": { "type": "string" }, "contacts": { "type": "object", "additionalProperties": { "type": "string" } }, "photo_file_id": { "type": "string" }, "location_ids": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "OK" }, "422": { "description": "Nome obrigatório" } }
+      }
+    },
+    "/v1/app/therapist/platform-links": {
+      "post": {
+        "tags": ["app"], "summary": "Adiciona um link de plataforma ao perfil.", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["label", "url"], "properties": { "label": { "type": "string" }, "url": { "type": "string" }, "origin_id": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Link criado" }, "404": { "description": "Perfil ainda não configurado" }, "422": { "description": "Rótulo/URL obrigatórios" } }
+      }
+    },
+    "/v1/app/therapist/platform-links/{id}": {
+      "delete": {
+        "tags": ["app"], "summary": "Remove um link de plataforma.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK (data null)" } }
+      }
+    },
+    "/v1/portal/therapist": {
+      "get": { "tags": ["portal"], "summary": "Dados PÚBLICOS do terapeuta (nome/foto/bio). Nunca CRP/contatos/email.", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "404": { "description": "Perfil ainda não configurado" } } }
     },
     "/v1/portal/me": {
       "get": { "tags": ["portal"], "summary": "Dados do próprio paciente (sem clínico).", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Autenticação necessária" } } }

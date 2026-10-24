@@ -59,6 +59,12 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	// Relatórios.
 	g.GET("/reports/financial", h.ReportFinancial)
 	g.GET("/reports/roi", h.ReportROI)
+
+	// Perfil do terapeuta (R3) — singleton 1:1 + links de plataforma.
+	g.GET("/therapist", h.GetTherapist)
+	g.PUT("/therapist", h.UpsertTherapist)
+	g.POST("/therapist/platform-links", h.AddTherapistLink)
+	g.DELETE("/therapist/platform-links/{id}", h.DeleteTherapistLink)
 }
 
 // reqCtx deriva um contexto com timeout a partir da requisição.

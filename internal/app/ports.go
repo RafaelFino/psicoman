@@ -10,6 +10,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/domain/costs"
 	"github.com/RafaelFino/psicoman/internal/domain/patient"
 	"github.com/RafaelFino/psicoman/internal/domain/scheduling"
+	"github.com/RafaelFino/psicoman/internal/domain/therapist"
 )
 
 // Portas de persistência por bounded context (decisão 5 do fase2-plan.md): as
@@ -198,6 +199,25 @@ type TagIndexRepository interface {
 	FindByTag(ctx context.Context, patientID string, ano int, tag string) ([]string, error)
 	// ListTags devolve as tags do paciente no ano (para navegação).
 	ListTags(ctx context.Context, patientID string, ano int) ([]*clinical.TagIndex, error)
+}
+
+// --- therapist ---
+
+// TherapistRepository persiste o perfil do terapeuta (singleton lógico 1:1 por
+// instância — R3.1) e seus links de plataforma. GetProfile devolve ErrNotFound
+// quando o perfil ainda não foi configurado; SaveProfile cria-ou-atualiza (o id
+// do agregado é a fonte de verdade).
+type TherapistRepository interface {
+	// GetProfile devolve o único perfil da instância (ErrNotFound se ausente).
+	GetProfile(ctx context.Context) (*therapist.TherapistProfile, error)
+	// SaveProfile grava o perfil (cria se o id não existir, senão atualiza).
+	SaveProfile(ctx context.Context, p *therapist.TherapistProfile) error
+	// ListLinks devolve os links de plataforma do perfil.
+	ListLinks(ctx context.Context, profileID string) ([]*therapist.TherapistPlatformLink, error)
+	// CreateLink persiste um novo link de plataforma.
+	CreateLink(ctx context.Context, l *therapist.TherapistPlatformLink) error
+	// DeleteLink remove um link de plataforma por id.
+	DeleteLink(ctx context.Context, id string) error
 }
 
 // --- transversais ---

@@ -6,6 +6,19 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` Fase 1: perfil do terapeuta como singleton 1:1 + cabeçalho na cobrança (R3)
+
+**Contexto.** O agregado `domain/therapist` (`TherapistProfile`, `TherapistPlatformLink`) e a coleção `therapist_profile` existiam desde a `pocketbase-core`, mas sem porta/serviço/rota — e o PDF de cobrança (`InvoiceService.compose`) omitia o cabeçalho do terapeuta por não ter de onde lê-lo. Como modelar o perfil: há exatamente um por instância (single-tenant).
+
+**Decisão.** Perfil como **singleton lógico 1:1**: o `TherapistService.Upsert` reusa o id do perfil existente (preservando `created_at`), de modo que gravar duas vezes atualiza o mesmo registro em vez de criar um segundo. Rotas `/v1/app/therapist` (CRUD completo + links) para o terapeuta; `/v1/portal/therapist` devolve **só** `PublicView()` (nome/foto/bio) e fica **fora do gate** de aprovação (o paciente vê quem o atende antes de ser aprovado). O cabeçalho da cobrança volta via `InvoiceService.SetTherapist` — **best-effort**: sem perfil, o PDF sai sem cabeçalho e a cobrança não falha.
+
+**Consequências.**
+- Novos: porta `app.TherapistRepository`, adapter `pb.NewTherapistRepository` (nenhum campo cifrado — dado operacional), `app.TherapistService`, handlers `api/app/therapist.go` e `api/portal/therapist.go`, DTOs e mappers, 4 rotas no app + 1 no portal, Swagger atualizado.
+- `portal.RequireApproved` ganha a exceção de path exato `GET /v1/portal/therapist`.
+- Testes: unit do serviço (upsert idempotente 1:1, links, validação), adapter round-trip (JSON map/slice, upsert, links), E2E (contrato app, 422 de validação, cabeçalho no PDF, portal só-público com não-vazamento de CRP/email/telefone).
+
+---
+
 ## 2026-10-24 — Nova onda "pocketbase-finish": consolidação de pendências e gaps da `pocketbase-core`
 
 **Contexto.** A onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/) reconstruiu a base técnica (binário único, domínio rico, cifra por campo, contrato `/v1`, Calendar/Drive/Gemini, portal com auth) e portou as regras de negócio das ondas anteriores para o domínio rico. Ao fechar, uma varredura do código e docs encontrou pendências e gaps que não cabiam no escopo daquela onda. Criada a spec [`../.kiro/specs/pocketbase-finish/`](../.kiro/specs/pocketbase-finish/) para consolidá-los.
@@ -18,9 +31,15 @@ Ordem: mais recente no topo.
 5. **Observabilidade** (R5): só `/v1/health`; faltam `/readyz`/`/livez` e, possivelmente, métricas.
 6. **Docs operacionais** (R6): `docs/deploy.md` e `docs/stack-local.md` descrevem o modelo antigo (dois binários/Gmail/dev_mode) e estão com nota de "desatualizado".
 
-**Decisão.** A spec está **redigida (requirements/design/tasks) e aguardando 4 decisões do Rafael** antes de qualquer implementação: (⟨R1⟩) recorte/fatiamento das sub-fases de R1; (⟨R2⟩) env como fallback de dev após o OAuth real; (⟨R4⟩) ligar ou não a verificação de email (recomendado manter desligada — o gate de aprovação cobre); (⟨R5⟩) endpoint de métricas nesta onda ou adiar. Ordem sugerida: perfil (R3) e OAuth (R2) primeiro, depois `/readyz` (R5), o núcleo de R1 (locais+planos, que destrava o débito por sessão via API), telas iniciais, e por fim docs de deploy (R6).
+**Decisão (do Rafael, 2026-10-24).** As 4 decisões pendentes foram resolvidas:
+1. **⟨R1⟩ Recorte — fatiar.** Sub-fases 1 (locais+planos) e 2 (feed+história+métricas+calendário) entram nesta onda (Fases 4 e 5); sub-fases 3 (custos/ROI completo + relatório por local) e 4 (agendamento pelo portal) vão para uma **onda seguinte** (Fases 6 e 7 fora de escopo). Entrega o "produto utilizável ponta a ponta" num escopo coeso e revisável.
+2. **⟨R2⟩ Env fallback — manter só em dev, com precedência do repo.** O `google_token` cifrado é o caminho primário; o env `PSICOMAN_GOOGLE_REFRESH_TOKEN` só entra quando o repo está vazio, e o boot loga a origem. Sem atrito no loop de dev, sem enfraquecer produção.
+3. **⟨R4⟩ Verificação de email — manter desligada (Opção A).** O gate de aprovação humana já é o controle de acesso efetivo; ligar SMTP não fecha buraco de segurança e adiciona dependência de infra. Fase 9 fora de escopo (reversível numa onda futura se virar política).
+4. **⟨R5⟩ Métricas — só `/readyz`+`/livez` nesta onda; endpoint de métricas adiado.** O timing por rota já é logado (`httpx.Timing`/`Logging`), então não há cegueira operacional imediata. Satisfaz R5.2 ("ou a decisão explícita de adiá-las").
 
-**Consequências.** Nenhuma mudança de código nesta entrada — só o planejamento. A implementação começa após as decisões, em branch `pocketbase-finish`, seguindo a Definição de Pronto de `psicoman-processo-entrega`.
+**Diretriz transversal (do Rafael).** Testes em TODA a plataforma — unit, E2E de jornada, mocks de tudo que é externo (Google/OAuth). Dado o volume de mudanças de arquitetura da `pocketbase-core`, validar que tudo funciona é prioridade; gate de testes obrigatório por fase.
+
+**Consequências.** Escopo da onda: Fases 1, 2, 3, 4, 5, 8, 10. Fora de escopo: 6, 7, 9. Ordem: perfil (R3) e OAuth (R2) primeiro, depois `/readyz`+`/livez` (R5), o núcleo de R1 (locais+planos), telas iniciais (feed/história/métricas/calendário), docs de deploy (R6) e fechamento. Implementação em branch `pocketbase-finish`, commit por fase com `make check` verde; push/PR só no fim com OK do Rafael.
 
 ---
 

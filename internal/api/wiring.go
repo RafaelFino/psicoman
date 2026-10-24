@@ -112,6 +112,7 @@ func buildServices(a core.App) (*service.Services, error) {
 	prontuarioRepo := pb.NewProntuarioRepository(a, cipher)
 	aiSummaryRepo := pb.NewAISummaryRepository(a, cipher)
 	tagIndexRepo := pb.NewTagIndexRepository(a)
+	therapistRepo := pb.NewTherapistRepository(a)
 
 	// Serviços.
 	audit := app.NewAuditService(auditRepo)
@@ -134,9 +135,15 @@ func buildServices(a core.App) (*service.Services, error) {
 	history := app.NewHistoryService(patientsRepo, sessionsRepo, prontuarioRepo, debtsRepo, paymentsRepo, gedRepo, audit)
 	prontuario := app.NewProntuarioService(prontuarioRepo, nil)
 
+	// Perfil do terapeuta (R3): serviço singleton 1:1 + injeção do cabeçalho na
+	// cobrança (nome/CRP no PDF quando o perfil está configurado).
+	therapist := app.NewTherapistService(therapistRepo)
+
 	// PDF de cobrança no GED (file storage do PocketBase, D9b): o blob store
-	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256).
+	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256). O perfil
+	// do terapeuta alimenta o cabeçalho do PDF (R3.3).
 	invoice := app.NewInvoiceService(debtsRepo, patientsRepo, gedRepo, pb.NewGEDBlobStore(a), audit)
+	invoice.SetTherapist(therapistRepo)
 
 	// IA Gemini (Fase 8): opt-in pela presença de llm.gemini.api_key. Sem chave,
 	// aiSummarizerBuilder devolve nil e o AIService fica desligado (Enabled()
@@ -157,6 +164,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		Prontuario: prontuario,
 		Invoice:    invoice,
 		AI:         ai,
+		Therapist:  therapist,
 		PortalAuth: portalAuth,
 	}, nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/domain/costs"
 	"github.com/RafaelFino/psicoman/internal/domain/patient"
 	"github.com/RafaelFino/psicoman/internal/domain/scheduling"
+	"github.com/RafaelFino/psicoman/internal/domain/therapist"
 )
 
 // PatientDTO é a projeção pública de um paciente para o terapeuta.
@@ -141,6 +142,30 @@ type ROIRowDTO struct {
 	ROICents     int64  `json:"roi_cents"`
 }
 
+// TherapistProfileDTO é a projeção do perfil do terapeuta para o ator app
+// (todos os campos, inclusive CRP/contatos — dado operacional, não clínico).
+type TherapistProfileDTO struct {
+	ID          string                     `json:"id"`
+	Name        string                     `json:"name"`
+	CRP         string                     `json:"crp,omitempty"`
+	Email       string                     `json:"email,omitempty"`
+	Bio         string                     `json:"bio,omitempty"`
+	Contacts    map[string]string          `json:"contacts,omitempty"`
+	PhotoFileID string                     `json:"photo_file_id,omitempty"`
+	LocationIDs []string                   `json:"location_ids"`
+	Links       []TherapistPlatformLinkDTO `json:"links"`
+	CreatedAt   string                     `json:"created_at"`
+	UpdatedAt   string                     `json:"updated_at"`
+}
+
+// TherapistPlatformLinkDTO é a projeção de um link de plataforma do terapeuta.
+type TherapistPlatformLinkDTO struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	URL      string `json:"url"`
+	OriginID string `json:"origin_id,omitempty"`
+}
+
 // --- mappers (o Reveal() só aparece aqui, no ator app) ---
 
 func toPatientDTO(p *patient.Patient) PatientDTO {
@@ -251,6 +276,39 @@ func toFinancialSummaryDTO(f *costs.FinancialSummary) FinancialSummaryDTO {
 		OpenCents:      f.Open,
 		ReceivedCents:  f.Received,
 		OverdueCents:   f.Overdue,
+	}
+}
+
+func toTherapistLinkDTO(l *therapist.TherapistPlatformLink) TherapistPlatformLinkDTO {
+	return TherapistPlatformLinkDTO{
+		ID:       l.ID,
+		Label:    l.Label,
+		URL:      l.URL,
+		OriginID: l.OriginID,
+	}
+}
+
+func toTherapistProfileDTO(p *therapist.TherapistProfile, links []*therapist.TherapistPlatformLink) TherapistProfileDTO {
+	linkDTOs := make([]TherapistPlatformLinkDTO, 0, len(links))
+	for _, l := range links {
+		linkDTOs = append(linkDTOs, toTherapistLinkDTO(l))
+	}
+	locationIDs := p.LocationIDs
+	if locationIDs == nil {
+		locationIDs = []string{}
+	}
+	return TherapistProfileDTO{
+		ID:          p.ID,
+		Name:        p.Name,
+		CRP:         p.CRP,
+		Email:       p.Email,
+		Bio:         p.Bio,
+		Contacts:    p.Contacts,
+		PhotoFileID: p.PhotoFileID,
+		LocationIDs: locationIDs,
+		Links:       linkDTOs,
+		CreatedAt:   httpx.FmtTime(p.CreatedAt),
+		UpdatedAt:   httpx.FmtTime(p.UpdatedAt),
 	}
 }
 
