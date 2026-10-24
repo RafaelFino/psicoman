@@ -4,7 +4,10 @@
 // ciclo de import com o pacote api (que monta o Services e registra as rotas).
 package service
 
-import "github.com/RafaelFino/psicoman/internal/app"
+import (
+	"github.com/RafaelFino/psicoman/internal/app"
+	"github.com/RafaelFino/psicoman/internal/domain"
+)
 
 // Services agrega os serviços de aplicação usados pelos handlers /v1/*. É
 // montado por api.buildServices (wiring) dentro do OnServe, quando o app e as
@@ -26,6 +29,10 @@ type Services struct {
 	Therapist  *app.TherapistService
 	GoogleAuth *app.GoogleAuthService
 	PortalAuth app.PortalAuth
+
+	// Cipher é a cifra montada no boot, exposta para o readiness check (/readyz)
+	// fazer um round-trip seal/open de verificação. Nunca cifra dado real aqui.
+	Cipher domain.Cipher
 
 	// GoogleOAuth carrega as credenciais do app (client_id/secret) para o fluxo
 	// de autorização 3-legged (rotas admin). Vazio quando não configurado — o

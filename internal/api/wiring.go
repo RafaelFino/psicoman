@@ -182,6 +182,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		Therapist:   therapist,
 		GoogleAuth:  googleAuth,
 		PortalAuth:  portalAuth,
+		Cipher:      cipher,
 		GoogleOAuth: oauthCfg,
 	}, nil
 }

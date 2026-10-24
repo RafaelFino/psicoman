@@ -193,6 +193,23 @@
         "responses": { "200": { "description": "No ar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } } } } }
       }
     },
+    "/v1/livez": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Liveness: o processo está vivo (200 fixo, sem checar dependências).",
+        "responses": { "200": { "description": "Vivo" } }
+      }
+    },
+    "/v1/readyz": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Readiness: cifra montada + DB acessível + estado do OAuth Google. 200 pronto (Google degradado não bloqueia); 503 se cifra ou DB falham.",
+        "responses": {
+          "200": { "description": "Pronto (checks no corpo: cipher/db/google)" },
+          "503": { "description": "Não pronto (cifra ou DB indisponível)" }
+        }
+      }
+    },
     "/v1/app/patients": {
       "get": {
         "tags": ["app"], "summary": "Lista pacientes.", "security": [{ "pangolinHeader": [] }],

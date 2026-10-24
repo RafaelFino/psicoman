@@ -6,6 +6,19 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` Fase 3: readiness/liveness (`/readyz`+`/livez`); métricas adiadas (R5)
+
+**Contexto.** Havia só `/v1/health`. Faltavam readiness/liveness, e o estado "reautorização Google necessária" (Fase 2) precisava de um `/readyz` que o refletisse. Decisão ⟨R5⟩ já tomada: só `/readyz`+`/livez` nesta onda; métricas adiadas.
+
+**Decisão.** `/v1/livez` = liveness (200 fixo). `/v1/readyz` = readiness com três checks (cifra montada via round-trip, DB acessível via lookup de coleção, estado do OAuth Google). Cifra/DB com erro → 503; Google degradado **não** bloqueia a prontidão (só reporta no corpo) — a app opera sem Google. Ambas fora da auth (probes). Métricas (endpoint Prometheus) **adiadas conscientemente** para onda futura: o timing por rota já é logado (`httpx`), cobrindo o mínimo (R5.2).
+
+**Consequências.**
+- Novos: `internal/api/health.go` (`livez`, `readyz(svc)`, `checkCipher`), rotas em `api.go`, `service.Services.Cipher` (exposta só para o readiness), Swagger (`/v1/livez`, `/v1/readyz`).
+- `/readyz` acopla a observabilidade ao estado de autorização do Google (Fase 2): `google=ok` após autorizar, `degraded` sem token — sem derrubar a prontidão.
+- Testes: E2E (livez, readyz degraded sem Google) + in-process (readyz `google=ok` após callback com OAuth fake; não-vazamento do token).
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` Fase 2: OAuth 3-legged real + refresh token cifrado, env como fallback só-dev (R2)
 
 **Contexto.** O refresh token do Google vinha de um env (`PSICOMAN_GOOGLE_REFRESH_TOKEN`, seam); a coleção `google_token` existia sem adapter; não havia fluxo para o terapeuta autorizar a instância. Como persistir o token e onde deixar o env.

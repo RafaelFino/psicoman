@@ -29,8 +29,8 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 |------|--------|--------|------------|
 | 0 — Spec (requirements/design/tasks) | ✅ concluída | `ac3519d` | decisões resolvidas em 2026-10-24 |
 | 1 — Perfil do terapeuta (R3) | ✅ concluída | `2e84663` | porta+adapter+serviço+rotas+cabeçalho na cobrança; make check verde |
-| 2 — OAuth 3-legged real + `google_token` (R2) | ✅ concluída | _(a seguir)_ | fluxo admin authorize/callback + token cifrado + precedência do repo; make check verde |
-| 3 — Observabilidade `/readyz` + `/livez` (R5) | ⬜ pendente | — | `/readyz` reflete o OAuth (dep. Fase 2) |
+| 2 — OAuth 3-legged real + `google_token` (R2) | ✅ concluída | `0b5ca33` | fluxo admin authorize/callback + token cifrado + precedência do repo; make check verde |
+| 3 — Observabilidade `/readyz` + `/livez` (R5) | ✅ concluída | _(a seguir)_ | cifra+DB+OAuth; métricas adiadas; make check verde |
 | 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ⬜ pendente | — | destrava o débito por sessão via API |
 | 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ⬜ pendente | — | handlers finos sobre serviços existentes |
 | 6 — R1 sub-fase 3: financeiro/custos | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
@@ -39,7 +39,7 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 2 (OAuth real) concluída e verde — commit a seguir. **Próximo:** Fase 3 (observabilidade `/readyz` + `/livez`, `/readyz` reflete o estado OAuth do Google).
+**Agora:** Fase 3 (observabilidade) concluída e verde — commit a seguir. **Próximo:** Fase 4 (R1 sub-fase 1: locais + disponibilidades + origens + planos + pagamentos → débito por sessão ponta a ponta via API).
 
 ---
 
@@ -77,13 +77,13 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ## Fase 3 — Observabilidade `/readyz` + `/livez` (R5)
 
-- [ ] **3.1 `/readyz` e `/livez`** (dep: 2.3)
-  - `/readyz`: cifra montada + DB acessível + estado do OAuth Google (ok|degraded). `/livez`: 200 fixo.
-  - **Testes:** E2E (readyz ok; readyz degraded sem token Google; livez 200).
+- [x] **3.1 `/readyz` e `/livez`** (dep: 2.3)
+  - `/readyz`: cifra montada (round-trip) + DB acessível (lookup) + estado do OAuth Google (ok|degraded; não bloqueia prontidão). `/livez`: 200 fixo. 503 se cifra/DB falham.
+  - **Testes:** E2E (livez 200; readyz pronto com google=degraded sem token) + in-process (readyz google=ok após callback OAuth fake; não-vazamento). ✅
   - **Refs:** R5.1 · D5.
-- [ ] **3.2 Métricas** (dep: —) — **⟨R5⟩** só se o Rafael optar por endpoint nesta onda.
+- [x] **3.2 Métricas** — **⟨R5⟩ ADIADO** (decisão do Rafael): endpoint de métricas fica para onda futura; timing por rota já logado cobre o mínimo. Registrado em `docs/decisions.md`.
   - **Refs:** R5.2 · D5.
-- [ ] **Fechamento Fase 3:** docs, `make check` verde → commit.
+- [x] **Fechamento Fase 3:** docs (architecture §0.15 + decisions + Swagger), `make check` verde → commit.
 
 ---
 
