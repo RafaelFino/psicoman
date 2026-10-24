@@ -6,6 +6,20 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — Onda "pocketbase-core" (Fase 7): Drive como fallback/DR + cifra de blob dedicada (Opção A)
+
+**Contexto.** A Fase 7 espelha os backups do PocketBase para o Google Drive como fallback/DR (D9), disparado por um hook no ciclo de backup. O snapshot precisa subir **cifrado** (AES-256-GCM, psicoman-google-api / psicoman-seguranca-lgpd). A cifra de campo existente (`domain.Cipher.Seal(ctx, string) string`) produz um envelope **texto** base64 pensado para uma nota clínica curta — aplicá-la num zip de backup binário desperdiça memória e mistura semânticas. Como cifrar o snapshot: (A) helper binário dedicado em `platform/crypto` reusando o mesmo `KeyProvider`; (B) reusar a cifra de campo nos bytes do zip. O Rafael escolheu a **Opção A**.
+
+**Decisão (do Rafael).** **Opção A — cifra de BLOB dedicada.** Novo `crypto.BlobSealer{ SealBytes, OpenBytes }` cifra bytes com AES-256-GCM e as **mesmas chaves** do `domain.KeyProvider` (sem chave nova, sem config nova), em envelope binário compacto (`magic "PSB1" | keyIDLen | keyID | nonce | ciphertext`; `keyID` embutido → rotação; header como AAD autenticado). O `internal/drivesync.Syncer` registra `OnBackupCreate`: deixa o backup local rodar (`e.Next()`), lê o snapshot, cifra com o `BlobSealer` e sobe ao Drive via `google.DriveClient` (escopo mínimo `drive.file`, upload multipart) na pasta fria `google.drive_folder`.
+
+**Consequências.**
+- O Drive fica **fora do caminho de request** e **nunca** é fonte da verdade (só DR). O sync acompanha os snapshots reais sem lógica de sync bidirecional.
+- Degrada sem credenciais: `wireDriveSync` registra o hook sempre, mas com uploader nil quando faltam `client_id`/`client_secret`/`drive_folder`/refresh token → hook no-op observável, backup local segue, **sem 500**. Com Drive configurado, falha de cifra/upload é logada mas **não propagada** (best-effort, não invalida o backup local).
+- Novos: `internal/platform/crypto/blob.go` (+teste), `internal/integration/google/drive.go` (+teste, interface + fake + REST), `internal/drivesync/drivesync.go` (+teste). `oauth.go` ganha `NewOAuthHTTPClientWithScopes` (escopos mínimos por integração).
+- `POST /v1/admin/backup` deixa de ser stub e dispara `app.CreateBackup` (timeout dedicado de 2 min), acionando o hook de DR. Asserção do `api_test.go` atualizada.
+
+---
+
 ## 2026-10-24 — Onda "pocketbase-core" (Fase 6, TASK 6.2): PDF de cobrança no file storage do PocketBase (Opção A)
 
 **Contexto.** A TASK 6.2 gera o PDF de cobrança a partir do débito e o armazena no GED. O design D9b manda armazenar "no GED, servido pelo **file storage do PocketBase**", mas a coleção `ged_file` modelada na Fase 3 guarda **só metadados** (`rel_path`, `mime`, `size`, `sha256`) — **sem campo `file`** — e o legado (`c3ab585`) gravava os bytes num `GEDService` próprio em filesystem (`<ged_root>`). Faltava decidir onde os bytes físicos do PDF ficam. Três caminhos avaliados: (A) `app.NewFilesystem()` + `Upload(bytes, fileKey=rel_path)`; (B) adicionar campo `file` a `ged_file` (migration); (C) filesystem puro num `<ged_root>` configurável. O Rafael escolheu a **Opção A**.

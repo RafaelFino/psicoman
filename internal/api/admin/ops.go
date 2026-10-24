@@ -14,6 +14,7 @@ import (
 
 const (
 	handlerTimeout  = 5 * time.Second
+	backupTimeout   = 2 * time.Minute // backup (zip + DR) é mais lento que I/O comum
 	auditDefaultLim = 100
 	auditMaxLim     = 500
 )
@@ -30,10 +31,19 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	g.GET("/audit-log", h.AuditLog)
 }
 
-// Backup POST /v1/admin/backup — stub até a Fase 7 (drivesync).
+// Backup POST /v1/admin/backup — dispara o backup local do PocketBase. O hook
+// de DR (internal/drivesync, Fase 7) espelha o snapshot cifrado no Drive quando
+// há credenciais; sem elas, é no-op observável (o backup local segue, sem 500).
+// Nome vazio => o PocketBase gera um nome padrão (pb_backup_<timestamp>).
 func (h *Handlers) Backup(e *core.RequestEvent) error {
-	// TODO Fase 7: disparar o backup real via drivesync.
-	return httpx.RespondAccepted(e, "Backup agendado.", map[string]any{"status": "agendado"})
+	// Backup pode ser mais lento que uma requisição comum (zip + upload de DR);
+	// usa um timeout dedicado maior que o handlerTimeout padrão.
+	ctx, cancel := context.WithTimeout(e.Request.Context(), backupTimeout)
+	defer cancel()
+	if err := e.App.CreateBackup(ctx, ""); err != nil {
+		return httpx.Fail(e, err)
+	}
+	return httpx.RespondAccepted(e, "Backup realizado.", map[string]any{"status": "ok"})
 }
 
 // AuditLog GET /v1/admin/audit-log?limit=N (1..500, default 100).

@@ -319,7 +319,7 @@
       }
     },
     "/v1/admin/backup": {
-      "post": { "tags": ["admin"], "summary": "Agenda backup (stub até a Fase 7).", "security": [{ "pangolinHeader": [] }], "responses": { "202": { "description": "Agendado" } } }
+      "post": { "tags": ["admin"], "summary": "Dispara backup local; hook de DR espelha cifrado no Drive quando configurado.", "security": [{ "pangolinHeader": [] }], "responses": { "202": { "description": "Backup realizado" } } }
     },
     "/v1/admin/audit-log": {
       "get": {

@@ -245,10 +245,10 @@ func TestRotasPorAtorNoEnvelope(t *testing.T) {
 		t.Errorf("GET debts: quero 200 no envelope, veio %d (%s)", dres.status, dres.body)
 	}
 
-	// POST backup (admin) → 202 stub.
+	// POST backup (admin) → 202 (backup real; hook de DR no-op sem Google).
 	bres := c.do(http.MethodPost, "/v1/admin/backup", "", appHeaders())
-	if bres.status != http.StatusAccepted || !strings.Contains(bres.body, "agendado") {
-		t.Errorf("POST backup: quero 202 agendado, veio %d (%s)", bres.status, bres.body)
+	if bres.status != http.StatusAccepted || !strings.Contains(bres.body, `"status":"ok"`) {
+		t.Errorf("POST backup: quero 202 ok, veio %d (%s)", bres.status, bres.body)
 	}
 
 	// GET audit-log (admin) → 200 no envelope.

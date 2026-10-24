@@ -11,6 +11,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/api/service"
 	"github.com/RafaelFino/psicoman/internal/app"
 	"github.com/RafaelFino/psicoman/internal/config"
+	"github.com/RafaelFino/psicoman/internal/drivesync"
 	"github.com/RafaelFino/psicoman/internal/integration/google"
 	"github.com/RafaelFino/psicoman/internal/platform/crypto"
 	"github.com/RafaelFino/psicoman/internal/platform/pb"
@@ -87,6 +88,11 @@ func buildServices(a core.App) (*service.Services, error) {
 	}
 	cipher := crypto.New(kp)
 
+	// Hook de DR no ciclo de backup (Fase 7): espelha o snapshot cifrado no
+	// Drive (fallback/DR, fora do caminho de request). Degrada para no-op sem
+	// credenciais Google — o backup local segue.
+	driveSyncWirer(a, kp)
+
 	// Repositórios (adapter platform/pb).
 	patientsRepo := pb.NewPatientRepository(a)
 	originsRepo := pb.NewOriginRepository(a)
@@ -147,6 +153,68 @@ func buildServices(a core.App) (*service.Services, error) {
 // o Google real (wireCalendar); os testes em processo o reatribuem para injetar
 // um ConflictChecker/Calendar fake sem tocar a rede (FEAT-002).
 var calendarWirer = wireCalendar
+
+// driveSyncWirer é o seam de registro do hook de DR (Drive) no ciclo de backup.
+// Default liga o Google real (wireDriveSync); os testes em processo o reatribuem
+// para injetar um uploader fake ou desativar, sem tocar a rede (Fase 7).
+var driveSyncWirer = wireDriveSync
+
+// driveUploaderAdapter adapta um google.DriveClient à porta
+// drivesync.SnapshotUploader (upload do snapshot cifrado na pasta fria de DR).
+type driveUploaderAdapter struct {
+	client   google.DriveClient
+	folderID string
+}
+
+var _ drivesync.SnapshotUploader = (*driveUploaderAdapter)(nil)
+
+func (a *driveUploaderAdapter) Upload(ctx context.Context, name string, content []byte) (string, error) {
+	res, err := a.client.Upload(ctx, google.DriveUploadInput{
+		Name:     name,
+		FolderID: a.folderID,
+		MIME:     "application/octet-stream",
+		Content:  content,
+	})
+	if err != nil {
+		return "", err
+	}
+	return res.FileID, nil
+}
+
+// wireDriveSync registra o hook de DR no ciclo de backup (Fase 7). Ativa o
+// espelho real no Drive SÓ quando há credenciais completas (client_id +
+// client_secret + drive_folder) e um refresh token; caso contrário registra o
+// Syncer com uploader nil — o hook roda como no-op observável (backup local
+// segue, sem 500, com aviso logado). O snapshot é cifrado com o BlobSealer
+// (mesmas chaves da cifra de campo) antes do upload (drive.file, D9).
+func wireDriveSync(a core.App, kp *crypto.MapKeyProvider) {
+	sealer := crypto.NewBlobSealer(kp)
+	cfg, _, err := configLoader()
+	if err != nil {
+		a.Logger().Warn("Drive DR desativado: falha ao ler config", "erro", err.Error())
+		drivesync.New(nil, sealer).Register(a)
+		return
+	}
+	g := cfg.Google
+	if strings.TrimSpace(g.ClientID) == "" ||
+		strings.TrimSpace(g.ClientSecret) == "" ||
+		strings.TrimSpace(g.DriveFolder) == "" {
+		a.Logger().Warn("Drive DR desativado: credenciais ausentes (client_id/client_secret/drive_folder) — backup não espelhado")
+		drivesync.New(nil, sealer).Register(a)
+		return
+	}
+	refresh := strings.TrimSpace(os.Getenv(EnvGoogleRefreshToken))
+	creds := google.OAuthCredentials{ClientID: g.ClientID, ClientSecret: g.ClientSecret, RefreshToken: refresh}
+	if !creds.Valid() {
+		a.Logger().Warn("Drive DR desativado: sem refresh token OAuth (reautorização necessária) — backup não espelhado")
+		drivesync.New(nil, sealer).Register(a)
+		return
+	}
+	httpClient := google.NewOAuthHTTPClientWithScopes(context.Background(), creds, google.DriveScope)
+	uploader := &driveUploaderAdapter{client: google.NewRESTDriveClient(httpClient), folderID: g.DriveFolder}
+	drivesync.New(uploader, sealer).Register(a)
+	a.Logger().Info("Drive DR ativado (hook de backup)", "drive_folder", g.DriveFolder)
+}
 
 // wireCalendar liga o Google Calendar síncrono ao SessionService a partir do
 // Config carregado (FEAT-001). Ativa o Calendar real SÓ quando há credenciais

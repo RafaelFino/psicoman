@@ -23,16 +23,23 @@ func (c OAuthCredentials) Valid() bool {
 	return c.ClientID != "" && c.ClientSecret != "" && c.RefreshToken != ""
 }
 
-// NewOAuthHTTPClient monta um *http.Client que injeta o Authorization do Google
-// e renova o access token automaticamente a partir do refresh token. O escopo é
-// o mínimo de Calendar (CalendarScope). O ctx governa a vida das renovações
-// (cada chamada de negócio deriva seu próprio timeout — psicoman-golang.md).
+// NewOAuthHTTPClient monta um *http.Client autenticado com o escopo mínimo de
+// Calendar (CalendarScope). Conveniência para o wiring do Calendar.
 func NewOAuthHTTPClient(ctx context.Context, creds OAuthCredentials) *http.Client {
+	return NewOAuthHTTPClientWithScopes(ctx, creds, CalendarScope)
+}
+
+// NewOAuthHTTPClientWithScopes monta um *http.Client que injeta o Authorization
+// do Google e renova o access token automaticamente a partir do refresh token,
+// com os escopos informados (sempre os MÍNIMOS necessários — nunca mais amplos
+// que o preciso, psicoman-google-api.md). O ctx governa a vida das renovações
+// (cada chamada de negócio deriva seu próprio timeout — psicoman-golang.md).
+func NewOAuthHTTPClientWithScopes(ctx context.Context, creds OAuthCredentials, scopes ...string) *http.Client {
 	cfg := &oauth2.Config{
 		ClientID:     creds.ClientID,
 		ClientSecret: creds.ClientSecret,
 		Endpoint:     googleoauth.Endpoint,
-		Scopes:       []string{CalendarScope},
+		Scopes:       scopes,
 	}
 	// Só o refresh token: o oauth2 troca por um access token na 1ª chamada.
 	return cfg.Client(ctx, &oauth2.Token{RefreshToken: creds.RefreshToken})
