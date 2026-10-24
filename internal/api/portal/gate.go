@@ -16,10 +16,11 @@ import (
 const gateTimeout = 5 * time.Second
 
 // RequireApproved devolve o middleware de gate de aprovação do grupo
-// /v1/portal/* (Fase 5, 5.2). Deixa passar as rotas de cadastro/estado (register
-// e me, acessíveis a pendente/rejeitado); para as demais resolve o paciente pelo
-// email (seam httpx.PortalEmail, TODO Fase 9) e exige approval_status ==
-// "aprovado", senão responde 403 (acesso_negado).
+// /v1/portal/* (Fase 5, reforçado na Fase 9). Deixa passar as rotas de cadastro/
+// estado (register e me, acessíveis a pendente/rejeitado); para as demais
+// resolve o paciente pela IDENTIDADE REAL da sessão do PocketBase
+// (httpx.PortalAuthRecordID → app.PortalAuth.PatientIDByAuthID) e exige
+// approval_status == "aprovado", senão responde 403 (acesso_negado).
 //
 // Vive no pacote portal (não em httpx) porque precisa importar service/app para
 // resolver o paciente — a regra de dependência permite a internal/api importar
@@ -29,14 +30,20 @@ func RequireApproved(svc *service.Services) func(*core.RequestEvent) error {
 		if isPortalGateException(e.Request.Method, e.Request.URL.Path) {
 			return e.Next() // register e me ficam fora do gate
 		}
-		email := httpx.PortalEmail(e)
-		if email == "" {
+		// Identidade REAL da sessão do PocketBase (Fase 9): o id do auth record
+		// patient_user. Sem sessão válida → 401.
+		authID := httpx.PortalAuthRecordID(e)
+		if authID == "" {
 			return httpx.RespondError(e, http.StatusUnauthorized, "nao_autenticado",
 				"Autenticação necessária.", nil)
 		}
 		ctx, cancel := context.WithTimeout(e.Request.Context(), gateTimeout)
 		defer cancel()
-		p, err := svc.Patients.GetByEmail(ctx, email)
+		pid, err := svc.PortalAuth.PatientIDByAuthID(ctx, authID)
+		if err != nil {
+			return httpx.Fail(e, err) // login sem paciente → 404/erro
+		}
+		p, err := svc.Patients.Get(ctx, pid)
 		if err != nil {
 			return httpx.Fail(e, err) // ErrNotFound → 404
 		}

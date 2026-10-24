@@ -139,6 +139,16 @@ A Fase 8 adiciona assistência por IA (Gemini): resumo clínico + tagueamento, c
 - **Ciclo revisável (`AIService`).** `Suggest` envia o texto, grava o resumo como **`sugerido`** (`ai_summary.resumo` é `SealedText`, cifrado na borda) e **devolve as tags sugeridas sem indexá-las** — o terapeuta revisa. `Consolidate(summaryID, reviewedTags)` marca o resumo como **`consolidado`** e só então grava as tags **revisadas** no índice. A auditoria `ai.process` registra apenas o fato (ator, `session_id`, contagem de tags) — **nunca** o texto enviado/retornado (minimização, psicoman-seguranca-lgpd).
 - **Índice invertido de tags (`tag_index`).** Entrada `(patient_id, ano, tag) → session_ids`, tags em **claro** (indexáveis) enquanto o corpo clínico permanece `SealedText` cifrado. `TagIndexRepository.Upsert` faz merge idempotente; `FindByTag`/busca são **sempre isolados por paciente** (nenhuma consulta cruza pacientes, R10.2). `GET /v1/app/patients/{id}/tags?tag=&ano=` devolve as sessões do paciente que carregam a tag no ano.
 
+### 0.12 Portal do paciente: auth real (substitui o SEAM) (Fase 9)
+
+A Fase 9 troca o SEAM `X-Portal-Email` (Fases 4/5) pela **identidade real** da sessão do PocketBase e materializa o cadastro/login do paciente (D2/D3).
+
+- **Coleção de auth separada `patient_user` (Opção A).** `core.NewAuthCollection("patient_user")` (email + senha nativos, tokens, `auth-with-password`) com relation **UNIQUE** `patient_id` → `patient` (1:1). O `patient` segue intacto como a entidade de negócio (ULID, relations clínicas, `approval_status`, índices) — **sem** migração destrutiva. Migração `0040_patient_auth`.
+- **Identidade real substitui o SEAM.** `httpx.PortalEmail` (header) vira `httpx.PortalAuthRecordID(e)`, que lê `e.Auth` — o auth record carregado pelo middleware global `loadAuthToken` do PocketBase a partir do `Authorization: Bearer <token>` — e confirma que a sessão é da coleção `patient_user`. O gate (`portal.RequireApproved`) e os handlers resolvem o paciente via a porta `app.PortalAuth.PatientIDByAuthID` (adapter `platform/pb` sobre `patient_user`). Só este ponto mudou — o resto do gate/handlers é o mesmo.
+- **Login nativo do PocketBase.** O paciente obtém o token em `POST /api/collections/patient_user/auth-with-password` (endpoint nativo, liberado independentemente das rules nulas da coleção) e o envia aos `/v1/portal/*`. Não há reimplementação de auth.
+- **Cadastro cria patient + credencial.** `POST /v1/portal/register` agora exige `password` (mín. 8); cria o `patient` (pendente) via `RegisterFromPortal` e, em seguida, a credencial `patient_user` vinculada (`PortalAuth.CreateLogin`, email verificado — a verificação por email está fora de escopo; o controle de acesso é o gate de aprovação).
+- **Gate inalterado em semântica.** Pendente/rejeitado → 403 em recurso protegido; `register` e `me` ficam fora do gate (o paciente vê o próprio estado mesmo pendente); sem sessão → 401. Agora tudo sobre a identidade real. E2E cobre o caminho negado (pendente → 403) e o permitido (aprovado → 2xx) **pela mesma sessão**.
+
 ---
 
 ## 1. Objetivo e Escopo

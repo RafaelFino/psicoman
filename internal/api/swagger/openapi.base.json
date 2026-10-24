@@ -20,10 +20,9 @@
         "description": "Identidade injetada pelo Pangolin para /v1/app/* e /v1/admin/*. Enforcement na Fase 5."
       },
       "portalSession": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Portal-Email",
-        "description": "Sessão do paciente no portal. Stub na Fase 4 (header); sessão real na Fase 5."
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Sessão real do paciente (Fase 9): token da coleção de auth patient_user, obtido via POST /api/collections/patient_user/auth-with-password e enviado como Authorization: Bearer."
       }
     },
     "schemas": {
@@ -341,8 +340,8 @@
     "/v1/portal/register": {
       "post": {
         "tags": ["portal"], "summary": "Auto-cadastro do paciente (nasce pendente).",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "phone", "email"], "properties": { "name": { "type": "string" }, "phone": { "type": "string" }, "email": { "type": "string" }, "cpf": { "type": "string" } } } } } },
-        "responses": { "201": { "description": "Criado" } }
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "phone", "email", "password"], "properties": { "name": { "type": "string" }, "phone": { "type": "string" }, "email": { "type": "string" }, "cpf": { "type": "string" }, "password": { "type": "string", "minLength": 8, "description": "Senha do login do paciente (coleção de auth patient_user)." } } } } } },
+        "responses": { "201": { "description": "Criado (aguarda aprovação)" }, "422": { "description": "Senha fraca ou dados inválidos" } }
       }
     },
     "/v1/admin/backup": {

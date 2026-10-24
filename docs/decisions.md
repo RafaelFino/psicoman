@@ -6,6 +6,21 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — Onda "pocketbase-core" (Fase 9): auth do paciente em coleção separada + identidade real do portal (Opção A)
+
+**Contexto.** A Fase 9 materializa o cadastro/login do paciente (D2/D3) e substitui o SEAM `X-Portal-Email` (Fases 4/5) pela identidade real da sessão. O `patient` é uma coleção central (ULID custom, email único, `approval_status`, relations clínicas). Como introduzir a auth: (A) coleção auth separada `patient_user` 1:1 com `patient`; (B) converter `patient` na própria auth collection; (C) auth como fonte única, `patient` perde email/approval. O Rafael escolheu a **Opção A** (menor raio de impacto no fim da onda).
+
+**Decisão (do Rafael).** **Opção A — `patient_user` separada, 1:1 com `patient`.** `core.NewAuthCollection("patient_user")` (email+senha nativos do PocketBase) com relation UNIQUE `patient_id`. O `patient` permanece intacto (sem migração destrutiva). A identidade real vem de `e.Auth` (middleware global `loadAuthToken` + `Authorization: Bearer`), confirmada como coleção `patient_user`; o gate/handlers resolvem o paciente via a porta `app.PortalAuth`. Login pelo endpoint nativo `auth-with-password`.
+
+**Consequências.**
+- `httpx.PortalEmail` (header) → `httpx.PortalAuthRecordID` (sessão real). O SEAM isolado das fases anteriores trocou num ponto só; gate e handlers do portal passam a resolver pela porta `PortalAuth`.
+- Novos: migração `0040_patient_auth` (`patient_user`), porta `app.PortalAuth` (`CreateLogin`/`PatientIDByAuthID`), adapter `pb.NewPortalAuthRepository`. `POST /v1/portal/register` passa a exigir `password` (mín. 8) e cria patient + credencial.
+- Testes em processo do gate reescritos para auth REAL (token via `Record.NewAuthToken()`); E2E cobre cadastro + login (`auth-with-password`) + gate negado (pendente 403) e permitido (aprovado 2xx) pela mesma sessão. Swagger: `portalSession` vira `http bearer`; register com `password`.
+- Verificação por email do paciente está **fora de escopo** (o controle de acesso é o gate de aprovação do terapeuta); a credencial nasce com email verificado.
+- A coleção `patient_user` tem rules nulas (só superuser via REST, D13); o login nativo `auth-with-password` é liberado à parte, e o contrato do paciente continua sendo `/v1/portal/*`.
+
+---
+
 ## 2026-10-24 — Onda "pocketbase-core" (Fase 8): IA Gemini revisável + índice invertido de tags (tags em claro, corpo cifrado)
 
 **Contexto.** A Fase 8 integra a IA (Gemini) para resumo clínico + tagueamento e um índice de busca por tags (R10, D10). Decisões de produto/arquitetura implementadas conforme o design fechado: opt-in, revisão humana, minimização, isolamento por paciente e a combinação tags-em-claro / corpo-cifrado.

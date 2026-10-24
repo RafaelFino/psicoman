@@ -107,6 +107,7 @@ func buildServices(a core.App) (*service.Services, error) {
 	costsRepo := pb.NewCostRepository(a)
 	reportsRepo := pb.NewReportRepository(a)
 	gedRepo := pb.NewGEDMetaRepository(a)
+	portalAuth := pb.NewPortalAuthRepository(a)
 	auditRepo := pb.NewAuditRepository(a)
 	prontuarioRepo := pb.NewProntuarioRepository(a, cipher)
 	aiSummaryRepo := pb.NewAISummaryRepository(a, cipher)
@@ -156,6 +157,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		Prontuario: prontuario,
 		Invoice:    invoice,
 		AI:         ai,
+		PortalAuth: portalAuth,
 	}, nil
 }
 

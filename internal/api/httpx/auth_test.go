@@ -93,15 +93,13 @@ func TestPortalPatientIDRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPortalEmailTrim: PortalEmail lê X-Portal-Email com trim.
-func TestPortalEmailTrim(t *testing.T) {
+// TestPortalAuthRecordIDSemSessao: sem sessão (e.Auth nil), PortalAuthRecordID
+// devolve "". O caminho com sessão real (auth record patient_user) é coberto
+// pelos testes de gate em processo no pacote api.
+func TestPortalAuthRecordIDSemSessao(t *testing.T) {
 	e, _ := newEvent(t)
-	if got := PortalEmail(e); got != "" {
-		t.Errorf("sem header, esperava \"\", veio %q", got)
-	}
-	e.Request.Header.Set("X-Portal-Email", "  paciente@exemplo.com  ")
-	if got := PortalEmail(e); got != "paciente@exemplo.com" {
-		t.Errorf("esperava paciente@exemplo.com (trim), veio %q", got)
+	if got := PortalAuthRecordID(e); got != "" {
+		t.Errorf("sem sessão, esperava \"\", veio %q", got)
 	}
 }
 

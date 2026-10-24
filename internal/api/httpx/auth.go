@@ -19,9 +19,6 @@ const (
 	EnvPangolinIdentityHeader = "PSICOMAN_PANGOLIN_IDENTITY_HEADER"
 	// DefaultPangolinIdentityHeader é o nome padrão do header de identidade.
 	DefaultPangolinIdentityHeader = "X-Pangolin-User"
-	// portalEmailHeader é o seam de identidade do paciente (Fase 4/5). TODO
-	// Fase 9: substituir pela sessão autenticada do portal (core.NewAuthCollection).
-	portalEmailHeader = "X-Portal-Email"
 )
 
 // PangolinHeaderName resolve o nome do header de identidade: lê a env
@@ -69,15 +66,23 @@ func ActorIdentity(e *core.RequestEvent) string {
 	return ""
 }
 
-// PortalEmail resolve o email do paciente autenticado no portal. SEAM da Fase
-// 4/5: lê o header X-Portal-Email.
+// PortalAuthRecordID resolve a identidade REAL do paciente no portal (Fase 9):
+// o id do auth record (coleção patient_user) carregado pela sessão do PocketBase
+// via o middleware global loadAuthToken (Authorization: Bearer <token>). Vazio
+// quando não há sessão válida.
 //
-// TODO Fase 9: substituir pela sessão autenticada do portal
-// (core.NewAuthCollection + sessão). O gate de aprovação (portal.RequireApproved)
-// e os handlers do portal leem a identidade do paciente deste mesmo ponto, de
-// modo que a Fase 9 troque só esta função.
-func PortalEmail(e *core.RequestEvent) string {
-	return strings.TrimSpace(e.Request.Header.Get(portalEmailHeader))
+// Substitui o SEAM X-Portal-Email das Fases 4/5: o gate de aprovação
+// (portal.RequireApproved) e os handlers do portal resolvem o paciente a partir
+// deste id (via a porta app.PortalAuth.PatientIDByAuthID). Só este ponto mudou.
+func PortalAuthRecordID(e *core.RequestEvent) string {
+	if e.Auth == nil {
+		return ""
+	}
+	// Garante que a sessão é da coleção do paciente (não terapeuta/superuser).
+	if e.Auth.Collection() == nil || e.Auth.Collection().Name != "patient_user" {
+		return ""
+	}
+	return e.Auth.Id
 }
 
 // SetPortalPatientID grava no store o id do paciente resolvido pelo gate de

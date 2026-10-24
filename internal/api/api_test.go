@@ -201,11 +201,14 @@ func TestPortalSemClinico(t *testing.T) {
 	c := newClient(t, app)
 	const claro = "anotacao clinica SEGREDO_PORTAL_NAO_VE"
 
-	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Joao","phone":"11999990003","email":"joao@exemplo.com"}`, appHeaders())
-	pid := extractID(res.body)
+	// Cadastra pelo portal (cria a credencial patient_user) e aprova, para ter
+	// uma sessão REAL (Fase 9) ao ler /me e /sessions.
+	const email = "joao@exemplo.com"
+	pid := registerPortal(t, c, "Joao", "11999990003", email)
+	approvePatient(t, c, pid)
 	c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, appHeaders())
 
-	hdr := map[string]string{"X-Portal-Email": "joao@exemplo.com"}
+	hdr := portalAuthHeader(t, app, email)
 	me := c.do(http.MethodGet, "/v1/portal/me", "", hdr)
 	if me.status != http.StatusOK {
 		t.Fatalf("portal/me: status %d (%s)", me.status, me.body)

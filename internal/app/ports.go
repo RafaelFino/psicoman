@@ -264,6 +264,22 @@ type SessionFinishedHook interface {
 	OnSessionFinished(ctx context.Context, s *scheduling.Session) error
 }
 
+// --- auth do portal (paciente) ---
+
+// PortalAuth gerencia a credencial de login do paciente no portal (coleção de
+// auth do PocketBase, Fase 9). Implementada pelo adapter platform/pb (único a
+// tocar o framework). O gate/handlers resolvem a identidade pela sessão do
+// PocketBase (e.Auth); esta porta cobre a CRIAÇÃO da credencial no cadastro e a
+// resolução do patient_id a partir do id do auth record.
+type PortalAuth interface {
+	// CreateLogin cria a credencial (email + senha) vinculada ao patientID.
+	// Erro se já existir login para o email/paciente (unicidade).
+	CreateLogin(ctx context.Context, patientID, email, password string) error
+	// PatientIDByAuthID resolve o patient_id a partir do id do auth record da
+	// sessão (e.Auth.Id). ErrNotFound se o login não existe/não está vinculado.
+	PatientIDByAuthID(ctx context.Context, authRecordID string) (string, error)
+}
+
 // --- storage de binários do GED ---
 
 // GEDBlobStore persiste e recupera os BYTES dos arquivos do GED. É a porta do

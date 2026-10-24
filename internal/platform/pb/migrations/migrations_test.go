@@ -287,6 +287,25 @@ func TestGrupoCColecoesExistem(t *testing.T) {
 	}
 }
 
+// grupoD são as coleções criadas pela migration 0040 (auth do portal).
+var grupoD = []string{"patient_user"}
+
+// TestPatientUserEhAuthCollection confere que patient_user existe e é uma
+// coleção de AUTH (email+senha nativos), com a relation ao patient (Fase 9).
+func TestPatientUserEhAuthCollection(t *testing.T) {
+	app := newTestApp(t)
+	col, err := app.FindCollectionByNameOrId("patient_user")
+	if err != nil {
+		t.Fatalf("patient_user deveria existir: %v", err)
+	}
+	if !col.IsAuth() {
+		t.Error("patient_user deveria ser uma coleção de auth")
+	}
+	if col.Fields.GetByName("patient_id") == nil {
+		t.Error("patient_user deveria ter a relation patient_id")
+	}
+}
+
 // TestAnamneseUniquePatient garante o 1:1 anamnese<->patient (UNIQUE patient_id).
 func TestAnamneseUniquePatient(t *testing.T) {
 	app := newTestApp(t)
@@ -374,7 +393,7 @@ func TestTagIndexTagEmClaro(t *testing.T) {
 func TestMigracaoIdempotente(t *testing.T) {
 	app := newTestApp(t)
 
-	todas := append(append(append([]string{}, grupoA...), grupoB...), grupoC...)
+	todas := append(append(append(append([]string{}, grupoA...), grupoB...), grupoC...), grupoD...)
 	antes := make(map[string]string, len(todas))
 	for _, name := range todas {
 		col, err := app.FindCollectionByNameOrId(name)

@@ -23,4 +23,5 @@ type Services struct {
 	Prontuario *app.ProntuarioService
 	Invoice    *app.InvoiceService
 	AI         *app.AIService
+	PortalAuth app.PortalAuth
 }
