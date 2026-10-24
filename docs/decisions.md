@@ -6,6 +6,24 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — Nova onda "pocketbase-finish": consolidação de pendências e gaps da `pocketbase-core`
+
+**Contexto.** A onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/) reconstruiu a base técnica (binário único, domínio rico, cifra por campo, contrato `/v1`, Calendar/Drive/Gemini, portal com auth) e portou as regras de negócio das ondas anteriores para o domínio rico. Ao fechar, uma varredura do código e docs encontrou pendências e gaps que não cabiam no escopo daquela onda. Criada a spec [`../.kiro/specs/pocketbase-finish/`](../.kiro/specs/pocketbase-finish/) para consolidá-los.
+
+**Gaps consolidados (ver `requirements.md` da spec).**
+1. **Features de produto já implementadas no serviço, mas sem rota `/v1`** (R1): `DayFeedService`, `HistoryService`, `SessionMetricsService`, `CostService` estão no container mas sem handler — feed do dia, timeline/história, métricas de sessão, calendário mensal, relatório por local, custos/ROI completo. Também sem superfície HTTP: locais/disponibilidades, origens, pedidos de agendamento (`appointment_request`), planos (`plan`), pagamentos com comprovante.
+2. **OAuth 3-legged real + `google_token` cifrado** (R2): hoje o refresh token vem de env (`PSICOMAN_GOOGLE_REFRESH_TOKEN`, seam); a coleção `google_token` existe sem adapter; falta fluxo de autorização + persistência cifrada + estado "reautorização necessária" em `/readyz`.
+3. **Perfil do terapeuta** (R3): `domain/therapist` e a coleção `therapist_profile` existem, mas sem porta/serviço/rota; o PDF de cobrança omite o cabeçalho do terapeuta por isso.
+4. **Verificação de email do portal** (R4): `patient_user` nasce `verified=true` (gate de aprovação é o controle); sem fluxo de verificação — decisão pendente.
+5. **Observabilidade** (R5): só `/v1/health`; faltam `/readyz`/`/livez` e, possivelmente, métricas.
+6. **Docs operacionais** (R6): `docs/deploy.md` e `docs/stack-local.md` descrevem o modelo antigo (dois binários/Gmail/dev_mode) e estão com nota de "desatualizado".
+
+**Decisão.** A spec está **redigida (requirements/design/tasks) e aguardando 4 decisões do Rafael** antes de qualquer implementação: (⟨R1⟩) recorte/fatiamento das sub-fases de R1; (⟨R2⟩) env como fallback de dev após o OAuth real; (⟨R4⟩) ligar ou não a verificação de email (recomendado manter desligada — o gate de aprovação cobre); (⟨R5⟩) endpoint de métricas nesta onda ou adiar. Ordem sugerida: perfil (R3) e OAuth (R2) primeiro, depois `/readyz` (R5), o núcleo de R1 (locais+planos, que destrava o débito por sessão via API), telas iniciais, e por fim docs de deploy (R6).
+
+**Consequências.** Nenhuma mudança de código nesta entrada — só o planejamento. A implementação começa após as decisões, em branch `pocketbase-finish`, seguindo a Definição de Pronto de `psicoman-processo-entrega`.
+
+---
+
 ## 2026-10-24 — Onda "pocketbase-core" (Fase 9): auth do paciente em coleção separada + identidade real do portal (Opção A)
 
 **Contexto.** A Fase 9 materializa o cadastro/login do paciente (D2/D3) e substitui o SEAM `X-Portal-Email` (Fases 4/5) pela identidade real da sessão. O `patient` é uma coleção central (ULID custom, email único, `approval_status`, relations clínicas). Como introduzir a auth: (A) coleção auth separada `patient_user` 1:1 com `patient`; (B) converter `patient` na própria auth collection; (C) auth como fonte única, `patient` perde email/approval. O Rafael escolheu a **Opção A** (menor raio de impacto no fim da onda).
