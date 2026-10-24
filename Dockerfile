@@ -1,22 +1,21 @@
-# Psicoman — imagem única com os dois binários (admin e portal).
+# Psicoman — imagem do binário ÚNICO (cmd/psicoman), com o PocketBase embarcado.
 #
 # modernc.org/sqlite é CGO-free, então compilamos estático (CGO_ENABLED=0) e a
-# imagem final é um Alpine enxuto. Qual binário rodar é escolhido pelo comando
-# do serviço no docker-compose (psicoman-admin | psicoman-portal).
+# imagem final é um Alpine enxuto. O processo roda `serve` do PocketBase; o
+# HTTP/dir vêm dos flags (ver docker-compose.yml / docs/stack-local.md).
 
 # ---- build ----
-FROM golang:1.24-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 
 # Cache de dependências: baixa os módulos antes de copiar o código.
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Código e compilação estática dos dois binários.
+# Código e compilação estática do binário único.
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/psicoman-admin  ./cmd/admin \
- && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/psicoman-portal ./cmd/portal
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/psicoman ./cmd/psicoman
 
 # ---- runtime ----
 FROM alpine:3.20
@@ -26,15 +25,15 @@ RUN apk add --no-cache tzdata ca-certificates \
 ENV TZ=America/Sao_Paulo
 
 WORKDIR /app
-COPY --from=build /out/psicoman-admin  /usr/local/bin/psicoman-admin
-COPY --from=build /out/psicoman-portal /usr/local/bin/psicoman-portal
-COPY deploy/config.docker.yaml /app/config.docker.yaml
+COPY --from=build /out/psicoman /usr/local/bin/psicoman
 
-# Dados (sqlite, ged, logs) ficam num volume montado em /data.
-RUN mkdir -p /data/ged /data/logs && chown -R psicoman:psicoman /data /app
+# Dados do PocketBase (SQLite, storage, migrations aplicadas no boot) em /data.
+RUN mkdir -p /data && chown -R psicoman:psicoman /data /app
 USER psicoman
 VOLUME ["/data"]
 
-# O comando concreto (admin ou portal) vem do docker-compose.
-# Default: admin.
-CMD ["psicoman-admin", "-config", "/app/config.docker.yaml"]
+EXPOSE 8090
+# serve do PocketBase, escutando em 0.0.0.0 dentro do container (atrás do
+# Pangolin/compose). A config de cifra vem por env (PSICOMAN_CIPHER_*).
+ENTRYPOINT ["psicoman"]
+CMD ["serve", "--http", "0.0.0.0:8090", "--dir", "/data"]

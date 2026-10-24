@@ -6,6 +6,19 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` Fase 8: docs operacionais + infra do binário único (R6)
+
+**Contexto.** `docs/deploy.md` e `docs/stack-local.md` descreviam o modelo antigo (dois binários, `dev_mode`, Gmail) e estavam com nota de "desatualizado". Ao reescrevê-los, descobriu-se que `Dockerfile`/`docker-compose.yml`/`deploy/config.docker.yaml` também referenciavam `cmd/admin`/`cmd/portal` (inexistentes) — a stack estava quebrada contra o código atual.
+
+**Decisão.** Reescrever os dois docs para o binário único E consertar a infra de container (Dockerfile/compose/config.docker) para a coerência exigida pela DoD ("docs com comandos reais"). A autorização Google documentada é a real da Fase 2 (`/v1/admin/google/authorize` → callback). Os scripts shell legados (`deploy.sh`/`update-server.sh`/`stack-*.sh`/`seed.sh`) ficam fora de escopo desta onda: os docs usam os passos manuais/`docker compose` atuais em vez de referenciá-los.
+
+**Consequências.**
+- `Dockerfile` (compila `./cmd/psicoman`, Go 1.27, `ENTRYPOINT psicoman`), `docker-compose.yml` (um serviço, cifra por env), `deploy/config.docker.yaml` (formato atual) reescritos. Imagem validada: build OK + `/v1/livez`/`/v1/readyz` 200 no container.
+- `docs/deploy.md` (systemd de um serviço, OAuth real, Pangolin por prefixo, atualização manual) e `docs/stack-local.md` (`docker compose` / `make serve`) reescritos; notas de "desatualizado" removidas.
+- Limpeza/reescrita dos scripts shell legados registrada como dívida para onda futura.
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` Fase 5: telas iniciais (feed, história, métricas, calendário) (R1 sub-fase 2)
 
 **Contexto.** `DayFeedService`/`HistoryService`/`SessionMetricsService` estavam no container, testados em unit, mas sem rota `/v1`. Features de produto das ondas `patient-timeline`/`prontuario-ux` inacessíveis pela API nova.

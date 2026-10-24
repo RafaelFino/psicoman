@@ -32,14 +32,14 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 2 — OAuth 3-legged real + `google_token` (R2) | ✅ concluída | `0b5ca33` | fluxo admin authorize/callback + token cifrado + precedência do repo; make check verde |
 | 3 — Observabilidade `/readyz` + `/livez` (R5) | ✅ concluída | `a8963e5` | cifra+DB+OAuth; métricas adiadas; make check verde |
 | 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ✅ concluída | `5aa8960` | locais+disp.+origens+planos+comprovante; jornada ponta a ponta verde |
-| 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ✅ concluída | _(a seguir)_ | handlers finos sobre serviços existentes; E2E não-vazamento |
+| 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ✅ concluída | `bf49fa2` | handlers finos sobre serviços existentes; E2E não-vazamento |
 | 6 — R1 sub-fase 3: financeiro/custos | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
 | 7 — R1 sub-fase 4: agendamento pelo portal | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
-| 8 — Docs operacionais (R6) | ⬜ pendente | — | dep. Fase 2 (descreve a autorização real) |
+| 8 — Docs operacionais (R6) | ✅ concluída | _(a seguir)_ | deploy/stack-local reescritos + Dockerfile/compose/config.docker consertados (imagem validada) |
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 5 (telas iniciais) concluída e verde — commit a seguir. **Próximo:** Fase 8 (docs operacionais: reescrever deploy.md e stack-local.md para o binário único).
+**Agora:** Fase 8 (docs operacionais) concluída e verde — commit a seguir. **Próximo:** Fase 10 (fechamento: requirements/README/release-notes + make check na branch → PARAR p/ OK do Rafael antes de push/PR).
 
 ---
 
@@ -122,9 +122,10 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ## Fase 8 — Docs operacionais (R6)
 
-- [ ] **8.1 Reescrever `docs/deploy.md`** para o binário único (serve/dir, Pangolin, `config.yaml`, autorização OAuth da Fase 2, systemd, atualização segura). Remover a nota de "desatualizado". (dep: Fase 2) **Refs:** R6.1, R6.3.
-- [ ] **8.2 Reescrever `docs/stack-local.md`** (stack Docker do binário único). Remover a nota. **Refs:** R6.2, R6.3.
-- [ ] **Fechamento Fase 8:** revisão de coerência (links, comandos reais), commit.
+- [x] **8.1 Reescrever `docs/deploy.md`** para o binário único (serve/dir, Pangolin por prefixo, `config.yaml`, autorização OAuth real da Fase 2, systemd de um serviço, atualização manual segura). Nota de "desatualizado" removida. ✅ **Refs:** R6.1, R6.3.
+- [x] **8.2 Reescrever `docs/stack-local.md`** (stack Docker de um serviço + `make serve`). Nota removida. ✅ **Refs:** R6.2, R6.3.
+- [x] **8.3 Consertar infra** (coerência): `Dockerfile`/`docker-compose.yml`/`deploy/config.docker.yaml` para o binário único. Imagem validada (build + `/v1/livez`/`/v1/readyz` 200 no container). ✅
+- [x] **Fechamento Fase 8:** revisão de coerência, architecture §0.18 + decisions, `make check` verde → commit. ✅
 
 ---
 

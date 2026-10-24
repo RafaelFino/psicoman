@@ -1,46 +1,34 @@
-# Psicoman — stack LOCAL de teste (admin + portal) em MODO DEV.
+# Psicoman — stack LOCAL de teste (binário único) para navegabilidade.
 #
-# Os dois serviços usam a MESMA imagem e compartilham o volume de dados, logo
-# operam sobre o mesmo banco SQLite. Autenticação desligada (dev_mode).
-# NÃO use isto em produção.
+# Um único serviço (o binário único com o PocketBase embarcado). Em produção o
+# Psicoman roda SEMPRE atrás do Pangolin; aqui a porta é publicada direto no
+# host só para teste local. NÃO use isto em produção.
 #
-# Suba com:   ./scripts/stack-up.sh   (ou make stack-up)
-# Limpe com:  ./scripts/stack-down.sh (ou make stack-down)
+# A chave de cifra é FIXA de teste (fail-closed: sem ela o boot aborta). NUNCA
+# reutilize esta chave fora do ambiente local.
+#
+# Suba com:   docker compose up --build
+# Pare/limpe: docker compose down -v   (remove o volume de dados)
 
 name: psicoman-local
 
 services:
-  admin:
+  psicoman:
     build:
       context: .
       dockerfile: Dockerfile
     image: psicoman-local:dev
-    command: ["psicoman-admin", "-config", "/app/config.docker.yaml"]
+    command: ["serve", "--http", "0.0.0.0:8090", "--dir", "/data"]
     ports:
-      - "8080:8080"
+      - "8090:8090"
+    environment:
+      # Chave de cifra de TESTE (base64 de 32 bytes). Só para o ambiente local.
+      PSICOMAN_CIPHER_KEY_ID: "k1"
+      PSICOMAN_CIPHER_KEYS: "k1:wPb6Yex4abAI5VpFY6SIonnjtPOmtuGP2MJVnezqUKY="
     volumes:
       - psicoman-data:/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8080/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 3s
-    restart: unless-stopped
-
-  portal:
-    # Reaproveita a imagem construída pelo serviço admin (mesmo Dockerfile).
-    image: psicoman-local:dev
-    command: ["psicoman-portal", "-config", "/app/config.docker.yaml"]
-    ports:
-      - "8081:8081"
-    volumes:
-      - psicoman-data:/data
-    depends_on:
-      admin:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8081/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8090/v1/livez"]
       interval: 5s
       timeout: 3s
       retries: 12
