@@ -27,18 +27,12 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	g.POST("/register", h.Register)
 }
 
-// portalEmail resolve o email do paciente autenticado. STUB da Fase 4: lê do
-// header X-Portal-Email. TODO Fase 5: resolver pela sessão do paciente.
-func portalEmail(e *core.RequestEvent) string {
-	return e.Request.Header.Get("X-Portal-Email")
-}
-
 // Me GET /v1/portal/me — fora do gate de aprovação (o paciente vê o próprio
-// estado). Identidade por stub na Fase 4 (header); 401 se ausente.
+// estado). Identidade pelo seam httpx.PortalEmail (header; TODO Fase 9: sessão);
+// 401 se ausente.
 func (h *Handlers) Me(e *core.RequestEvent) error {
-	email := portalEmail(e)
+	email := httpx.PortalEmail(e)
 	if email == "" {
-		// TODO Fase 5: a identidade virá da sessão autenticada do portal.
 		return httpx.RespondError(e, 401, "nao_autenticado", "Autenticação necessária.", nil)
 	}
 	ctx, cancel := reqCtx(e)
@@ -52,7 +46,7 @@ func (h *Handlers) Me(e *core.RequestEvent) error {
 
 // Sessions GET /v1/portal/sessions — agenda do paciente (sem conteúdo clínico).
 func (h *Handlers) Sessions(e *core.RequestEvent) error {
-	email := portalEmail(e)
+	email := httpx.PortalEmail(e)
 	if email == "" {
 		return httpx.RespondError(e, 401, "nao_autenticado", "Autenticação necessária.", nil)
 	}

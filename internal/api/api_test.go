@@ -20,6 +20,12 @@ import (
 // testKeyB64 é a mesma chave AES-256 fixa de pb_test.go (determinística).
 const testKeyB64 = "wPb6Yex4abAI5VpFY6SIonnjtPOmtuGP2MJVnezqUKY="
 
+// appHeaders devolve o header de identidade do Pangolin exigido por /v1/app/* e
+// /v1/admin/* a partir da Fase 5 (default X-Pangolin-User).
+func appHeaders() map[string]string {
+	return map[string]string{"X-Pangolin-User": "terapeuta@exemplo.com"}
+}
+
 // withTestCipher troca o loader de config de cifra por um determinístico (sem
 // depender de env vars globais) e devolve uma função de restauração.
 func withTestCipher(t *testing.T) {
@@ -138,7 +144,7 @@ func TestProntuarioLegivelNoApp(t *testing.T) {
 
 	const claro = "paciente relatou melhora do sono SEGREDO_CLINICO"
 
-	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Maria","phone":"11999990001","email":"maria@exemplo.com"}`, nil)
+	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Maria","phone":"11999990001","email":"maria@exemplo.com"}`, appHeaders())
 	if res.status != http.StatusCreated {
 		t.Fatalf("criar paciente: status %d (%s)", res.status, res.body)
 	}
@@ -147,12 +153,12 @@ func TestProntuarioLegivelNoApp(t *testing.T) {
 		t.Fatalf("id do paciente não extraído: %s", res.body)
 	}
 
-	res = c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, nil)
+	res = c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, appHeaders())
 	if res.status != http.StatusCreated {
 		t.Fatalf("criar nota: status %d (%s)", res.status, res.body)
 	}
 
-	res = c.do(http.MethodGet, "/v1/app/patients/"+pid, "", nil)
+	res = c.do(http.MethodGet, "/v1/app/patients/"+pid, "", appHeaders())
 	if res.status != http.StatusOK {
 		t.Fatalf("get chart: status %d (%s)", res.status, res.body)
 	}
@@ -168,9 +174,9 @@ func TestNoteContentNaoVazaCifradoNoBanco(t *testing.T) {
 	c := newClient(t, app)
 	const claro = "conteudo clinico NUNCA_EM_CLARO_NO_BANCO"
 
-	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Ana","phone":"11999990002","email":"ana@exemplo.com"}`, nil)
+	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Ana","phone":"11999990002","email":"ana@exemplo.com"}`, appHeaders())
 	pid := extractID(res.body)
-	c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, nil)
+	c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, appHeaders())
 
 	rec, err := app.FindFirstRecordByFilter("note", "patient_id = {:p}", map[string]any{"p": pid})
 	if err != nil {
@@ -195,9 +201,9 @@ func TestPortalSemClinico(t *testing.T) {
 	c := newClient(t, app)
 	const claro = "anotacao clinica SEGREDO_PORTAL_NAO_VE"
 
-	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Joao","phone":"11999990003","email":"joao@exemplo.com"}`, nil)
+	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Joao","phone":"11999990003","email":"joao@exemplo.com"}`, appHeaders())
 	pid := extractID(res.body)
-	c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, nil)
+	c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, appHeaders())
 
 	hdr := map[string]string{"X-Portal-Email": "joao@exemplo.com"}
 	me := c.do(http.MethodGet, "/v1/portal/me", "", hdr)
@@ -223,30 +229,30 @@ func TestRotasPorAtorNoEnvelope(t *testing.T) {
 	c := newClient(t, app)
 
 	// cria paciente para ter um id de sessão/debts.
-	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Bia","phone":"11999990004","email":"bia@exemplo.com"}`, nil)
+	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Bia","phone":"11999990004","email":"bia@exemplo.com"}`, appHeaders())
 	pid := extractID(res.body)
 
 	// POST sessão → 201.
 	sres := c.do(http.MethodPost, "/v1/app/sessions",
-		`{"patient_id":"`+pid+`","modality":"online","starts_at":"2026-10-21T14:00:00-03:00","ends_at":"2026-10-21T15:00:00-03:00"}`, nil)
+		`{"patient_id":"`+pid+`","modality":"online","starts_at":"2026-10-21T14:00:00-03:00","ends_at":"2026-10-21T15:00:00-03:00"}`, appHeaders())
 	if sres.status != http.StatusCreated {
 		t.Errorf("POST sessions: quero 201, veio %d (%s)", sres.status, sres.body)
 	}
 
 	// GET débitos do paciente → 200 (lista vazia no envelope).
-	dres := c.do(http.MethodGet, "/v1/app/patients/"+pid+"/debts", "", nil)
+	dres := c.do(http.MethodGet, "/v1/app/patients/"+pid+"/debts", "", appHeaders())
 	if dres.status != http.StatusOK || !strings.Contains(dres.body, `"elapsed_ms"`) {
 		t.Errorf("GET debts: quero 200 no envelope, veio %d (%s)", dres.status, dres.body)
 	}
 
 	// POST backup (admin) → 202 stub.
-	bres := c.do(http.MethodPost, "/v1/admin/backup", "", nil)
+	bres := c.do(http.MethodPost, "/v1/admin/backup", "", appHeaders())
 	if bres.status != http.StatusAccepted || !strings.Contains(bres.body, "agendado") {
 		t.Errorf("POST backup: quero 202 agendado, veio %d (%s)", bres.status, bres.body)
 	}
 
 	// GET audit-log (admin) → 200 no envelope.
-	ares := c.do(http.MethodGet, "/v1/admin/audit-log", "", nil)
+	ares := c.do(http.MethodGet, "/v1/admin/audit-log", "", appHeaders())
 	if ares.status != http.StatusOK || !strings.Contains(ares.body, `"elapsed_ms"`) {
 		t.Errorf("GET audit-log: quero 200 no envelope, veio %d (%s)", ares.status, ares.body)
 	}
@@ -256,7 +262,7 @@ func TestRotasPorAtorNoEnvelope(t *testing.T) {
 func TestBindBodyInvalidoVira400(t *testing.T) {
 	app := newTestApp(t)
 	c := newClient(t, app)
-	res := c.do(http.MethodPost, "/v1/app/patients", `{isso nao e json`, nil)
+	res := c.do(http.MethodPost, "/v1/app/patients", `{isso nao e json`, appHeaders())
 	if res.status != http.StatusBadRequest {
 		t.Fatalf("quero 400, veio %d (%s)", res.status, res.body)
 	}
@@ -269,9 +275,9 @@ func TestBindBodyInvalidoVira400(t *testing.T) {
 func TestNotaContentObrigatorioVira422(t *testing.T) {
 	app := newTestApp(t)
 	c := newClient(t, app)
-	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Cris","phone":"11999990005","email":"cris@exemplo.com"}`, nil)
+	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Cris","phone":"11999990005","email":"cris@exemplo.com"}`, appHeaders())
 	pid := extractID(res.body)
-	nres := c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":""}`, nil)
+	nres := c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":""}`, appHeaders())
 	if nres.status != http.StatusUnprocessableEntity {
 		t.Fatalf("quero 422, veio %d (%s)", nres.status, nres.body)
 	}
@@ -286,7 +292,7 @@ func TestNotaContentObrigatorioVira422(t *testing.T) {
 func TestPendingNaoEhTratadoComoID(t *testing.T) {
 	app := newTestApp(t)
 	c := newClient(t, app)
-	res := c.do(http.MethodGet, "/v1/app/patients/pending", "", nil)
+	res := c.do(http.MethodGet, "/v1/app/patients/pending", "", appHeaders())
 	if res.status != http.StatusOK {
 		t.Fatalf("pending: quero 200 (fila), veio %d (%s)", res.status, res.body)
 	}
@@ -333,12 +339,12 @@ func TestRESTSuperuserDevolveCifrado(t *testing.T) {
 	c := newClient(t, app)
 	const claro = "conteudo clinico SUPERUSER_NAO_VE_CLARO_NA_REST"
 
-	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Lia","phone":"11999990006","email":"lia@exemplo.com"}`, nil)
+	res := c.do(http.MethodPost, "/v1/app/patients", `{"name":"Lia","phone":"11999990006","email":"lia@exemplo.com"}`, appHeaders())
 	pid := extractID(res.body)
 	if pid == "" {
 		t.Fatalf("id do paciente não extraído: %s", res.body)
 	}
-	nres := c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, nil)
+	nres := c.do(http.MethodPost, "/v1/app/patients/"+pid+"/notes", `{"content":"`+claro+`"}`, appHeaders())
 	if nres.status != http.StatusCreated {
 		t.Fatalf("criar nota: status %d (%s)", nres.status, nres.body)
 	}

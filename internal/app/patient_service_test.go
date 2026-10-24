@@ -78,6 +78,63 @@ func TestPatientRegisterFromPortal_NovoNascePendente(t *testing.T) {
 	}
 }
 
+func TestPatientApprove_PendenteViraAprovado(t *testing.T) {
+	ctx := context.Background()
+	repo := newPatientRepo()
+	repo.byID["p1"] = &patient.Patient{ID: "p1", Email: "ana@x.com", ApprovalStatus: patient.PatientPending}
+	svc := newPatientSvc(repo, fixedAt(2026, 3, 10))
+
+	p, err := svc.Approve(ctx, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ApprovalStatus != patient.PatientApproved {
+		t.Fatalf("esperava aprovado, veio %s", p.ApprovalStatus)
+	}
+}
+
+func TestPatientApprove_Idempotente(t *testing.T) {
+	ctx := context.Background()
+	repo := newPatientRepo()
+	repo.byID["p1"] = &patient.Patient{ID: "p1", Email: "ana@x.com", ApprovalStatus: patient.PatientApproved}
+	svc := newPatientSvc(repo, fixedAt(2026, 3, 10))
+
+	p, err := svc.Approve(ctx, "p1")
+	if err != nil {
+		t.Fatalf("aprovar já-aprovado deve ser idempotente, veio: %v", err)
+	}
+	if p.ApprovalStatus != patient.PatientApproved {
+		t.Fatalf("esperava aprovado, veio %s", p.ApprovalStatus)
+	}
+}
+
+func TestPatientReject_PendenteViraRejeitado(t *testing.T) {
+	ctx := context.Background()
+	repo := newPatientRepo()
+	repo.byID["p1"] = &patient.Patient{ID: "p1", Email: "ana@x.com", ApprovalStatus: patient.PatientPending}
+	svc := newPatientSvc(repo, fixedAt(2026, 3, 10))
+
+	p, err := svc.Reject(ctx, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ApprovalStatus != patient.PatientRejected {
+		t.Fatalf("esperava rejeitado, veio %s", p.ApprovalStatus)
+	}
+}
+
+func TestPatientReject_RejeitadoNaoViraAprovado(t *testing.T) {
+	ctx := context.Background()
+	repo := newPatientRepo()
+	repo.byID["p1"] = &patient.Patient{ID: "p1", Email: "ana@x.com", ApprovalStatus: patient.PatientRejected}
+	svc := newPatientSvc(repo, fixedAt(2026, 3, 10))
+
+	// Estado final não retrocede: rejeitado→aprovado é transição barrada.
+	if _, err := svc.Approve(ctx, "p1"); err == nil {
+		t.Fatal("esperava transição barrada de rejeitado→aprovado")
+	}
+}
+
 func TestPatientCreate_EmailDuplicadoConflito(t *testing.T) {
 	ctx := context.Background()
 	repo := newPatientRepo()

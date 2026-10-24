@@ -39,25 +39,33 @@ func Register(app core.App) {
 			return err
 		}
 
+		// Hook de reforço de aprovação (defesa em profundidade, Fase 5): barra
+		// escrita de appointment_request de paciente não-aprovado por qualquer
+		// caminho (inclusive o adapter), complementando o gate do portal.
+		registerApprovalHooks(e.App)
+
+		// Nome do header de identidade do Pangolin, resolvido uma vez no boot.
+		pangolinHdr := httpx.PangolinHeaderName()
+
 		v1 := e.Router.Group("/v1")
 		v1.BindFunc(httpx.Recover, httpx.RequestID, httpx.Timing, httpx.Logging)
 
-		// Health no envelope (mantém 200 para o smoke de boot).
+		// Health no envelope (mantém 200 para o smoke de boot; fora da auth).
 		v1.GET("/health", apiapp.Health)
 
 		// Swagger (um documento /v1 com os três atores por tags).
 		swagger.Mount(v1)
 
 		appGrp := v1.Group("/app")
-		appGrp.BindFunc(httpx.AuthAppStub)
+		appGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr))
 		apiapp.Mount(appGrp, svc)
 
 		portalGrp := v1.Group("/portal")
-		portalGrp.BindFunc(httpx.AuthPortalStub)
+		portalGrp.BindFunc(portal.RequireApproved(svc))
 		portal.Mount(portalGrp, svc)
 
 		adminGrp := v1.Group("/admin")
-		adminGrp.BindFunc(httpx.AuthAdminStub)
+		adminGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr))
 		admin.Mount(adminGrp, svc)
 
 		return e.Next()

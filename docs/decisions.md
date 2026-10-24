@@ -6,6 +6,25 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-21 — Onda "pocketbase-core" (Fase 5): auth do Pangolin + gate de aprovação
+
+**Contexto.** A Fase 5 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) troca os stubs de auth no-op da Fase 4 por controle real (tasks 5.1 e 5.2), realizando R3/D3/D13. Design em [`../.agents/tasks/pocketbase-core/fase5-design.md`](../.agents/tasks/pocketbase-core/fase5-design.md). Arquitetura não reaberta.
+
+**Decisões.**
+1. **Auth por header injetado pelo Pangolin na borda; o app só exige presença.** `/v1/app/*` e `/v1/admin/*` exigem um header de identidade (default `X-Pangolin-User`, env `PSICOMAN_PANGOLIN_IDENTITY_HEADER`); ausente → 401 `nao_autenticado`. A política fina (admin mais restrito) fica no gateway, não no código. O header tem **default** (ao contrário da cifra, que aborta o boot) porque é só o nome de um cabeçalho, não um segredo. A identidade é exposta via `httpx.ActorIdentity` como preparação de auditoria (sem consumidor nesta fase).
+2. **Admin UI `/_/` e REST `/api/*` sem middleware do Pangolin.** O Dashboard nativo tem auth própria de superuser e a REST já responde 403 por regra nil; adicionar middleware ali quebraria o Dashboard. O middleware incide só nos grupos `/v1/*` próprios.
+3. **Gate de aprovação via middleware do grupo `/v1/portal/*` (não por rota), com exceções `register`/`me`.** Centraliza o gate (403 `acesso_negado` para não-aprovado), testável por E2E (permitido/negado), sem depender de cada handler. Exceções por path exato.
+4. **Hook model-level de reforço com escopo reduzido a `appointment_request`.** Defesa em profundidade que barra escrita de paciente não-aprovado por qualquer caminho (inclusive o adapter). `payment` (sem `patient_id` direto — exigiria 2-hop, vetor não alcançável pelo portal), `ged_file` (nullable, criado pelo terapeuta), `patient` (update — barraria upsert do portal/edição de triagem/soft-delete legítimos e tem predicado de transição ambíguo) e as colunas clínicas ficam **fora** do hook. Invariante aceito: não-aprovado não origina/altera agendamento, venha de quem vier.
+5. **Seam de identidade do paciente adiado para a Fase 9.** O gate resolve o paciente por `httpx.PortalEmail` (header `X-Portal-Email`); a auth real (sessão/`core.NewAuthCollection`) é da Fase 9. Antecipar acoplaria 5.2 ao OAuth do portal, ampliando o blast radius de uma task de segurança.
+
+**Consequências.**
+- `internal/api/httpx/auth.go` (middleware + seams), `internal/api/portal/gate.go` (gate), `internal/api/hooks.go` (hook); `chain.go` perde os três stubs; `api.go` pluga tudo no `OnServe`.
+- Mudança de contrato de acesso: os testes de Fase 4 em `internal/api/api_test.go` passam a enviar `X-Pangolin-User` (helper `appHeaders`).
+- Testes de segurança cobrem permitido (2xx) e negado (401/403), path exato e o hook de reforço. `archtest` segue verde.
+- `docs/architecture.md §0.7` documenta auth + gate.
+
+---
+
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 4): contrato `/v1` por ator
 
 **Contexto.** A Fase 4 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) expõe o contrato HTTP público `/v1/*` (envelope, DTOs, segregação por ator, Swagger) sobre o adapter das fases anteriores. Design em [`../.agents/tasks/pocketbase-core/fase4-design.md`](../.agents/tasks/pocketbase-core/fase4-design.md). Esta entrada registra só as decisões de contrato novas; D2/D6.3/D7/D13 não são reabertas.
