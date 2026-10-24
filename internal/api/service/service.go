@@ -28,6 +28,9 @@ type Services struct {
 	AI         *app.AIService
 	Therapist  *app.TherapistService
 	GoogleAuth *app.GoogleAuthService
+	Locations  *app.LocationService
+	Origins    *app.OriginService
+	Plans      *app.PlanService
 	PortalAuth app.PortalAuth
 
 	// Cipher é a cifra montada no boot, exposta para o readiness check (/readyz)

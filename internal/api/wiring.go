@@ -137,6 +137,7 @@ func buildServices(a core.App) (*service.Services, error) {
 	sessions.AddFinishedHook(costSvc)
 
 	payments := app.NewPaymentService(paymentsRepo, debtsRepo, audit)
+	payments.SetGED(gedRepo, pb.NewGEDBlobStore(a)) // comprovante de pagamento (R1.9)
 	reports := app.NewReportService(reportsRepo, originsRepo, costsRepo)
 	metrics := app.NewSessionMetricsService(sessionsRepo, debtsRepo, locationsRepo)
 	dayfeed := app.NewDayFeedService(sessionsRepo, debtsRepo, paymentsRepo, gedRepo, appointmentsRepo, patientsRepo, audit)
@@ -146,6 +147,13 @@ func buildServices(a core.App) (*service.Services, error) {
 	// Perfil do terapeuta (R3): serviço singleton 1:1 + injeção do cabeçalho na
 	// cobrança (nome/CRP no PDF quando o perfil está configurado).
 	therapist := app.NewTherapistService(therapistRepo)
+
+	// Núcleo utilizável (R1.7/R1.9): locais+disponibilidades, origens e planos.
+	// Com um plano por sessão vigente, o débito passa a funcionar ponta a ponta
+	// via API (BillingService.OnSessionFinished já lê o plano vigente).
+	locations := app.NewLocationService(locationsRepo)
+	origins := app.NewOriginService(originsRepo)
+	plans := app.NewPlanService(plansRepo)
 
 	// PDF de cobrança no GED (file storage do PocketBase, D9b): o blob store
 	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256). O perfil
@@ -181,6 +189,9 @@ func buildServices(a core.App) (*service.Services, error) {
 		AI:          ai,
 		Therapist:   therapist,
 		GoogleAuth:  googleAuth,
+		Locations:   locations,
+		Origins:     origins,
+		Plans:       plans,
 		PortalAuth:  portalAuth,
 		Cipher:      cipher,
 		GoogleOAuth: oauthCfg,

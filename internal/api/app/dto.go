@@ -166,6 +166,48 @@ type TherapistPlatformLinkDTO struct {
 	OriginID string `json:"origin_id,omitempty"`
 }
 
+// LocationDTO é a projeção de um local. Dinheiro em centavos.
+type LocationDTO struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Address    string `json:"address,omitempty"`
+	Modality   string `json:"modality"`
+	CostCents  int64  `json:"cost_cents"`
+	CostPeriod string `json:"cost_period"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+// AvailabilityDTO é a projeção de uma janela de disponibilidade.
+type AvailabilityDTO struct {
+	ID         string `json:"id"`
+	LocationID string `json:"location_id"`
+	Weekday    int    `json:"weekday"`
+	StartTime  string `json:"start_time"`
+	EndTime    string `json:"end_time"`
+	Capacity   int    `json:"capacity"`
+}
+
+// OriginDTO é a projeção de um canal de aquisição.
+type OriginDTO struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// PlanDTO é a projeção de um plano de cobrança. Dinheiro em centavos.
+type PlanDTO struct {
+	ID          string `json:"id"`
+	PatientID   string `json:"patient_id"`
+	Type        string `json:"type"`
+	AmountCents int64  `json:"amount_cents"`
+	DueDay      int    `json:"due_day,omitempty"`
+	StartsAt    string `json:"starts_at"`
+	EndsAt      string `json:"ends_at,omitempty"`
+	CreatedAt   string `json:"created_at"`
+}
+
 // --- mappers (o Reveal() só aparece aqui, no ator app) ---
 
 func toPatientDTO(p *patient.Patient) PatientDTO {
@@ -310,6 +352,87 @@ func toTherapistProfileDTO(p *therapist.TherapistProfile, links []*therapist.The
 		CreatedAt:   httpx.FmtTime(p.CreatedAt),
 		UpdatedAt:   httpx.FmtTime(p.UpdatedAt),
 	}
+}
+
+func toLocationDTO(l *scheduling.Location) LocationDTO {
+	return LocationDTO{
+		ID:         l.ID,
+		Name:       l.Name,
+		Address:    l.Address,
+		Modality:   l.Modality,
+		CostCents:  l.CostAmount,
+		CostPeriod: l.CostPeriod,
+		CreatedAt:  httpx.FmtTime(l.CreatedAt),
+		UpdatedAt:  httpx.FmtTime(l.UpdatedAt),
+	}
+}
+
+func toLocationDTOs(ls []*scheduling.Location) []LocationDTO {
+	out := make([]LocationDTO, 0, len(ls))
+	for _, l := range ls {
+		out = append(out, toLocationDTO(l))
+	}
+	return out
+}
+
+func toAvailabilityDTO(a *scheduling.Availability) AvailabilityDTO {
+	return AvailabilityDTO{
+		ID:         a.ID,
+		LocationID: a.LocationID,
+		Weekday:    a.Weekday,
+		StartTime:  a.StartTime,
+		EndTime:    a.EndTime,
+		Capacity:   a.Capacity,
+	}
+}
+
+func toAvailabilityDTOs(as []*scheduling.Availability) []AvailabilityDTO {
+	out := make([]AvailabilityDTO, 0, len(as))
+	for _, a := range as {
+		out = append(out, toAvailabilityDTO(a))
+	}
+	return out
+}
+
+func toOriginDTO(o *patient.Origin) OriginDTO {
+	return OriginDTO{
+		ID:        o.ID,
+		Name:      o.Name,
+		CreatedAt: httpx.FmtTime(o.CreatedAt),
+		UpdatedAt: httpx.FmtTime(o.UpdatedAt),
+	}
+}
+
+func toOriginDTOs(os []*patient.Origin) []OriginDTO {
+	out := make([]OriginDTO, 0, len(os))
+	for _, o := range os {
+		out = append(out, toOriginDTO(o))
+	}
+	return out
+}
+
+func toPlanDTO(p *billing.Plan) PlanDTO {
+	dto := PlanDTO{
+		ID:          p.ID,
+		PatientID:   p.PatientID,
+		Type:        p.Type,
+		AmountCents: p.Amount,
+		DueDay:      p.DueDay,
+		StartsAt:    httpx.FmtTime(p.StartsAt),
+		CreatedAt:   httpx.FmtTime(p.CreatedAt),
+	}
+	if !p.EndsAt.IsZero() {
+		dto.EndsAt = httpx.FmtTime(p.EndsAt)
+	}
+	return dto
+}
+
+func toPlanDTOs(ps []*billing.Plan) []PlanDTO {
+	out := make([]PlanDTO, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, toPlanDTO(p))
+	}
+	return out
 }
 
 func toROIRowDTOs(rows []costs.ROIRow) []ROIRowDTO {

@@ -308,11 +308,60 @@
     },
     "/v1/app/debts/{id}/pay": {
       "post": {
-        "tags": ["app"], "summary": "Registra pagamento (paid_at definido pelo servidor).", "security": [{ "pangolinHeader": [] }],
+        "tags": ["app"], "summary": "Registra pagamento (paid_at definido pelo servidor). receipt_base64 opcional anexa o comprovante ao GED.", "security": [{ "pangolinHeader": [] }],
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["amount_cents"], "properties": { "amount_cents": { "type": "integer", "format": "int64" }, "method": { "type": "string" } } } } } },
-        "responses": { "200": { "description": "OK" }, "422": { "description": "Valor inválido" } }
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["amount_cents"], "properties": { "amount_cents": { "type": "integer", "format": "int64" }, "method": { "type": "string" }, "receipt_base64": { "type": "string", "description": "Comprovante opcional (base64)." }, "receipt_mime": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "OK" }, "400": { "description": "Comprovante base64 inválido" }, "422": { "description": "Valor inválido" } }
       }
+    },
+    "/v1/app/locations": {
+      "get": { "tags": ["app"], "summary": "Lista locais de atendimento.", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria local (modalidade presencial|online; custo em centavos; periodicidade).", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "modality", "cost_period"], "properties": { "name": { "type": "string" }, "address": { "type": "string" }, "modality": { "type": "string", "enum": ["presencial", "online"] }, "cost_cents": { "type": "integer", "format": "int64" }, "cost_period": { "type": "string", "enum": ["por_sessao", "diario", "mensal", "anual"] } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/locations/{id}": {
+      "get": { "tags": ["app"], "summary": "Local por id.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" } } },
+      "patch": { "tags": ["app"], "summary": "Atualiza local.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } },
+      "delete": { "tags": ["app"], "summary": "Remove local (soft-delete).", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/locations/{id}/availability": {
+      "get": { "tags": ["app"], "summary": "Disponibilidades do local.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Adiciona janela de disponibilidade (weekday 0-6, HH:MM).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["weekday", "start_time", "end_time", "capacity"], "properties": { "weekday": { "type": "integer", "minimum": 0, "maximum": 6 }, "start_time": { "type": "string" }, "end_time": { "type": "string" }, "capacity": { "type": "integer", "minimum": 1 } } } } } },
+        "responses": { "201": { "description": "Criado" }, "404": { "description": "Local não encontrado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/locations/availability/{id}": {
+      "delete": { "tags": ["app"], "summary": "Remove uma janela de disponibilidade.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/origins": {
+      "get": { "tags": ["app"], "summary": "Lista canais de aquisição (origens).", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria origem.", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Nome obrigatório" } }
+      }
+    },
+    "/v1/app/origins/{id}": {
+      "patch": { "tags": ["app"], "summary": "Atualiza origem.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } },
+      "delete": { "tags": ["app"], "summary": "Remove origem (soft-delete).", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/patients/{id}/plans": {
+      "get": { "tags": ["app"], "summary": "Planos de cobrança do paciente.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria plano do paciente (um plano por sessão vigente habilita o débito por sessão).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["type", "starts_at"], "properties": { "type": { "type": "string", "enum": ["pagamento_por_consulta", "pagamento_por_mes", "plano_fechado_mensal", "plano_fechado_trimestral", "atendimento_social"] }, "amount_cents": { "type": "integer", "format": "int64" }, "due_day": { "type": "integer", "minimum": 0, "maximum": 28 }, "starts_at": { "type": "string", "format": "date-time" }, "ends_at": { "type": "string", "format": "date-time" } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/plans/{id}": {
+      "delete": { "tags": ["app"], "summary": "Remove plano (soft-delete).", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
     },
     "/v1/app/debts/{id}/invoice": {
       "post": {

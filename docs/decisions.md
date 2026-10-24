@@ -6,6 +6,19 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` Fase 4: núcleo utilizável (locais, origens, planos) + comprovante de pagamento (R1 sub-fase 1)
+
+**Contexto.** `LocationRepository`, `OriginRepository`, `PlanRepository` existiam sem superfície HTTP; o débito por sessão dependia de um plano vigente não cadastrável pela API (só via seed de superuser). Recorte ⟨R1⟩ já decidido: sub-fase 1 (locais+planos) entra nesta onda.
+
+**Decisão.** Expor `LocationService`/`OriginService`/`PlanService` (CRUD) no `/v1/app`, fechando o fluxo de débito por sessão ponta a ponta via API. Comprovante de pagamento entra como anexo opcional (base64) no `POST /debts/{id}/pay`, gravado no GED vinculado ao pagamento (mesma disciplina do PDF de cobrança). Validação no domínio (modalidade/periodicidade/horário/tipo de plano/valor fixo) → 422.
+
+**Consequências.**
+- Novos: `app.LocationService`/`OriginService`/`PlanService`; handlers `api/app/locations.go`/`origins.go`/`plans.go`; DTOs e mappers; `service.Services` +Locations/Origins/Plans; rotas e Swagger. `PaymentService.SetGED` + `storeReceipt` (comprovante).
+- Rota estática `/locations/availability/{id}` registrada antes de `/locations/{id}` (precedência do `http.ServeMux`).
+- Testes: unit dos serviços + comprovante; E2E de contrato (locais/origens) e a jornada headline (plano→sessão→finish→débito automático→cobrança→pagamento com comprovante→pago).
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` Fase 3: readiness/liveness (`/readyz`+`/livez`); métricas adiadas (R5)
 
 **Contexto.** Havia só `/v1/health`. Faltavam readiness/liveness, e o estado "reautorização Google necessária" (Fase 2) precisava de um `/readyz` que o refletisse. Decisão ⟨R5⟩ já tomada: só `/readyz`+`/livez` nesta onda; métricas adiadas.

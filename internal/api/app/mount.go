@@ -65,6 +65,28 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	g.PUT("/therapist", h.UpsertTherapist)
 	g.POST("/therapist/platform-links", h.AddTherapistLink)
 	g.DELETE("/therapist/platform-links/{id}", h.DeleteTherapistLink)
+
+	// Locais + disponibilidades (R1.7). A rota estática de delete de
+	// disponibilidade vem antes de /locations/{id} por especificidade.
+	g.GET("/locations", h.ListLocations)
+	g.POST("/locations", h.CreateLocation)
+	g.DELETE("/locations/availability/{id}", h.DeleteAvailability)
+	g.GET("/locations/{id}", h.GetLocation)
+	g.PATCH("/locations/{id}", h.UpdateLocation)
+	g.DELETE("/locations/{id}", h.DeleteLocation)
+	g.GET("/locations/{id}/availability", h.ListAvailability)
+	g.POST("/locations/{id}/availability", h.AddAvailability)
+
+	// Origens / canais de aquisição (R1.7).
+	g.GET("/origins", h.ListOrigins)
+	g.POST("/origins", h.CreateOrigin)
+	g.PATCH("/origins/{id}", h.UpdateOrigin)
+	g.DELETE("/origins/{id}", h.DeleteOrigin)
+
+	// Planos por paciente (R1.9) — habilitam o débito por sessão via API.
+	g.GET("/patients/{id}/plans", h.ListPatientPlans)
+	g.POST("/patients/{id}/plans", h.CreatePatientPlan)
+	g.DELETE("/plans/{id}", h.DeletePatientPlan)
 }
 
 // reqCtx deriva um contexto com timeout a partir da requisição.

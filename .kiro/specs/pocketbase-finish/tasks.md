@@ -30,8 +30,8 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 0 — Spec (requirements/design/tasks) | ✅ concluída | `ac3519d` | decisões resolvidas em 2026-10-24 |
 | 1 — Perfil do terapeuta (R3) | ✅ concluída | `2e84663` | porta+adapter+serviço+rotas+cabeçalho na cobrança; make check verde |
 | 2 — OAuth 3-legged real + `google_token` (R2) | ✅ concluída | `0b5ca33` | fluxo admin authorize/callback + token cifrado + precedência do repo; make check verde |
-| 3 — Observabilidade `/readyz` + `/livez` (R5) | ✅ concluída | _(a seguir)_ | cifra+DB+OAuth; métricas adiadas; make check verde |
-| 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ⬜ pendente | — | destrava o débito por sessão via API |
+| 3 — Observabilidade `/readyz` + `/livez` (R5) | ✅ concluída | `a8963e5` | cifra+DB+OAuth; métricas adiadas; make check verde |
+| 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ✅ concluída | _(a seguir)_ | locais+disp.+origens+planos+comprovante; jornada ponta a ponta verde |
 | 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ⬜ pendente | — | handlers finos sobre serviços existentes |
 | 6 — R1 sub-fase 3: financeiro/custos | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
 | 7 — R1 sub-fase 4: agendamento pelo portal | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
@@ -39,7 +39,7 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 3 (observabilidade) concluída e verde — commit a seguir. **Próximo:** Fase 4 (R1 sub-fase 1: locais + disponibilidades + origens + planos + pagamentos → débito por sessão ponta a ponta via API).
+**Agora:** Fase 4 (núcleo utilizável) concluída e verde — commit a seguir. **Próximo:** Fase 5 (telas iniciais: feed do dia + história + métricas + calendário).
 
 ---
 
@@ -89,9 +89,9 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ## Fase 4 — R1 sub-fase 1: núcleo utilizável (locais + planos)
 
-- [ ] **4.1 Locais, disponibilidades e origens** (dep: —) — CRUD `/v1/app/locations`, `/availability`, `/v1/app/origins`. **Refs:** R1.7 · D1.
-- [ ] **4.2 Planos e pagamentos** (dep: 4.1) — CRUD `/v1/app/patients/{id}/plans`; comprovante de pagamento no GED. Com plano vigente, o débito por sessão passa a funcionar ponta a ponta via API. **Refs:** R1.9 · D1.
-- [ ] **Fechamento Fase 4:** E2E ponta a ponta (cadastrar plano → finalizar sessão → débito gerado → cobrança), docs + Swagger, `make check` verde → commit.
+- [x] **4.1 Locais, disponibilidades e origens** (dep: —) — CRUD `/v1/app/locations`, `/availability`, `/v1/app/origins`. ✅ **Refs:** R1.7 · D1.
+- [x] **4.2 Planos e pagamentos** (dep: 4.1) — CRUD `/v1/app/patients/{id}/plans`; comprovante de pagamento (base64) no GED via `POST /debts/{id}/pay`. Com plano vigente, o débito por sessão funciona ponta a ponta via API. ✅ **Refs:** R1.9 · D1.
+- [x] **Fechamento Fase 4:** E2E ponta a ponta (plano por consulta → finalizar sessão → débito automático → cobrança → pagamento com comprovante → pago), docs (architecture §0.16 + decisions + Swagger), `make check` verde → commit. ✅
 
 ---
 
