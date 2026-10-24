@@ -1,5 +1,10 @@
 # Stack local em Docker (teste e navegabilidade)
 
+> ⚠️ **Desatualizado pela onda `pocketbase-core`.** Descreve a stack do modelo
+> anterior (dois binários, `dev_mode`). A arquitetura vigente é um binário único
+> atrás do Pangolin — ver [`architecture.md`](./architecture.md). A reescrita
+> desta stack local está pendente.
+
 Ambiente descartável para subir o Psicoman inteiro (admin + portal) num container
 local, com dados de demonstração, e **limpar tudo** depois sem deixar lixo. É um
 ambiente de **teste em modo dev**: a autenticação do admin fica desligada e o

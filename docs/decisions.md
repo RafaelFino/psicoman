@@ -70,7 +70,7 @@ Ordem: mais recente no topo.
 
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 6, TASK 6.0): config por arquivo (Opção B) + env sobrescreve
 
-**Contexto.** A Fase 6 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) precisa de uma fonte única de configuração para cifra, Pangolin, Google e Gemini, pré-requisito do Calendar síncrono (6.1) e do PDF de cobrança (6.2). Até a Fase 5, a cifra era lida direto do ambiente em `wiring.go` (`PSICOMAN_CIPHER_KEY_ID`/`PSICOMAN_CIPHER_KEYS`) e o PA-4 (ADR Fase 4) previa a troca para arquivo sem mexer na assinatura de `Register`. O Rafael escolheu a **Opção B** (config por arquivo, com env sobrescrevendo e log de origem). Design curto em [`../.agents/tasks/pocketbase-core/fase6-design.md`](../.agents/tasks/pocketbase-core/fase6-design.md).
+**Contexto.** A Fase 6 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) precisa de uma fonte única de configuração para cifra, Pangolin, Google e Gemini, pré-requisito do Calendar síncrono (6.1) e do PDF de cobrança (6.2). Até a Fase 5, a cifra era lida direto do ambiente em `wiring.go` (`PSICOMAN_CIPHER_KEY_ID`/`PSICOMAN_CIPHER_KEYS`) e o PA-4 (ADR Fase 4) previa a troca para arquivo sem mexer na assinatura de `Register`. O Rafael escolheu a **Opção B** (config por arquivo, com env sobrescrevendo e log de origem).
 
 **Decisões (do Rafael).**
 1. **Config por arquivo YAML (Opção B) como fonte única.** Novo pacote `internal/config` lê um YAML tipado (`config.dev.yaml` em dev, git-ignored) com `gopkg.in/yaml.v3`. A ordem de descoberta é: flag `--config`/env `PSICOMAN_CONFIG` → `./config.dev.yaml` → `./config.yaml`; a **ausência de arquivo não é fatal** (cai para defaults + env). A cifra, porém, permanece **fail-closed** no boot (responsabilidade do wiring, não do loader).
@@ -90,7 +90,7 @@ Ordem: mais recente no topo.
 
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 5): auth do Pangolin + gate de aprovação
 
-**Contexto.** A Fase 5 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) troca os stubs de auth no-op da Fase 4 por controle real (tasks 5.1 e 5.2), realizando R3/D3/D13. Design em [`../.agents/tasks/pocketbase-core/fase5-design.md`](../.agents/tasks/pocketbase-core/fase5-design.md). Arquitetura não reaberta.
+**Contexto.** A Fase 5 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) troca os stubs de auth no-op da Fase 4 por controle real (tasks 5.1 e 5.2), realizando R3/D3/D13. Arquitetura não reaberta.
 
 **Decisões.**
 1. **Auth por header injetado pelo Pangolin na borda; o app só exige presença.** `/v1/app/*` e `/v1/admin/*` exigem um header de identidade (default `X-Pangolin-User`, env `PSICOMAN_PANGOLIN_IDENTITY_HEADER`); ausente → 401 `nao_autenticado`. A política fina (admin mais restrito) fica no gateway, não no código. O header tem **default** (ao contrário da cifra, que aborta o boot) porque é só o nome de um cabeçalho, não um segredo. A identidade é exposta via `httpx.ActorIdentity` como preparação de auditoria (sem consumidor nesta fase).
@@ -109,7 +109,7 @@ Ordem: mais recente no topo.
 
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 4): contrato `/v1` por ator
 
-**Contexto.** A Fase 4 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) expõe o contrato HTTP público `/v1/*` (envelope, DTOs, segregação por ator, Swagger) sobre o adapter das fases anteriores. Design em [`../.agents/tasks/pocketbase-core/fase4-design.md`](../.agents/tasks/pocketbase-core/fase4-design.md). Esta entrada registra só as decisões de contrato novas; D2/D6.3/D7/D13 não são reabertas.
+**Contexto.** A Fase 4 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) expõe o contrato HTTP público `/v1/*` (envelope, DTOs, segregação por ator, Swagger) sobre o adapter das fases anteriores. Esta entrada registra só as decisões de contrato novas; D2/D6.3/D7/D13 não são reabertas.
 
 **Decisões.**
 1. **REST automática do PocketBase trancada por regra nula (sem migration nova).** As coleções do MER nascem com regras de acesso nulas (Fase 3), o que o PocketBase trata como "somente superuser" — `/api/collections/.../records` responde 403 a qualquer acesso não-superuser. O contrato público é **exclusivamente** `/v1/*`. A Fase 4 apenas documenta isso e blinda com um teste de contrato (D13); mesmo um superuser lê o campo clínico como envelope cifrado, nunca o claro. Não adicionamos hook para remover `/api/*` no binário (defesa é `nil`-rules + Pangolin + cifra); bloqueio ativo fica em aberto (PA-3), a confirmar se desejado.
@@ -126,7 +126,7 @@ Ordem: mais recente no topo.
 
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 3): coleções/migrations e adapter `platform/pb`
 
-**Contexto.** A Fase 3 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a camada de persistência prevista na ADR-base (decisões 5 e 6): as coleções do PocketBase derivadas do MER canônico (D4b) e o adapter `internal/platform/pb` que implementa as portas de `internal/app/ports.go`, com cifra por campo na borda. Plano completo em [`../.agents/tasks/pocketbase-core/fase3-plan.md`](../.agents/tasks/pocketbase-core/fase3-plan.md). Esta entrada registra as decisões que não eram triviais e valem como lastro; a arquitetura-base não é reaberta.
+**Contexto.** A Fase 3 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a camada de persistência prevista na ADR-base (decisões 5 e 6): as coleções do PocketBase derivadas do MER canônico (D4b) e o adapter `internal/platform/pb` que implementa as portas de `internal/app/ports.go`, com cifra por campo na borda. Esta entrada registra as decisões que não eram triviais e valem como lastro; a arquitetura-base não é reaberta.
 
 **Decisões.**
 1. **`id` ULID via `TextField` custom, não o id default do PocketBase.** O campo `id` padrão do PB é 15 chars `[a-z0-9]` com autogeração, incompatível com o ULID do projeto (26 chars Crockford base32 maiúsculo). Em cada coleção substituímos o `id` por um `TextField{PrimaryKey, System, Required, Min:26, Max:26, Pattern:"^[0-9A-HJKMNP-TV-Z]{26}$"}` **sem** `AutogeneratePattern` — o PB não autogera e o adapter grava o ULID do agregado (`rec.Set("id", agg.ID)`). Confirmado na fonte (v0.40.6) que `initIdField` respeita um `id` pré-existente e que o `TextField` só autogera quando há `AutogeneratePattern`. *Consequência:* o ULID permanece a identidade canônica, gerado em Go (`internal/platform/ulid`), nunca pelo framework.
@@ -145,7 +145,7 @@ Ordem: mais recente no topo.
 
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 2): domínio rico por bounded context
 
-**Contexto.** A Fase 2 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a decisão 4 da ADR abaixo (domínio rico) e as tasks 2.1/2.1b/2.2: agregados por bounded context com comportamento próprio, regras de negócio portadas das ondas anteriores (não reinventadas) e serviços enxutos em `internal/app`. Esta entrada registra as decisões de granularidade que não eram triviais e que valem como lastro; a arquitetura-base não é reaberta. Plano completo em [`../.agents/tasks/pocketbase-core/fase2-plan.md`](../.agents/tasks/pocketbase-core/fase2-plan.md).
+**Contexto.** A Fase 2 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a decisão 4 da ADR abaixo (domínio rico) e as tasks 2.1/2.1b/2.2: agregados por bounded context com comportamento próprio, regras de negócio portadas das ondas anteriores (não reinventadas) e serviços enxutos em `internal/app`. Esta entrada registra as decisões de granularidade que não eram triviais e que valem como lastro; a arquitetura-base não é reaberta.
 
 **Decisões.**
 1. **Portas de repositório ficam em `internal/app`, não no domínio.** As interfaces de porta (repositórios + integrações consumidas pelos serviços) vivem em `internal/app/ports.go`, junto do serviço que as consome, tipadas contra os pacotes de domínio. O domínio permanece núcleo puro de regras, sem portas de persistência órfãs. D5 permite "domínio/app"; concentrar em `app` evita acoplamento do domínio a contratos de I/O. O adapter `platform/pb` (Fase 3) implementará essas portas.

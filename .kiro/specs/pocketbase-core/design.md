@@ -407,10 +407,10 @@ Refinamento da validação: o envio de cobrança por **Gmail sai do escopo**. Na
 
 ## D13. Estratégia de testes (R4, R6, R7, R11)
 
-- **Domínio (unit):** comportamento dos agregados por bounded context (transições de status da sessão, validações, idempotência financeira). `SealedText`: **round-trip** (`Seal` → persistência → `UnmarshalJSON` → `Reveal` devolve o claro) e **não-vazamento** (`MarshalJSON` nunca emite o claro; o log do agregado não expõe conteúdo clínico). Rotação: decifrar com `id_da_chave` antigo após trocar o corrente.
+- **Domínio (unit):** comportamento dos agregados por bounded context (transições de status da sessão, validações, idempotência financeira). `SealedText`: **round-trip** (o claro é selado no adapter via `Cipher`, persistido como envelope, lido e decifrado de volta por `Reveal`) e **não-vazamento** (`SealedText` **não** tem `MarshalJSON` que exponha o claro; a saída vai por DTO explícito; o log do agregado não expõe conteúdo clínico). Rotação: decifrar com `id_da_chave` antigo após trocar o corrente.
 - **Serviços (unit):** `internal/app` com fakes das portas (repositórios, Calendar, Gemini) — idempotência de débito, categorização, gate de aprovação.
 - **E2E sobre o binário único:** request HTTP real contra `/v1/*`, Google e Gemini **mockados**. Cobrir caminho permitido (2xx) e negado (403/401) do gate de aprovação (R3).
-- **Teste de contrato de exposição:** garantir que a **REST automática do PocketBase não expõe dado clínico** em claro (o campo persistido é o envelope cifrado; o endpoint público é `/v1/*` com `SealedText` serializado cifrado).
+- **Teste de contrato de exposição:** garantir que a **REST automática do PocketBase não expõe dado clínico** em claro (o campo persistido é o envelope cifrado); o contrato público é `/v1/*`, e nenhuma resposta serializa `SealedText` direto — o clínico só sai em claro pelo DTO do ator app via `Reveal()` (D6.3).
 - **Migração de coleções no boot:** aplicar as migrations do PocketBase em base nova e idempotente; conferir constraints/relations (UNIQUE de email/CPF, FK, chave de idempotência).
 
 Cada estratégia acima cobre os requisitos citados; nenhum `t.Skip` sem justificativa no próprio teste (ver [`.kiro/steering/psicoman-processo-entrega.md`](../../steering/psicoman-processo-entrega.md)).
