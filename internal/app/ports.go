@@ -241,3 +241,18 @@ type SessionCalendar interface {
 type SessionFinishedHook interface {
 	OnSessionFinished(ctx context.Context, s *scheduling.Session) error
 }
+
+// --- storage de binários do GED ---
+
+// GEDBlobStore persiste e recupera os BYTES dos arquivos do GED. É a porta do
+// file storage do PocketBase (adapter platform/pb sobre app.NewFilesystem(),
+// local ou S3 — D9b): o metadado (dedup por sha256, relations) fica no
+// GEDMetaRepository; aqui só o conteúdo, endereçado por relPath (fileKey).
+// O serviço (InvoiceService) orquestra os dois: hash → dedup → Put + Insert.
+type GEDBlobStore interface {
+	// Put grava os bytes sob relPath (sobrescreve se já existir — idempotente
+	// para o mesmo conteúdo, pois relPath deriva do sha256).
+	Put(ctx context.Context, relPath, mime string, content []byte) error
+	// Get devolve os bytes gravados sob relPath.
+	Get(ctx context.Context, relPath string) ([]byte, error)
+}

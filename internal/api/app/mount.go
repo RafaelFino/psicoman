@@ -48,6 +48,8 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	// Cobrança.
 	g.GET("/debts/{id}", h.GetDebt)
 	g.POST("/debts/{id}/pay", h.PayDebt)
+	g.POST("/debts/{id}/invoice", h.GenerateInvoice)
+	g.GET("/debts/{id}/invoice.pdf", h.DownloadInvoice)
 
 	// Relatórios.
 	g.GET("/reports/financial", h.ReportFinancial)

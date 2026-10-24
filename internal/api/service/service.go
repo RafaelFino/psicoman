@@ -21,4 +21,5 @@ type Services struct {
 	History    *app.HistoryService
 	Audit      *app.AuditService
 	Prontuario *app.ProntuarioService
+	Invoice    *app.InvoiceService
 }

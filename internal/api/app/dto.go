@@ -5,6 +5,7 @@ package app
 
 import (
 	"github.com/RafaelFino/psicoman/internal/api/httpx"
+	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/domain/billing"
 	"github.com/RafaelFino/psicoman/internal/domain/clinical"
 	"github.com/RafaelFino/psicoman/internal/domain/costs"
@@ -79,6 +80,17 @@ type PaymentDTO struct {
 	AmountCents int64  `json:"amount_cents"`
 	PaidAt      string `json:"paid_at"`
 	Method      string `json:"method"`
+}
+
+// InvoiceDTO é a projeção do PDF de cobrança gerado (metadado no GED). O
+// conteúdo (bytes) é servido pela rota de download, não neste DTO.
+type InvoiceDTO struct {
+	FileID    string `json:"file_id"`
+	DebtID    string `json:"debt_id"`
+	PatientID string `json:"patient_id"`
+	MIME      string `json:"mime"`
+	SizeBytes int64  `json:"size_bytes"`
+	SHA256    string `json:"sha256"`
 }
 
 // PayResultDTO é a resposta de POST /v1/app/debts/{id}/pay.
@@ -176,6 +188,17 @@ func toDebtDTO(d *billing.Debt) DebtDTO {
 		AmountCents:   d.Amount,
 		DueDate:       httpx.FmtTime(d.DueDate),
 		Status:        d.Status,
+	}
+}
+
+func toInvoiceDTO(f *domain.GEDFile) InvoiceDTO {
+	return InvoiceDTO{
+		FileID:    f.ID,
+		DebtID:    f.DebtID,
+		PatientID: f.PatientID,
+		MIME:      f.MIME,
+		SizeBytes: f.Size,
+		SHA256:    f.SHA256,
 	}
 }
 

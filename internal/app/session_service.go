@@ -304,7 +304,9 @@ func (s *SessionService) createCalendarEvent(ctx context.Context, sess *scheduli
 		EndsAt:          sess.EndsAt,
 		AttendeeEmail:   p.Email,
 		ReminderMinutes: s.reminders,
-		WithMeet:        true,
+		// Meet só em sessão online (psicoman-google-api.md D8: link de Meet
+		// quando online). Presencial cria o evento sem conferência.
+		WithMeet: sess.Modality == scheduling.ModalityOnline,
 	})
 	if err != nil {
 		return err

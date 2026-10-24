@@ -111,6 +111,18 @@
           "status": { "type": "string" }
         }
       },
+      "InvoiceDTO": {
+        "type": "object",
+        "description": "Metadado do PDF de cobrança no GED (os bytes vêm pela rota de download).",
+        "properties": {
+          "file_id": { "type": "string" },
+          "debt_id": { "type": "string" },
+          "patient_id": { "type": "string" },
+          "mime": { "type": "string" },
+          "size_bytes": { "type": "integer", "format": "int64" },
+          "sha256": { "type": "string" }
+        }
+      },
       "PortalMeDTO": {
         "type": "object",
         "description": "Dados do paciente. SEM qualquer campo clínico.",
@@ -257,6 +269,20 @@
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["amount_cents"], "properties": { "amount_cents": { "type": "integer", "format": "int64" }, "method": { "type": "string" } } } } } },
         "responses": { "200": { "description": "OK" }, "422": { "description": "Valor inválido" } }
+      }
+    },
+    "/v1/app/debts/{id}/invoice": {
+      "post": {
+        "tags": ["app"], "summary": "Gera (ou reaproveita) o PDF de cobrança no GED. Sem envio por email.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "201": { "description": "PDF gerado (metadado no GED)" }, "404": { "description": "Débito não encontrado" } }
+      }
+    },
+    "/v1/app/debts/{id}/invoice.pdf": {
+      "get": {
+        "tags": ["app"], "summary": "Baixa os bytes do PDF de cobrança (application/pdf). Gera on-demand se ausente.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "PDF", "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } } }, "404": { "description": "Débito não encontrado" } }
       }
     },
     "/v1/app/reports/financial": {

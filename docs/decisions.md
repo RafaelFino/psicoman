@@ -6,6 +6,22 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — Onda "pocketbase-core" (Fase 6, TASK 6.2): PDF de cobrança no file storage do PocketBase (Opção A)
+
+**Contexto.** A TASK 6.2 gera o PDF de cobrança a partir do débito e o armazena no GED. O design D9b manda armazenar "no GED, servido pelo **file storage do PocketBase**", mas a coleção `ged_file` modelada na Fase 3 guarda **só metadados** (`rel_path`, `mime`, `size`, `sha256`) — **sem campo `file`** — e o legado (`c3ab585`) gravava os bytes num `GEDService` próprio em filesystem (`<ged_root>`). Faltava decidir onde os bytes físicos do PDF ficam. Três caminhos avaliados: (A) `app.NewFilesystem()` + `Upload(bytes, fileKey=rel_path)`; (B) adicionar campo `file` a `ged_file` (migration); (C) filesystem puro num `<ged_root>` configurável. O Rafael escolheu a **Opção A**.
+
+**Decisão (do Rafael).** **Opção A — bytes no file storage nativo do PocketBase.** Porta `app.GEDBlobStore{ Put, Get }` implementada em `internal/platform/pb` sobre `app.NewFilesystem()` (local hoje, S3 no futuro sem trocar código), usando o `rel_path` do domínio como `fileKey` do bucket. O `app.InvoiceService` orquestra: compõe o PDF (gerador Go puro em `internal/platform/pdf`), calcula o SHA-256, **deduplica por hash no escopo do paciente** (`GEDMetaRepository.FindByHash`), e, se novo, grava os bytes (`Put`) + insere o metadado (`ged_file`) + vincula ao débito (`SetPDF`). Gmail permanece fora de escopo (envio pela terapeuta, D9b).
+
+**Consequências.**
+- Honra o D9b ao pé da letra (file storage do PB), reaproveita `rel_path`/`sha256`/`GEDMetaRepository` intactos e **não exige migration** nem campo `file`.
+- O GED fica pronto para S3 (basta a config de storage do PB) sem mudança de código de aplicação.
+- Novos: `internal/platform/pdf` (gerador + teste), `internal/platform/pb/ged_store.go` (adapter, único ponto que toca o storage de binários), `app.InvoiceService` (`invoice_service.go` + teste), porta `GEDBlobStore` em `app/ports.go`.
+- Rotas no ator app: `POST /v1/app/debts/{id}/invoice` (gera, devolve `InvoiceDTO`) e `GET /v1/app/debts/{id}/invoice.pdf` (download `application/pdf`). Auditoria `debito_gerar` minimizada (só `ged_file_id`).
+- O cabeçalho de perfil do terapeuta no PDF (nome/CRP) ficou de fora: o `TherapistProfile` ainda não foi portado ao domínio rico (entra em fase posterior). O legado já tratava o cabeçalho como opcional.
+- Correção de borda dentro da 6.1: o evento de Calendar só pede Meet em sessão `online` (antes forçava `WithMeet=true` sempre); alinhado a D8.
+
+---
+
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 6, TASK 6.0): config por arquivo (Opção B) + env sobrescreve
 
 **Contexto.** A Fase 6 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) precisa de uma fonte única de configuração para cifra, Pangolin, Google e Gemini, pré-requisito do Calendar síncrono (6.1) e do PDF de cobrança (6.2). Até a Fase 5, a cifra era lida direto do ambiente em `wiring.go` (`PSICOMAN_CIPHER_KEY_ID`/`PSICOMAN_CIPHER_KEYS`) e o PA-4 (ADR Fase 4) previa a troca para arquivo sem mexer na assinatura de `Register`. O Rafael escolheu a **Opção B** (config por arquivo, com env sobrescrevendo e log de origem). Design curto em [`../.agents/tasks/pocketbase-core/fase6-design.md`](../.agents/tasks/pocketbase-core/fase6-design.md).

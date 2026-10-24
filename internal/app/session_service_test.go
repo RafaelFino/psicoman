@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -71,8 +72,89 @@ func TestSessionCreate_ConflitoBloqueia(t *testing.T) {
 	if err == nil {
 		t.Fatal("esperava conflito de agenda")
 	}
+	// O conflito do Calendar/freebusy precisa satisfazer ErrConflict para que a
+	// API o mapeie para 409 code 'conflito' (FEAT-002).
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflito deveria satisfazer ErrConflict, veio %v", err)
+	}
 	if repo.creates != 0 {
 		t.Fatalf("não deveria persistir em conflito, creates=%d", repo.creates)
+	}
+}
+
+// TestSessionCreate_OnlineCriaMeet: ao agendar online, o SessionService pede
+// evento com WithMeet e grava o MeetURL devolvido pelo Calendar (FEAT-002).
+func TestSessionCreate_OnlineCriaMeet(t *testing.T) {
+	ctx := context.Background()
+	repo := newSessionRepo()
+	patients := newPatientRepo()
+	seedPatient(patients, "p1")
+	svc := newSessionSvc(repo, patients, fixedAt(2026, 3, 1))
+	svc.SetConflictChecker(&fakeConflictChecker{})
+	cal := &fakeCalendar{result: CalendarEventResult{EventID: "evt-online", MeetURL: "https://meet/online"}}
+	svc.SetCalendar(cal, []int{1440, 30})
+
+	in := createInput()
+	in.Modality = scheduling.ModalityOnline
+	sess, err := svc.Create(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.MeetURL != "https://meet/online" {
+		t.Fatalf("sessão online deveria ficar com MeetURL, veio %q", sess.MeetURL)
+	}
+	if cal.calls != 1 {
+		t.Fatalf("esperava criação de evento, calls=%d", cal.calls)
+	}
+	if !cal.last.WithMeet {
+		t.Fatal("sessão online deveria pedir Meet (WithMeet=true)")
+	}
+}
+
+// TestSessionCreate_PresencialSemMeet: sessão presencial cria o evento no
+// Calendar SEM Meet (WithMeet=false) — Meet é exclusivo de online (D8).
+func TestSessionCreate_PresencialSemMeet(t *testing.T) {
+	ctx := context.Background()
+	repo := newSessionRepo()
+	patients := newPatientRepo()
+	seedPatient(patients, "p1")
+	svc := newSessionSvc(repo, patients, fixedAt(2026, 3, 1))
+	svc.SetConflictChecker(&fakeConflictChecker{})
+	cal := &fakeCalendar{result: CalendarEventResult{EventID: "evt-pres"}}
+	svc.SetCalendar(cal, []int{1440, 30})
+
+	in := createInput()
+	in.Modality = scheduling.ModalityPresencial
+	if _, err := svc.Create(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	if cal.calls != 1 {
+		t.Fatalf("presencial ainda cria evento, calls=%d", cal.calls)
+	}
+	if cal.last.WithMeet {
+		t.Fatal("presencial não deveria pedir Meet (WithMeet=true)")
+	}
+}
+
+// TestSessionCreate_SemCalendarNoOp: sem checker/calendar injetados, a sessão é
+// agendada sem evento e SEM panic (degradação sem credenciais — FEAT-002).
+func TestSessionCreate_SemCalendarNoOp(t *testing.T) {
+	ctx := context.Background()
+	repo := newSessionRepo()
+	patients := newPatientRepo()
+	seedPatient(patients, "p1")
+	svc := newSessionSvc(repo, patients, fixedAt(2026, 3, 1))
+	// Nenhum SetConflictChecker/SetCalendar: usa o no-op interno.
+
+	sess, err := svc.Create(ctx, createInput())
+	if err != nil {
+		t.Fatalf("sem Calendar não deveria falhar: %v", err)
+	}
+	if sess.GoogleEventID != "" || sess.MeetURL != "" {
+		t.Fatalf("sem Calendar a sessão não deveria ter evento: %+v", sess)
+	}
+	if repo.creates != 1 {
+		t.Fatalf("sessão deveria ser persistida mesmo sem Calendar, creates=%d", repo.creates)
 	}
 }
 

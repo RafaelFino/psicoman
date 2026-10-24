@@ -1,16 +1,30 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/RafaelFino/psicoman/internal/api/service"
 	"github.com/RafaelFino/psicoman/internal/app"
 	"github.com/RafaelFino/psicoman/internal/config"
+	"github.com/RafaelFino/psicoman/internal/integration/google"
 	"github.com/RafaelFino/psicoman/internal/platform/crypto"
 	"github.com/RafaelFino/psicoman/internal/platform/pb"
 )
+
+// calendarReminderMinutes é o default de lembretes do evento: 1 dia + 30 min
+// (acumulativos) — psicoman-google-api.md.
+var calendarReminderMinutes = []int{1440, 30}
+
+// EnvGoogleRefreshToken carrega o refresh token OAuth do terapeuta. O fluxo
+// 3-legged + persistência cifrada do token (coleção google_token) chega numa
+// fase posterior; por ora o refresh token vem do ambiente para ativar o
+// Calendar real quando as credenciais do app também estão presentes.
+const EnvGoogleRefreshToken = "PSICOMAN_GOOGLE_REFRESH_TOKEN"
 
 // cipherConfig é a configuração de cifra resolvida no boot.
 type cipherConfig struct {
@@ -94,6 +108,7 @@ func buildServices(a core.App) (*service.Services, error) {
 
 	sessions := app.NewSessionService(sessionsRepo, patientsRepo)
 	sessions.SetAudit(audit)
+	calendarWirer(a, sessions)
 
 	billing := app.NewBillingService(debtsRepo, plansRepo, audit)
 	sessions.AddFinishedHook(billing)
@@ -108,6 +123,10 @@ func buildServices(a core.App) (*service.Services, error) {
 	history := app.NewHistoryService(patientsRepo, sessionsRepo, prontuarioRepo, debtsRepo, paymentsRepo, gedRepo, audit)
 	prontuario := app.NewProntuarioService(prontuarioRepo, nil)
 
+	// PDF de cobrança no GED (file storage do PocketBase, D9b): o blob store
+	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256).
+	invoice := app.NewInvoiceService(debtsRepo, patientsRepo, gedRepo, pb.NewGEDBlobStore(a), audit)
+
 	return &service.Services{
 		Patients:   patients,
 		Sessions:   sessions,
@@ -120,5 +139,47 @@ func buildServices(a core.App) (*service.Services, error) {
 		History:    history,
 		Audit:      audit,
 		Prontuario: prontuario,
+		Invoice:    invoice,
 	}, nil
+}
+
+// calendarWirer é o seam de injeção do Calendar no SessionService. Default liga
+// o Google real (wireCalendar); os testes em processo o reatribuem para injetar
+// um ConflictChecker/Calendar fake sem tocar a rede (FEAT-002).
+var calendarWirer = wireCalendar
+
+// wireCalendar liga o Google Calendar síncrono ao SessionService a partir do
+// Config carregado (FEAT-001). Ativa o Calendar real SÓ quando há credenciais
+// completas (client_id + client_secret + calendar_id) e um refresh token; caso
+// contrário, NÃO injeta nada: a sessão agenda sem evento (no-op, sem panic),
+// com AVISO logado no boot — sem vazar segredo (psicoman-google-api.md D8,
+// psicoman-seguranca-lgpd.md). É o único Google no caminho de request.
+func wireCalendar(a core.App, sessions *app.SessionService) {
+	cfg, _, err := configLoader()
+	if err != nil {
+		a.Logger().Warn("Google Calendar desativado: falha ao ler config", "erro", err.Error())
+		return
+	}
+	g := cfg.Google
+	if strings.TrimSpace(g.ClientID) == "" ||
+		strings.TrimSpace(g.ClientSecret) == "" ||
+		strings.TrimSpace(g.CalendarID) == "" {
+		a.Logger().Warn("Google Calendar desativado: credenciais ausentes (client_id/client_secret/calendar_id) — sessões agendam sem evento")
+		return
+	}
+	refresh := strings.TrimSpace(os.Getenv(EnvGoogleRefreshToken))
+	creds := google.OAuthCredentials{
+		ClientID:     g.ClientID,
+		ClientSecret: g.ClientSecret,
+		RefreshToken: refresh,
+	}
+	if !creds.Valid() {
+		a.Logger().Warn("Google Calendar desativado: sem refresh token OAuth (reautorização necessária) — sessões agendam sem evento")
+		return
+	}
+	httpClient := google.NewOAuthHTTPClient(context.Background(), creds)
+	adapter := google.NewCalendarAdapter(google.NewRESTCalendarClient(httpClient), g.CalendarID)
+	sessions.SetConflictChecker(adapter)
+	sessions.SetCalendar(adapter, calendarReminderMinutes)
+	a.Logger().Info("Google Calendar ativado (síncrono)", "calendar_id", g.CalendarID)
 }

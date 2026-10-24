@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/RafaelFino/psicoman/internal/domain"
@@ -229,10 +230,12 @@ func (f *fakeConflictChecker) HasConflict(_ context.Context, _, _ time.Time) (bo
 type fakeCalendar struct {
 	calls  int
 	result CalendarEventResult
+	last   CalendarEvent
 }
 
-func (f *fakeCalendar) CreateEvent(_ context.Context, _ CalendarEvent) (*CalendarEventResult, error) {
+func (f *fakeCalendar) CreateEvent(_ context.Context, ev CalendarEvent) (*CalendarEventResult, error) {
 	f.calls++
+	f.last = ev
 	r := f.result
 	return &r, nil
 }
@@ -552,11 +555,50 @@ func (f *fakeGEDMetaRepo) Insert(_ context.Context, file *domain.GEDFile) error 
 	f.all = append(f.all, file)
 	return nil
 }
-func (f *fakeGEDMetaRepo) Get(context.Context, string) (*domain.GEDFile, error) {
+func (f *fakeGEDMetaRepo) Get(_ context.Context, id string) (*domain.GEDFile, error) {
+	for _, file := range f.all {
+		if file.ID == id {
+			return file, nil
+		}
+	}
 	return nil, ErrNotFound
 }
-func (f *fakeGEDMetaRepo) FindByHash(context.Context, string, string) (*domain.GEDFile, error) {
+func (f *fakeGEDMetaRepo) FindByHash(_ context.Context, patientID, sha string) (*domain.GEDFile, error) {
+	for _, file := range f.all {
+		if file.PatientID == patientID && file.SHA256 == sha {
+			return file, nil
+		}
+	}
 	return nil, ErrNotFound
+}
+
+// fakeGEDBlob é um GEDBlobStore em memória (mapa relPath -> bytes).
+type fakeGEDBlob struct {
+	mu    sync.Mutex
+	store map[string][]byte
+	puts  int
+}
+
+func newGEDBlob() *fakeGEDBlob { return &fakeGEDBlob{store: map[string][]byte{}} }
+
+func (f *fakeGEDBlob) Put(_ context.Context, relPath, _ string, content []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.puts++
+	cp := make([]byte, len(content))
+	copy(cp, content)
+	f.store[relPath] = cp
+	return nil
+}
+
+func (f *fakeGEDBlob) Get(_ context.Context, relPath string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, ok := f.store[relPath]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return b, nil
 }
 func (f *fakeGEDMetaRepo) ListByPatient(_ context.Context, patientID string) ([]*domain.GEDFile, error) {
 	return f.byPatient[patientID], nil

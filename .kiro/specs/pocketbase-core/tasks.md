@@ -29,13 +29,13 @@ Convenções:
 | 3 — Adapter `platform/pb` + coleções | ✅ concluída | `c486b30` | cifra na borda comprovada por teste |
 | 4 — Contrato `/v1` (envelope, DTOs, Swagger) | ✅ concluída | `a8248d0` | DTOs sem vazar clínico; D13 superuser |
 | 5 — Auth `Pangolin` + gate de aprovação | ✅ concluída | `c30295a` | 401/403 permitido+negado + hook defesa-em-profundidade |
-| 6 — Google Calendar síncrono + PDF cobrança | 🔄 em progresso | — | TASK 6.0: loader `internal/config` (contexto preparado) |
-| 7 — Drive fallback/DR (hook de backup) | ⬜ pendente | — | — |
+| 6 — Google Calendar síncrono + PDF cobrança | ✅ concluída | _(pendente)_ | 6.0 config + 6.1 Calendar + 6.2 PDF no GED; `make check` verde |
+| 7 — Drive fallback/DR (hook de backup) | 🔄 em progresso | — | próxima |
 | 8 — IA Gemini + índice de tags | ⬜ pendente | — | — |
 | 9 — Portal do paciente | ⬜ pendente | — | — |
 | 10 — Fechamento (docs + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 6 iniciada pela **TASK 6.0 — loader `internal/config`** (pré-requisito de 6.1/6.2). Contexto preparado em `.agents/tasks/pocketbase-core/fase6-design.md`: struct tipada espelhando `config.dev.yaml`, ordem de descoberta do arquivo, env sobrescreve arquivo com log de origem (sem vazar segredo), Gemini opt-in pela presença de `llm.gemini.api_key`, `config` não importa o PocketBase. O refator do `wiring.go` preserva o seam `cipherConfigLoader` injetável e o boot fail-closed da cifra (todos os testes atuais verdes). Depois: 6.1 Google Calendar síncrono (`freebusy`→409, Meet online, degrada sem credenciais, timeout via `context.WithTimeout`) e 6.2 PDF de cobrança no GED (porte de `internal/platform/pdf` + `invoice.go` do commit `c3ab585`, sem Gmail). Nenhuma ação pendente do Rafael.
+**Agora:** Fase 6 **concluída e verde** (commit a seguir). Entregue: 6.0 config, 6.1 Calendar síncrono (freebusy→409, Meet só online, degrada sem credenciais), 6.2 PDF de cobrança no GED via file storage do PocketBase (`platform/pdf` Go puro + porta `GEDBlobStore` sobre `app.NewFilesystem()`, dedup por SHA-256, rotas `POST /v1/app/debts/{id}/invoice` e `GET …/invoice.pdf`, sem Gmail). Docs no mesmo ciclo: `architecture.md §0.9`, `decisions.md` (ADR 2026-10-24, Opção A), Swagger (+2 rotas, `InvoiceDTO`). `make check` verde (unit + E2E). **Próximo:** Fase 7 — Drive fallback/DR via hook de backup (`internal/drivesync`): upload do snapshot cifrado para pasta fria no Drive, escopo `drive.file`, fora do caminho de request, interface + fake, backup sem Google não dá 500. Nenhuma ação pendente do Rafael.
 
 ---
 
@@ -183,19 +183,19 @@ Convenções:
 
 ## Fase 6 — Integração Google Calendar síncrona (R8)
 
-- [ ] **6.1. Calendar síncrono (interface + fake)** (dep: 4.2)
+- [x] **6.1. Calendar síncrono (interface + fake)** (dep: 4.2)
   - `internal/integration/google`: Calendar atrás de interface + fake; `freebusy` antes de confirmar; evento + Meet quando online; degrada sem panic sem credenciais. **Sem Gmail** — a integração cobre só Calendar e Drive.
   - **Aceite:** agendar/confirmar cria evento (mock); sem Google não dá erro fatal.
   - **Testes:** unit com fake; E2E agendar com Google mockado e sem Google.
   - **Refs:** R8.1 · D8.
 
-- [ ] **6.2. PDF de cobrança (sem envio por email)** (dep: 4.2)
+- [x] **6.2. PDF de cobrança (sem envio por email)** (dep: 4.2)
   - Gerar o PDF de cobrança a partir do débito e armazená-lo no GED (file storage do PocketBase). **Nenhuma** integração de envio por email (Gmail fora de escopo); o envio é por WhatsApp, fora da plataforma.
   - **Aceite:** gerar cobrança produz um PDF recuperável no GED; não há caminho de envio por email.
   - **Testes:** unit/E2E de geração do PDF e persistência no GED.
   - **Refs:** R9.3 · D9b.
 
-- [ ] **Fechamento Fase 6:** `docs/architecture.md`/`docs/requirements.md` (Calendar síncrono + PDF de cobrança sem Gmail), Swagger; `make check` verde → commit "pocketbase-core Fase 6: Google Calendar síncrono e PDF de cobrança".
+- [x] **Fechamento Fase 6:** `docs/architecture.md`/`docs/requirements.md` (Calendar síncrono + PDF de cobrança sem Gmail), Swagger; `make check` verde → commit "pocketbase-core Fase 6: Google Calendar síncrono e PDF de cobrança".
 
 ---
 
