@@ -17,6 +17,28 @@ Convenções:
 
 ---
 
+## 📊 Status ao vivo da onda
+
+> Atualizado pelo agente a cada virada de etapa. `✅ concluída` · `🔄 em progresso` · `⬜ pendente`.
+
+| Fase | Estado | Commit | Observação |
+|------|--------|--------|------------|
+| 0 — Fundação (binário único + PocketBase) | ✅ concluída | `d11fb6d` | admin UI + smoke de boot verdes |
+| 1 — `SealedText` + cripto por campo | ✅ concluída | `b56deb6` | AES-256-GCM, envelope, não-vazamento |
+| 2 — Domínio rico por bounded context | ✅ concluída | `4940c5f` | regras portadas do legado |
+| 3 — Adapter `platform/pb` + coleções | ✅ concluída | `c486b30` | cifra na borda comprovada por teste |
+| 4 — Contrato `/v1` (envelope, DTOs, Swagger) | ✅ concluída | `a8248d0` | DTOs sem vazar clínico; D13 superuser |
+| 5 — Auth `Pangolin` + gate de aprovação | ✅ concluída | `c30295a` | 401/403 permitido+negado + hook defesa-em-profundidade |
+| 6 — Google Calendar síncrono + PDF cobrança | 🔄 em progresso | — | iniciando |
+| 7 — Drive fallback/DR (hook de backup) | ⬜ pendente | — | — |
+| 8 — IA Gemini + índice de tags | ⬜ pendente | — | — |
+| 9 — Portal do paciente | ⬜ pendente | — | — |
+| 10 — Fechamento (docs + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
+
+**Agora:** Fase 5 fechada e verificada (`c30295a`). Iniciando a Fase 6 — Google Calendar síncrono (interface + fake, `freebusy` antes de confirmar, Meet online, degrada sem credenciais) e geração de PDF de cobrança no GED (sem Gmail). Nenhuma ação pendente do Rafael.
+
+---
+
 ## Fase 0 — Fundação pocketbase-core (R1)
 
 - [x] **0.1. Binário único com PocketBase embarcado** (dep: —)
@@ -143,19 +165,19 @@ Convenções:
 
 ## Fase 5 — Auth atrás do `Pangolin` + gate de aprovação (R3)
 
-- [ ] **5.1. Auth da terapeuta/operação via header do `Pangolin`** (dep: 4.1)
+- [x] **5.1. Auth da terapeuta/operação via header do `Pangolin`** (dep: 4.1)
   - Middleware nos grupos `/v1/app/*` e `/v1/admin/*` que lê a identidade do header injetado pelo `Pangolin`; recusa (401) se ausente.
   - **Aceite:** requisição sem header é negada; com header é aceita.
   - **Testes:** E2E com e sem header (2xx/401).
   - **Refs:** R3.1 · D3.
 
-- [ ] **5.2. Gate de aprovação do paciente (middleware do portal + hook de reforço)** (dep: 5.1, 3.2)
+- [x] **5.2. Gate de aprovação do paciente (middleware do portal + hook de reforço)** (dep: 5.1, 3.2)
   - Estado de aprovação (`pendente`/`aprovado`/`rejeitado`) no `patient`. O enforcement vive no **middleware do grupo `/v1/portal/*`** (nega 403 paciente não-`aprovado` além do próprio cadastro/estado); um **hook do PocketBase** nas coleções sensíveis reforça (defesa em profundidade).
   - **Aceite:** paciente `pendente`/`rejeitado` é barrado (403) pelo middleware; `aprovado` acessa; o hook também barra escrita direta.
   - **Testes:** E2E permitido (2xx) e negado (403); unit do serviço de aprovação.
   - **Refs:** R3.2, R3.3 · D3, D13.
 
-- [ ] **Fechamento Fase 5:** `docs/architecture.md`/`docs/requirements.md` (auth + gate), `docs/decisions.md` (gate via hook), Swagger; `make check` verde → commit "pocketbase-core Fase 5: auth atrás do Pangolin e gate de aprovação".
+- [x] **Fechamento Fase 5:** `docs/architecture.md`/`docs/requirements.md` (auth + gate), `docs/decisions.md` (gate via hook), Swagger; `make check` verde → commit "pocketbase-core Fase 5: auth atrás do Pangolin e gate de aprovação".
 
 ---
 
