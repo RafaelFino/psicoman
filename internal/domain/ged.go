@@ -5,6 +5,8 @@ import "time"
 // GEDFile é o metadado de um arquivo no GED (Gestão Eletrônica de Documentos),
 // segregado por paciente. A integridade é garantida por SHA-256; a dedup é por
 // hash dentro do escopo do paciente (requirements §3.6, §4.2).
+//
+// Transversal aos bounded contexts: vive no pacote raiz domain.
 type GEDFile struct {
 	ID        string
 	PatientID string // vazio = arquivo do perfil do terapeuta

@@ -1,9 +1,7 @@
-// Package crypto cifra e decifra segredos (tokens do Google, snapshots de
-// backup) com AES-256-GCM. A chave vem de um KeyProvider, que no MVP lê do
-// config mas é plugável para um vault futuro (docs/architecture.md §4.4).
 package crypto
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -11,97 +9,141 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+
+	"github.com/RafaelFino/psicoman/internal/domain"
 )
 
-// KeyProvider fornece a chave de cifragem. Abstrai a fonte (config, vault).
-type KeyProvider interface {
-	// Key devolve a chave de 32 bytes (AES-256).
-	Key() ([]byte, error)
+// Formato do envelope (D6.4): cinco campos separados por ponto.
+//
+//	versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext
+//
+// Os três últimos campos (id_da_chave, nonce, ciphertext) são base64 (raw URL,
+// sem padding, para não colidir com o separador "."). versao_do_esquema e
+// algoritmo são tokens fixos que habilitam evolução sem quebrar dados antigos.
+const (
+	schemaVersion = "v1"          // versao_do_esquema
+	algorithm     = "aes-256-gcm" // algoritmo
+	envelopeParts = 5
+	keySize       = 32 // AES-256
+)
+
+var b64 = base64.RawURLEncoding
+
+// Erros expostos (mensagens técnicas; a tradução PT-BR para o usuário é
+// responsabilidade da camada de API ao montar o envelope de resposta).
+var (
+	ErrEnvelopeInvalido  = errors.New("envelope de cifra inválido")
+	ErrEsquemaDesconheci = errors.New("versão de esquema de cifra desconhecida")
+	ErrAlgoritmoDesconh  = errors.New("algoritmo de cifra desconhecido")
+	ErrChaveInvalida     = errors.New("chave de cifra inválida (esperado 32 bytes para AES-256)")
+)
+
+// aesCipher implementa domain.Cipher com AES-256-GCM, resolvendo chaves via
+// KeyProvider. É o único lugar que conhece o primitivo de cripto.
+type aesCipher struct {
+	keys domain.KeyProvider
 }
 
-// StaticKeyProvider lê a chave base64 do config.
-type StaticKeyProvider struct {
-	B64 string
+// New cria um domain.Cipher AES-256-GCM sobre o KeyProvider informado.
+func New(keys domain.KeyProvider) domain.Cipher {
+	return &aesCipher{keys: keys}
 }
 
-// Key decodifica e valida a chave base64 (deve ter 32 bytes).
-func (p StaticKeyProvider) Key() ([]byte, error) {
-	if p.B64 == "" {
-		return nil, errors.New("crypto: chave de cifragem não configurada")
+// Seal cifra o claro com a chave CORRENTE e devolve o envelope versionado.
+// Gera um nonce aleatório único por operação (requisito do GCM).
+func (c *aesCipher) Seal(ctx context.Context, plaintext string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-	key, err := base64.StdEncoding.DecodeString(p.B64)
-	if err != nil {
-		return nil, fmt.Errorf("crypto: chave base64 inválida: %w", err)
-	}
-	if len(key) != 32 {
-		return nil, fmt.Errorf("crypto: chave deve ter 32 bytes (AES-256), tem %d", len(key))
-	}
-	return key, nil
-}
-
-// Cipher cifra/decifra com AES-256-GCM usando a chave do provider.
-type Cipher struct {
-	provider KeyProvider
-}
-
-// New cria um Cipher a partir de um KeyProvider.
-func New(provider KeyProvider) *Cipher {
-	return &Cipher{provider: provider}
-}
-
-// Encrypt cifra plaintext, devolvendo base64(nonce || ciphertext).
-func (c *Cipher) Encrypt(plaintext []byte) (string, error) {
-	gcm, err := c.gcm()
+	keyID := c.keys.CurrentID()
+	gcm, err := c.gcmFor(keyID)
 	if err != nil {
 		return "", err
 	}
+
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("crypto: gerando nonce: %w", err)
+		return "", fmt.Errorf("gerando nonce: %w", err)
 	}
-	sealed := gcm.Seal(nonce, nonce, plaintext, nil)
-	return base64.StdEncoding.EncodeToString(sealed), nil
+
+	ciphertext := gcm.Seal(nil, nonce, []byte(plaintext), nil)
+
+	return strings.Join([]string{
+		schemaVersion,
+		algorithm,
+		b64.EncodeToString([]byte(keyID)),
+		b64.EncodeToString(nonce),
+		b64.EncodeToString(ciphertext),
+	}, "."), nil
 }
 
-// Decrypt reverte Encrypt.
-func (c *Cipher) Decrypt(encoded string) ([]byte, error) {
-	gcm, err := c.gcm()
+// Open decifra o envelope, resolvendo a chave pelo id_da_chave nele embutido
+// (habilita rotação: um envelope antigo é lido com a chave antiga mesmo após a
+// corrente ter mudado).
+func (c *aesCipher) Open(ctx context.Context, envelope string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	parts := strings.Split(envelope, ".")
+	if len(parts) != envelopeParts {
+		return "", ErrEnvelopeInvalido
+	}
+	schema, algo, keyIDb64, nonceB64, ctB64 := parts[0], parts[1], parts[2], parts[3], parts[4]
+
+	if schema != schemaVersion {
+		return "", fmt.Errorf("%w: %q", ErrEsquemaDesconheci, schema)
+	}
+	if algo != algorithm {
+		return "", fmt.Errorf("%w: %q", ErrAlgoritmoDesconh, algo)
+	}
+
+	keyIDBytes, err := b64.DecodeString(keyIDb64)
 	if err != nil {
-		return nil, err
+		return "", fmt.Errorf("%w: id_da_chave", ErrEnvelopeInvalido)
 	}
-	data, err := base64.StdEncoding.DecodeString(encoded)
+	nonce, err := b64.DecodeString(nonceB64)
 	if err != nil {
-		return nil, fmt.Errorf("crypto: base64 inválido: %w", err)
+		return "", fmt.Errorf("%w: nonce", ErrEnvelopeInvalido)
 	}
-	ns := gcm.NonceSize()
-	if len(data) < ns {
-		return nil, errors.New("crypto: dado cifrado muito curto")
+	ciphertext, err := b64.DecodeString(ctB64)
+	if err != nil {
+		return "", fmt.Errorf("%w: ciphertext", ErrEnvelopeInvalido)
 	}
-	nonce, ciphertext := data[:ns], data[ns:]
+
+	gcm, err := c.gcmFor(string(keyIDBytes))
+	if err != nil {
+		return "", err
+	}
+	if len(nonce) != gcm.NonceSize() {
+		return "", fmt.Errorf("%w: tamanho de nonce", ErrEnvelopeInvalido)
+	}
+
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("crypto: falha ao decifrar: %w", err)
+		// Chave errada, dado corrompido ou adulterado: o GCM falha a
+		// autenticação. Não distinguir para não dar pista a um atacante.
+		return "", fmt.Errorf("falha ao decifrar: %w", err)
 	}
-	return plaintext, nil
+	return string(plaintext), nil
 }
 
-func (c *Cipher) gcm() (cipher.AEAD, error) {
-	key, err := c.provider.Key()
+// gcmFor resolve a chave pelo id e monta o AEAD AES-256-GCM.
+func (c *aesCipher) gcmFor(keyID string) (cipher.AEAD, error) {
+	key, err := c.keys.Key(keyID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolvendo chave %q: %w", keyID, err)
+	}
+	if len(key) != keySize {
+		return nil, ErrChaveInvalida
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("crypto: criando cipher: %w", err)
+		return nil, fmt.Errorf("montando cifra AES: %w", err)
 	}
-	return cipher.NewGCM(block)
-}
-
-// GenerateKey gera uma chave AES-256 aleatória em base64 (utilitário/setup).
-func GenerateKey() (string, error) {
-	key := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		return "", err
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("montando GCM: %w", err)
 	}
-	return base64.StdEncoding.EncodeToString(key), nil
+	return gcm, nil
 }

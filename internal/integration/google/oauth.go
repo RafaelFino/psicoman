@@ -2,157 +2,45 @@ package google
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
-	"sync"
-	"time"
+
+	"golang.org/x/oauth2"
+	googleoauth "golang.org/x/oauth2/google"
 )
 
-const (
-	authEndpoint  = "https://accounts.google.com/o/oauth2/v2/auth"
-	tokenEndpoint = "https://oauth2.googleapis.com/token"
-)
-
-// OAuthConfig são as credenciais e escopos do OAuth 3-legged.
-type OAuthConfig struct {
+// OAuthCredentials são as credenciais do app + o refresh token do terapeuta
+// (OAuth 3-legged, conta pessoal, sem domain-wide delegation — psicoman-google-api.md).
+// O refresh token é persistido cifrado e carregado no boot; o access token é
+// renovado em runtime pelo oauth2.TokenSource.
+type OAuthCredentials struct {
 	ClientID     string
 	ClientSecret string
-	RedirectURL  string
-	Scopes       []string
+	RefreshToken string
 }
 
-// TokenStore persiste e recupera o refresh token (cifrado no repositório).
-type TokenStore interface {
-	// SaveRefreshToken guarda o refresh token e os escopos.
-	SaveRefreshToken(ctx context.Context, refreshToken string, scopes []string) error
-	// LoadRefreshToken devolve o refresh token; "" se não autorizado.
-	LoadRefreshToken(ctx context.Context) (string, error)
-	// SetReauthRequired sinaliza que a reautorização é necessária.
-	SetReauthRequired(ctx context.Context, required bool) error
+// Valid reporta se há credenciais suficientes para montar um cliente autenticado.
+func (c OAuthCredentials) Valid() bool {
+	return c.ClientID != "" && c.ClientSecret != "" && c.RefreshToken != ""
 }
 
-// OAuth gerencia o fluxo 3-legged e a renovação de access tokens.
-type OAuth struct {
-	cfg   OAuthConfig
-	store TokenStore
-	http  *http.Client
-
-	mu          sync.Mutex
-	accessToken string
-	expiry      time.Time
+// NewOAuthHTTPClient monta um *http.Client autenticado com o escopo mínimo de
+// Calendar (CalendarScope). Conveniência para o wiring do Calendar.
+func NewOAuthHTTPClient(ctx context.Context, creds OAuthCredentials) *http.Client {
+	return NewOAuthHTTPClientWithScopes(ctx, creds, CalendarScope)
 }
 
-// NewOAuth cria o gerenciador OAuth.
-func NewOAuth(cfg OAuthConfig, store TokenStore) *OAuth {
-	return &OAuth{cfg: cfg, store: store, http: &http.Client{Timeout: 15 * time.Second}}
-}
-
-// AuthURL devolve a URL de autorização (consentimento do terapeuta).
-func (o *OAuth) AuthURL(state string) string {
-	q := url.Values{}
-	q.Set("client_id", o.cfg.ClientID)
-	q.Set("redirect_uri", o.cfg.RedirectURL)
-	q.Set("response_type", "code")
-	q.Set("scope", strings.Join(o.cfg.Scopes, " "))
-	q.Set("access_type", "offline")
-	q.Set("prompt", "consent")
-	q.Set("state", state)
-	return authEndpoint + "?" + q.Encode()
-}
-
-// Exchange troca o authorization code por tokens e persiste o refresh token.
-func (o *OAuth) Exchange(ctx context.Context, code string) error {
-	form := url.Values{}
-	form.Set("code", code)
-	form.Set("client_id", o.cfg.ClientID)
-	form.Set("client_secret", o.cfg.ClientSecret)
-	form.Set("redirect_uri", o.cfg.RedirectURL)
-	form.Set("grant_type", "authorization_code")
-
-	tok, err := o.postToken(ctx, form)
-	if err != nil {
-		return err
+// NewOAuthHTTPClientWithScopes monta um *http.Client que injeta o Authorization
+// do Google e renova o access token automaticamente a partir do refresh token,
+// com os escopos informados (sempre os MÍNIMOS necessários — nunca mais amplos
+// que o preciso, psicoman-google-api.md). O ctx governa a vida das renovações
+// (cada chamada de negócio deriva seu próprio timeout — psicoman-golang.md).
+func NewOAuthHTTPClientWithScopes(ctx context.Context, creds OAuthCredentials, scopes ...string) *http.Client {
+	cfg := &oauth2.Config{
+		ClientID:     creds.ClientID,
+		ClientSecret: creds.ClientSecret,
+		Endpoint:     googleoauth.Endpoint,
+		Scopes:       scopes,
 	}
-	if tok.RefreshToken == "" {
-		return fmt.Errorf("google: refresh token ausente na resposta (verifique prompt=consent)")
-	}
-	o.setAccess(tok.AccessToken, tok.ExpiresIn)
-	if err := o.store.SaveRefreshToken(ctx, tok.RefreshToken, o.cfg.Scopes); err != nil {
-		return err
-	}
-	return o.store.SetReauthRequired(ctx, false)
-}
-
-// Token devolve um access token válido, renovando via refresh token se preciso.
-// Implementa TokenSource.
-func (o *OAuth) Token(ctx context.Context) (string, error) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	if o.accessToken != "" && time.Now().Before(o.expiry.Add(-30*time.Second)) {
-		return o.accessToken, nil
-	}
-	refresh, err := o.store.LoadRefreshToken(ctx)
-	if err != nil {
-		return "", err
-	}
-	if refresh == "" {
-		return "", fmt.Errorf("google: não autorizado (refresh token ausente)")
-	}
-	form := url.Values{}
-	form.Set("client_id", o.cfg.ClientID)
-	form.Set("client_secret", o.cfg.ClientSecret)
-	form.Set("refresh_token", refresh)
-	form.Set("grant_type", "refresh_token")
-
-	tok, err := o.postToken(ctx, form)
-	if err != nil {
-		// Falha de refresh sinaliza reautorização, sem derrubar o processo.
-		_ = o.store.SetReauthRequired(ctx, true)
-		return "", err
-	}
-	o.setAccessLocked(tok.AccessToken, tok.ExpiresIn)
-	return o.accessToken, nil
-}
-
-type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
-	TokenType    string `json:"token_type"`
-}
-
-func (o *OAuth) postToken(ctx context.Context, form url.Values) (*tokenResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := o.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	var tok tokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("google: troca de token falhou (%d)", resp.StatusCode)
-	}
-	return &tok, nil
-}
-
-func (o *OAuth) setAccess(token string, expiresIn int) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.setAccessLocked(token, expiresIn)
-}
-
-func (o *OAuth) setAccessLocked(token string, expiresIn int) {
-	o.accessToken = token
-	o.expiry = time.Now().Add(time.Duration(expiresIn) * time.Second)
+	// Só o refresh token: o oauth2 troca por um access token na 1ª chamada.
+	return cfg.Client(ctx, &oauth2.Token{RefreshToken: creds.RefreshToken})
 }

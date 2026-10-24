@@ -1,154 +1,107 @@
 package e2e
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
+	"time"
 )
 
-func TestPortalRegisterAndMe(t *testing.T) {
-	env := StartPortal(t)
-	defer env.Stop()
-
-	pc := env.NewPortalClient(t)
-	// Cadastro básico (login social fake: credential = email).
-	resp := pc.PUT(t, "/v1/portal/register", map[string]any{
-		"credential": "paciente@example.com",
-		"name":       "Paciente Portal",
-		"phone":      "11999998888",
-	})
+// portalLogin autentica o paciente via o endpoint nativo do PocketBase
+// (auth-with-password da coleção patient_user) e devolve o token de sessão.
+func portalLogin(t *testing.T, base, email, password string) string {
+	t.Helper()
+	body := `{"identity":"` + email + `","password":"` + password + `"}`
+	req, _ := http.NewRequest(http.MethodPost,
+		base+"/api/collections/patient_user/auth-with-password",
+		bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("login do paciente: %v", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("register status = %d, quer 200", resp.StatusCode)
+		t.Fatalf("login do paciente: status %d (%s)", resp.StatusCode, raw)
 	}
-	resp.Body.Close()
+	var out struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || out.Token == "" {
+		t.Fatalf("token do paciente não obtido: %v (%s)", err, raw)
+	}
+	return out.Token
+}
 
-	// GET /me usa a sessão emitida no cadastro.
-	resp = pc.GET(t, "/v1/portal/me")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("me status = %d, quer 200", resp.StatusCode)
+// portalGet faz um GET no portal com a sessão do paciente (Bearer).
+func portalGet(t *testing.T, base, path, token string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, base+path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
 	}
-	e := DecodeEnvelope(t, resp)
-	var me struct {
-		Email string `json:"email"`
-		Name  string `json:"name"`
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(raw)
+}
+
+// TestPortalCadastroLoginEGate (Fase 9): fluxo real de cadastro + login +
+// gate de aprovação com a auth REAL da sessão do PocketBase (não mais o seam
+// X-Portal-Email). Cobre o caminho negado (pendente → 403) e o permitido
+// (aprovado → 2xx) pela mesma sessão.
+func TestPortalCadastroLoginEGate(t *testing.T) {
+	base := startServer(t)
+
+	const email, pass = "paciente9@exemplo.com", "senha-forte-123"
+
+	// 1. Cadastro pelo portal (cria patient pendente + credencial patient_user).
+	status, body := postJSON(t, base, "/v1/portal/register",
+		`{"name":"Paciente Nove","phone":"11999990199","email":"`+email+`","password":"`+pass+`"}`)
+	if status != http.StatusCreated {
+		t.Fatalf("cadastro no portal: status %d (%s)", status, body)
 	}
-	e.DataAs(t, &me)
-	if me.Email != "paciente@example.com" {
-		t.Errorf("email = %q", me.Email)
+	pid := dataID(t, body)
+
+	// 2. Login real: token de sessão do paciente.
+	token := portalLogin(t, base, email, pass)
+
+	// 3. /me funciona mesmo pendente (fora do gate) — identidade real.
+	status, body = portalGet(t, base, "/v1/portal/me", token)
+	if status != http.StatusOK {
+		t.Fatalf("me pendente: quero 200, veio %d (%s)", status, body)
 	}
-	if me.Name != "Paciente Portal" {
-		t.Errorf("nome = %q", me.Name)
+
+	// 4. Gate NEGADO: pendente não acessa recurso protegido → 403.
+	status, body = portalGet(t, base, "/v1/portal/sessions", token)
+	if status != http.StatusForbidden {
+		t.Fatalf("pendente em /sessions: quero 403, veio %d (%s)", status, body)
+	}
+
+	// 5. Terapeuta aprova (rota do app, header do Pangolin).
+	status, body = postJSON(t, base, "/v1/app/patients/"+pid+"/approve", ``)
+	if status != http.StatusOK {
+		t.Fatalf("aprovar paciente: status %d (%s)", status, body)
+	}
+
+	// 6. Gate PERMITIDO: a MESMA sessão agora acessa → 2xx.
+	status, body = portalGet(t, base, "/v1/portal/sessions", token)
+	if status != http.StatusOK {
+		t.Fatalf("aprovado em /sessions: quero 200, veio %d (%s)", status, body)
 	}
 }
 
-func TestPortalRequiresSession(t *testing.T) {
-	env := StartPortal(t)
-	defer env.Stop()
-
-	// Sem login, /me deve dar 401.
-	pc := env.NewPortalClient(t)
-	resp := pc.GET(t, "/v1/portal/me")
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("me sem sessão status = %d, quer 401", resp.StatusCode)
+// TestPortalSemSessao401 (Fase 9): rota protegida sem Bearer → 401.
+func TestPortalSemSessao401(t *testing.T) {
+	base := startServer(t)
+	status, _, _ := getRaw(t, base, "/v1/portal/sessions")
+	// getRaw manda header do Pangolin, mas o portal não o usa; sem Bearer a
+	// sessão é inexistente → 401.
+	if status != http.StatusUnauthorized {
+		t.Fatalf("sem sessão: quero 401, veio %d", status)
 	}
-	resp.Body.Close()
-}
-
-func TestPortalIsolation(t *testing.T) {
-	env := StartPortal(t)
-	defer env.Stop()
-
-	// Paciente A cadastra e loga.
-	a := env.NewPortalClient(t)
-	a.PUT(t, "/v1/portal/register", map[string]any{
-		"credential": "a@example.com", "name": "A", "phone": "11999990011",
-	}).Body.Close()
-
-	// Paciente B cadastra e loga (jar separado).
-	b := env.NewPortalClient(t)
-	b.PUT(t, "/v1/portal/register", map[string]any{
-		"credential": "b@example.com", "name": "B", "phone": "11999990022",
-	}).Body.Close()
-
-	// Cada um vê apenas o próprio perfil.
-	resp := a.GET(t, "/v1/portal/me")
-	ea := DecodeEnvelope(t, resp)
-	var ma struct {
-		Email string `json:"email"`
-	}
-	ea.DataAs(t, &ma)
-	if ma.Email != "a@example.com" {
-		t.Errorf("A vê email %q, quer a@example.com", ma.Email)
-	}
-
-	resp = b.GET(t, "/v1/portal/me")
-	eb := DecodeEnvelope(t, resp)
-	var mb struct {
-		Email string `json:"email"`
-	}
-	eb.DataAs(t, &mb)
-	if mb.Email != "b@example.com" {
-		t.Errorf("B vê email %q, quer b@example.com", mb.Email)
-	}
-}
-
-func TestPortalLinkByEmail(t *testing.T) {
-	adminEnv, portalEnv := StartAdminAndPortal(t)
-	defer adminEnv.Stop()
-	defer portalEnv.Stop()
-
-	// Terapeuta cadastra o paciente pelo admin.
-	resp := adminEnv.AdminPOST(t, "/v1/admin/patients", map[string]any{
-		"name": "Cadastrado pelo Admin", "phone": "11999990001", "email": "vinculo@example.com",
-	})
-	ae := DecodeEnvelope(t, resp)
-	var created struct {
-		ID string `json:"id"`
-	}
-	ae.DataAs(t, &created)
-
-	// Paciente se cadastra no portal com o MESMO email → vincula, não duplica.
-	pc := portalEnv.NewPortalClient(t)
-	resp = pc.PUT(t, "/v1/portal/register", map[string]any{
-		"credential": "vinculo@example.com", "name": "Nome do Portal", "phone": "11988880002",
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("register portal status = %d", resp.StatusCode)
-	}
-	pe := DecodeEnvelope(t, resp)
-	var linked struct {
-		ID string `json:"id"`
-	}
-	pe.DataAs(t, &linked)
-	if linked.ID != created.ID {
-		t.Errorf("vínculo falhou: id portal %q != admin %q (duplicou)", linked.ID, created.ID)
-	}
-
-	// No admin, continua havendo apenas 1 paciente com esse email.
-	resp = adminEnv.AdminGET(t, "/v1/admin/patients")
-	le := DecodeEnvelope(t, resp)
-	var list []map[string]any
-	le.DataAs(t, &list)
-	count := 0
-	for _, p := range list {
-		if p["email"] == "vinculo@example.com" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Errorf("pacientes com o email = %d, quer 1 (sem duplicação)", count)
-	}
-}
-
-func TestPortalRateLimit(t *testing.T) {
-	env := StartPortal(t)
-	defer env.Stop()
-	// Config de teste usa limites altos (1000). Aqui validamos que a rota
-	// pública responde normalmente sob uso legítimo; o limite em si é testado
-	// via unit do RateLimiter.
-	pc := env.NewPortalClient(t)
-	resp := pc.POST(t, "/v1/portal/login", map[string]any{"credential": "rl@example.com"})
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("login status = %d, quer 200", resp.StatusCode)
-	}
-	resp.Body.Close()
 }

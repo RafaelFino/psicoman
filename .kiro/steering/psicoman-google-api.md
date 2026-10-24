@@ -5,7 +5,7 @@ fileMatchPattern: "**/integration/google/**"
 
 # Psicoman — Integração Google (Calendar, Meet, Gmail, Drive)
 
-Decisões de integração em `docs/architecture.md §4.3` e `docs/requirements.md §3.7`.
+Decisões de integração em `docs/architecture.md` e `docs/requirements.md`. As integrações vivem em `internal/integration/google` e são consumidas pelo **binário único** `cmd/psicoman` (que roda atrás do `Pangolin`, com segregação admin/portal apenas lógica — não há mais dois binários/processos para admin e portal).
 
 ## OAuth
 
@@ -18,7 +18,7 @@ Decisões de integração em `docs/architecture.md §4.3` e `docs/requirements.m
 
 ## Calendar
 
-- Antes de confirmar qualquer sessão (agendamento direto ou confirmação de pedido do paciente), consultar **freebusy** do terapeuta para o horário pretendido — cobre também eventos não criados pelo Psicoman. Conflito → erro 409, nunca sobrescrever silenciosamente.
+- O Calendar permanece **síncrono** e é o **único Google no caminho de request**. Antes de confirmar qualquer sessão (agendamento direto ou confirmação de pedido do paciente), consultar **freebusy** do terapeuta para o horário pretendido — cobre também eventos não criados pelo Psicoman. Conflito → erro 409, nunca sobrescrever silenciosamente.
 - Evento criado sempre inclui: paciente como convidado (pelo email cadastrado) e link de Google Meet.
 - Reminders do evento (não notificação própria do sistema) carregam os intervalos configurados (default 1 dia + 30 min, acumulativos).
 
@@ -29,11 +29,16 @@ Decisões de integração em `docs/architecture.md §4.3` e `docs/requirements.m
 
 ## Drive
 
+- O Drive **deixa de ser backup síncrono**: vira **fallback/DR**, disparado por um **hook no ciclo de backup do PocketBase** (`internal/drivesync`, podendo rodar como 2º processo). O Drive **não** é fonte da verdade nem está no caminho de request.
 - Escopo `drive.file` restringe a arquivos criados pela própria aplicação — não há acesso ao Drive pessoal do terapeuta além disso.
-- Backup do SQLite: sempre cifrado (AES-GCM) e compactado antes do upload — nunca subir o `.db` em texto claro.
-- Backup do GED: incremental por hash (manifesto no Drive), nunca reenviar o acervo inteiro a cada execução.
+- Snapshot de backup do SQLite: sempre cifrado (AES-256-GCM) e compactado antes do upload — nunca subir o `.db` em texto claro.
+- Backup incremental por hash (manifesto no Drive), nunca reenviar o acervo inteiro a cada execução.
+
+## IA (Gemini) — nota de passagem
+
+- O foco deste steering é o Google-API (Calendar/Gmail/Drive). A IA (Gemini) não é Google-API aqui: vive em `internal/integration/gemini`, seguindo a **mesma disciplina** de ficar atrás de uma interface com fake nos testes. Regras de dados/opt-in/auditoria da IA estão em `psicoman-seguranca-lgpd.md`.
 
 ## Testes
 
-- Toda integração com Google fica atrás de uma interface (`CalendarClient`, `GmailClient`, `DriveClient`) definida em `internal/service` ou `internal/domain`, nunca chamada direto da lib do Google em `service`.
+- Toda integração com Google fica atrás de uma interface (`CalendarClient`, `GmailClient`, `DriveClient`) definida no `internal/app` ou no `internal/domain`, nunca chamada direto da lib do Google a partir dos serviços.
 - Testes E2E usam fakes/mocks dessas interfaces — nenhum teste automatizado chama a API real do Google.

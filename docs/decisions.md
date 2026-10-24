@@ -6,6 +6,267 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — Nova onda "pocketbase-finish": consolidação de pendências e gaps da `pocketbase-core`
+
+**Contexto.** A onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/) reconstruiu a base técnica (binário único, domínio rico, cifra por campo, contrato `/v1`, Calendar/Drive/Gemini, portal com auth) e portou as regras de negócio das ondas anteriores para o domínio rico. Ao fechar, uma varredura do código e docs encontrou pendências e gaps que não cabiam no escopo daquela onda. Criada a spec [`../.kiro/specs/pocketbase-finish/`](../.kiro/specs/pocketbase-finish/) para consolidá-los.
+
+**Gaps consolidados (ver `requirements.md` da spec).**
+1. **Features de produto já implementadas no serviço, mas sem rota `/v1`** (R1): `DayFeedService`, `HistoryService`, `SessionMetricsService`, `CostService` estão no container mas sem handler — feed do dia, timeline/história, métricas de sessão, calendário mensal, relatório por local, custos/ROI completo. Também sem superfície HTTP: locais/disponibilidades, origens, pedidos de agendamento (`appointment_request`), planos (`plan`), pagamentos com comprovante.
+2. **OAuth 3-legged real + `google_token` cifrado** (R2): hoje o refresh token vem de env (`PSICOMAN_GOOGLE_REFRESH_TOKEN`, seam); a coleção `google_token` existe sem adapter; falta fluxo de autorização + persistência cifrada + estado "reautorização necessária" em `/readyz`.
+3. **Perfil do terapeuta** (R3): `domain/therapist` e a coleção `therapist_profile` existem, mas sem porta/serviço/rota; o PDF de cobrança omite o cabeçalho do terapeuta por isso.
+4. **Verificação de email do portal** (R4): `patient_user` nasce `verified=true` (gate de aprovação é o controle); sem fluxo de verificação — decisão pendente.
+5. **Observabilidade** (R5): só `/v1/health`; faltam `/readyz`/`/livez` e, possivelmente, métricas.
+6. **Docs operacionais** (R6): `docs/deploy.md` e `docs/stack-local.md` descrevem o modelo antigo (dois binários/Gmail/dev_mode) e estão com nota de "desatualizado".
+
+**Decisão.** A spec está **redigida (requirements/design/tasks) e aguardando 4 decisões do Rafael** antes de qualquer implementação: (⟨R1⟩) recorte/fatiamento das sub-fases de R1; (⟨R2⟩) env como fallback de dev após o OAuth real; (⟨R4⟩) ligar ou não a verificação de email (recomendado manter desligada — o gate de aprovação cobre); (⟨R5⟩) endpoint de métricas nesta onda ou adiar. Ordem sugerida: perfil (R3) e OAuth (R2) primeiro, depois `/readyz` (R5), o núcleo de R1 (locais+planos, que destrava o débito por sessão via API), telas iniciais, e por fim docs de deploy (R6).
+
+**Consequências.** Nenhuma mudança de código nesta entrada — só o planejamento. A implementação começa após as decisões, em branch `pocketbase-finish`, seguindo a Definição de Pronto de `psicoman-processo-entrega`.
+
+---
+
+## 2026-10-24 — Onda "pocketbase-core" (Fase 9): auth do paciente em coleção separada + identidade real do portal (Opção A)
+
+**Contexto.** A Fase 9 materializa o cadastro/login do paciente (D2/D3) e substitui o SEAM `X-Portal-Email` (Fases 4/5) pela identidade real da sessão. O `patient` é uma coleção central (ULID custom, email único, `approval_status`, relations clínicas). Como introduzir a auth: (A) coleção auth separada `patient_user` 1:1 com `patient`; (B) converter `patient` na própria auth collection; (C) auth como fonte única, `patient` perde email/approval. O Rafael escolheu a **Opção A** (menor raio de impacto no fim da onda).
+
+**Decisão (do Rafael).** **Opção A — `patient_user` separada, 1:1 com `patient`.** `core.NewAuthCollection("patient_user")` (email+senha nativos do PocketBase) com relation UNIQUE `patient_id`. O `patient` permanece intacto (sem migração destrutiva). A identidade real vem de `e.Auth` (middleware global `loadAuthToken` + `Authorization: Bearer`), confirmada como coleção `patient_user`; o gate/handlers resolvem o paciente via a porta `app.PortalAuth`. Login pelo endpoint nativo `auth-with-password`.
+
+**Consequências.**
+- `httpx.PortalEmail` (header) → `httpx.PortalAuthRecordID` (sessão real). O SEAM isolado das fases anteriores trocou num ponto só; gate e handlers do portal passam a resolver pela porta `PortalAuth`.
+- Novos: migração `0040_patient_auth` (`patient_user`), porta `app.PortalAuth` (`CreateLogin`/`PatientIDByAuthID`), adapter `pb.NewPortalAuthRepository`. `POST /v1/portal/register` passa a exigir `password` (mín. 8) e cria patient + credencial.
+- Testes em processo do gate reescritos para auth REAL (token via `Record.NewAuthToken()`); E2E cobre cadastro + login (`auth-with-password`) + gate negado (pendente 403) e permitido (aprovado 2xx) pela mesma sessão. Swagger: `portalSession` vira `http bearer`; register com `password`.
+- Verificação por email do paciente está **fora de escopo** (o controle de acesso é o gate de aprovação do terapeuta); a credencial nasce com email verificado.
+- A coleção `patient_user` tem rules nulas (só superuser via REST, D13); o login nativo `auth-with-password` é liberado à parte, e o contrato do paciente continua sendo `/v1/portal/*`.
+
+---
+
+## 2026-10-24 — Onda "pocketbase-core" (Fase 8): IA Gemini revisável + índice invertido de tags (tags em claro, corpo cifrado)
+
+**Contexto.** A Fase 8 integra a IA (Gemini) para resumo clínico + tagueamento e um índice de busca por tags (R10, D10). Decisões de produto/arquitetura implementadas conforme o design fechado: opt-in, revisão humana, minimização, isolamento por paciente e a combinação tags-em-claro / corpo-cifrado.
+
+**Decisões (do design D10 fechado).**
+1. **Opt-in pela presença da chave.** A IA liga apenas quando `llm.gemini.api_key` existe no `internal/config` (default OFF). Sem chave, `AIService.Enabled()` é false e o disparo responde 422 — não há flag on/off separada. A chave é lida da config, **nunca** hard-coded nem logada (psicoman-seguranca-lgpd).
+2. **Disparo explícito + resultado revisável.** O terapeuta dispara (`Suggest`); o resumo entra como `sugerido` (cifrado, `SealedText`) e as tags voltam **sem** serem indexadas. Só `Consolidate` (com as tags **revisadas** pelo terapeuta) marca `consolidado` e grava as tags no índice. A revisão humana é um passo obrigatório antes de qualquer indexação.
+3. **Minimização + auditoria sem clínico.** À IA vai só o texto clínico (sem id/nome de paciente). A auditoria `ai.process` registra o fato (ator, `session_id`, contagem de tags), **nunca** o texto enviado/retornado.
+4. **Tags em claro, corpo cifrado, isolado por paciente.** O `tag_index` guarda `(patient_id, ano, tag) → session_ids` com a tag em **claro** (indexável para busca) enquanto o corpo clínico segue `SealedText`. Toda consulta é isolada por paciente — **não** há busca cross-paciente (R10.2). É o que torna a busca clínica viável sem expor conteúdo.
+
+**Consequências.**
+- Novos: `internal/integration/gemini` (`gemini.go` interface + REST, `fake.go`, testes), `app.AIService` (`ai_service.go` + teste), adapters `pb.NewAISummaryRepository` (cifra na borda) e `pb.NewTagIndexRepository` (+testes), handlers `internal/api/app/ai.go`, porta `AISummarizer`/`AISummaryRepository`/`TagIndexRepository` em `app/ports.go`, ação `AuditActionAIProcess`.
+- Rotas no ator app: `POST /v1/app/sessions/{id}/ai-summary` (dispara, devolve resumo+tags sugeridas), `POST /v1/app/ai-summaries/{id}/consolidate` (consolida + indexa tags revisadas), `GET /v1/app/patients/{id}/tags?tag=&ano=` (busca isolada por paciente). Swagger atualizado.
+- O resumo de IA é clínico e nunca aparece em claro fora do ator app (via `Reveal()`), coerente com D6.3.
+
+---
+
+## 2026-10-24 — Onda "pocketbase-core" (Fase 7): Drive como fallback/DR + cifra de blob dedicada (Opção A)
+
+**Contexto.** A Fase 7 espelha os backups do PocketBase para o Google Drive como fallback/DR (D9), disparado por um hook no ciclo de backup. O snapshot precisa subir **cifrado** (AES-256-GCM, psicoman-google-api / psicoman-seguranca-lgpd). A cifra de campo existente (`domain.Cipher.Seal(ctx, string) string`) produz um envelope **texto** base64 pensado para uma nota clínica curta — aplicá-la num zip de backup binário desperdiça memória e mistura semânticas. Como cifrar o snapshot: (A) helper binário dedicado em `platform/crypto` reusando o mesmo `KeyProvider`; (B) reusar a cifra de campo nos bytes do zip. O Rafael escolheu a **Opção A**.
+
+**Decisão (do Rafael).** **Opção A — cifra de BLOB dedicada.** Novo `crypto.BlobSealer{ SealBytes, OpenBytes }` cifra bytes com AES-256-GCM e as **mesmas chaves** do `domain.KeyProvider` (sem chave nova, sem config nova), em envelope binário compacto (`magic "PSB1" | keyIDLen | keyID | nonce | ciphertext`; `keyID` embutido → rotação; header como AAD autenticado). O `internal/drivesync.Syncer` registra `OnBackupCreate`: deixa o backup local rodar (`e.Next()`), lê o snapshot, cifra com o `BlobSealer` e sobe ao Drive via `google.DriveClient` (escopo mínimo `drive.file`, upload multipart) na pasta fria `google.drive_folder`.
+
+**Consequências.**
+- O Drive fica **fora do caminho de request** e **nunca** é fonte da verdade (só DR). O sync acompanha os snapshots reais sem lógica de sync bidirecional.
+- Degrada sem credenciais: `wireDriveSync` registra o hook sempre, mas com uploader nil quando faltam `client_id`/`client_secret`/`drive_folder`/refresh token → hook no-op observável, backup local segue, **sem 500**. Com Drive configurado, falha de cifra/upload é logada mas **não propagada** (best-effort, não invalida o backup local).
+- Novos: `internal/platform/crypto/blob.go` (+teste), `internal/integration/google/drive.go` (+teste, interface + fake + REST), `internal/drivesync/drivesync.go` (+teste). `oauth.go` ganha `NewOAuthHTTPClientWithScopes` (escopos mínimos por integração).
+- `POST /v1/admin/backup` deixa de ser stub e dispara `app.CreateBackup` (timeout dedicado de 2 min), acionando o hook de DR. Asserção do `api_test.go` atualizada.
+
+---
+
+## 2026-10-24 — Onda "pocketbase-core" (Fase 6, TASK 6.2): PDF de cobrança no file storage do PocketBase (Opção A)
+
+**Contexto.** A TASK 6.2 gera o PDF de cobrança a partir do débito e o armazena no GED. O design D9b manda armazenar "no GED, servido pelo **file storage do PocketBase**", mas a coleção `ged_file` modelada na Fase 3 guarda **só metadados** (`rel_path`, `mime`, `size`, `sha256`) — **sem campo `file`** — e o legado (`c3ab585`) gravava os bytes num `GEDService` próprio em filesystem (`<ged_root>`). Faltava decidir onde os bytes físicos do PDF ficam. Três caminhos avaliados: (A) `app.NewFilesystem()` + `Upload(bytes, fileKey=rel_path)`; (B) adicionar campo `file` a `ged_file` (migration); (C) filesystem puro num `<ged_root>` configurável. O Rafael escolheu a **Opção A**.
+
+**Decisão (do Rafael).** **Opção A — bytes no file storage nativo do PocketBase.** Porta `app.GEDBlobStore{ Put, Get }` implementada em `internal/platform/pb` sobre `app.NewFilesystem()` (local hoje, S3 no futuro sem trocar código), usando o `rel_path` do domínio como `fileKey` do bucket. O `app.InvoiceService` orquestra: compõe o PDF (gerador Go puro em `internal/platform/pdf`), calcula o SHA-256, **deduplica por hash no escopo do paciente** (`GEDMetaRepository.FindByHash`), e, se novo, grava os bytes (`Put`) + insere o metadado (`ged_file`) + vincula ao débito (`SetPDF`). Gmail permanece fora de escopo (envio pela terapeuta, D9b).
+
+**Consequências.**
+- Honra o D9b ao pé da letra (file storage do PB), reaproveita `rel_path`/`sha256`/`GEDMetaRepository` intactos e **não exige migration** nem campo `file`.
+- O GED fica pronto para S3 (basta a config de storage do PB) sem mudança de código de aplicação.
+- Novos: `internal/platform/pdf` (gerador + teste), `internal/platform/pb/ged_store.go` (adapter, único ponto que toca o storage de binários), `app.InvoiceService` (`invoice_service.go` + teste), porta `GEDBlobStore` em `app/ports.go`.
+- Rotas no ator app: `POST /v1/app/debts/{id}/invoice` (gera, devolve `InvoiceDTO`) e `GET /v1/app/debts/{id}/invoice.pdf` (download `application/pdf`). Auditoria `debito_gerar` minimizada (só `ged_file_id`).
+- O cabeçalho de perfil do terapeuta no PDF (nome/CRP) ficou de fora: o `TherapistProfile` ainda não foi portado ao domínio rico (entra em fase posterior). O legado já tratava o cabeçalho como opcional.
+- Correção de borda dentro da 6.1: o evento de Calendar só pede Meet em sessão `online` (antes forçava `WithMeet=true` sempre); alinhado a D8.
+
+---
+
+## 2026-10-21 — Onda "pocketbase-core" (Fase 6, TASK 6.0): config por arquivo (Opção B) + env sobrescreve
+
+**Contexto.** A Fase 6 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) precisa de uma fonte única de configuração para cifra, Pangolin, Google e Gemini, pré-requisito do Calendar síncrono (6.1) e do PDF de cobrança (6.2). Até a Fase 5, a cifra era lida direto do ambiente em `wiring.go` (`PSICOMAN_CIPHER_KEY_ID`/`PSICOMAN_CIPHER_KEYS`) e o PA-4 (ADR Fase 4) previa a troca para arquivo sem mexer na assinatura de `Register`. O Rafael escolheu a **Opção B** (config por arquivo, com env sobrescrevendo e log de origem).
+
+**Decisões (do Rafael).**
+1. **Config por arquivo YAML (Opção B) como fonte única.** Novo pacote `internal/config` lê um YAML tipado (`config.dev.yaml` em dev, git-ignored) com `gopkg.in/yaml.v3`. A ordem de descoberta é: flag `--config`/env `PSICOMAN_CONFIG` → `./config.dev.yaml` → `./config.yaml`; a **ausência de arquivo não é fatal** (cai para defaults + env). A cifra, porém, permanece **fail-closed** no boot (responsabilidade do wiring, não do loader).
+2. **Env sobrescreve o arquivo, com a origem logada.** Para cada chave, se a env var correspondente está setada, vence o env (origem `env`), senão o arquivo (origem `arquivo`) ou `default`. Mapeamento: `crypto.key_id`←`PSICOMAN_CIPHER_KEY_ID`, `crypto.keys`←`PSICOMAN_CIPHER_KEYS` (formato `id:base64,…`), `pangolin.identity_header`←`PSICOMAN_PANGOLIN_IDENTITY_HEADER`, `llm.gemini.api_key`←`PSICOMAN_GEMINI_API_KEY`. `config.Load` devolve `[]OriginEvent{Key, Source}` e o `buildServices` loga a origem de cada chave — **sem vazar valor de segredo** (só chave lógica + origem), alinhado a [`psicoman-seguranca-lgpd.md`](../.kiro/steering/psicoman-seguranca-lgpd.md).
+3. **Gemini opt-in pela presença da api_key.** `Config.Gemini.Enabled()` = `api_key` não-vazia. Com chave → IA ligada; sem chave → desligada (default off, R10.3). Não há flag `on/off` separada; a presença da chave é o liga/desliga.
+4. **`internal/config` é pacote de borda puro.** Usa só stdlib + `yaml.v3`; **não** importa o PocketBase nem `internal/platform/pb`. Quem liga a config ao framework é `wiring.go`/`main.go`. Reforçado por `TestConfigNaoImportaPocketBase` no `archtest`.
+5. **Seam de cifra preservado.** `var cipherConfigLoader = loadCipherConfig` mantém a assinatura `func() (cipherConfig, error)` (os testes em processo o reatribuem, `withTestCipher`). `loadCipherConfig` passa a derivar de um novo seam `var configLoader = config.Load`, convertendo `Config.Crypto.Keys` (map) em `[]crypto.KeySpec`. O boot fail-closed da cifra em `buildServices` é inalterado.
+
+**Consequências.**
+- Novo pacote `internal/config` (`config.go` + `config_test.go`); `internal/api/wiring.go` consome `config.Load` via `configLoader`/`loadCipherConfig`, preservando o seam.
+- `internal/archtest/arch_test.go` ganha `TestConfigNaoImportaPocketBase`; `TestDomainNaoImportaPocketBase`/`TestAppNaoImportaPocketBase` seguem verdes.
+- `go.mod`: `gopkg.in/yaml.v3` promovido de indirect para direct.
+- `config.dev.yaml` **inalterado** (preserva `llm.gemini.api_key` e `crypto.keys`); é git-ignored e nunca versionado.
+- `docs/architecture.md §0` ganha a subseção de `internal/config` (loader e precedência).
+
+---
+
+## 2026-10-21 — Onda "pocketbase-core" (Fase 5): auth do Pangolin + gate de aprovação
+
+**Contexto.** A Fase 5 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) troca os stubs de auth no-op da Fase 4 por controle real (tasks 5.1 e 5.2), realizando R3/D3/D13. Arquitetura não reaberta.
+
+**Decisões.**
+1. **Auth por header injetado pelo Pangolin na borda; o app só exige presença.** `/v1/app/*` e `/v1/admin/*` exigem um header de identidade (default `X-Pangolin-User`, env `PSICOMAN_PANGOLIN_IDENTITY_HEADER`); ausente → 401 `nao_autenticado`. A política fina (admin mais restrito) fica no gateway, não no código. O header tem **default** (ao contrário da cifra, que aborta o boot) porque é só o nome de um cabeçalho, não um segredo. A identidade é exposta via `httpx.ActorIdentity` como preparação de auditoria (sem consumidor nesta fase).
+2. **Admin UI `/_/` e REST `/api/*` sem middleware do Pangolin.** O Dashboard nativo tem auth própria de superuser e a REST já responde 403 por regra nil; adicionar middleware ali quebraria o Dashboard. O middleware incide só nos grupos `/v1/*` próprios.
+3. **Gate de aprovação via middleware do grupo `/v1/portal/*` (não por rota), com exceções `register`/`me`.** Centraliza o gate (403 `acesso_negado` para não-aprovado), testável por E2E (permitido/negado), sem depender de cada handler. Exceções por path exato.
+4. **Hook model-level de reforço com escopo reduzido a `appointment_request`.** Defesa em profundidade que barra escrita de paciente não-aprovado por qualquer caminho (inclusive o adapter). `payment` (sem `patient_id` direto — exigiria 2-hop, vetor não alcançável pelo portal), `ged_file` (nullable, criado pelo terapeuta), `patient` (update — barraria upsert do portal/edição de triagem/soft-delete legítimos e tem predicado de transição ambíguo) e as colunas clínicas ficam **fora** do hook. Invariante aceito: não-aprovado não origina/altera agendamento, venha de quem vier.
+5. **Seam de identidade do paciente adiado para a Fase 9.** O gate resolve o paciente por `httpx.PortalEmail` (header `X-Portal-Email`); a auth real (sessão/`core.NewAuthCollection`) é da Fase 9. Antecipar acoplaria 5.2 ao OAuth do portal, ampliando o blast radius de uma task de segurança.
+
+**Consequências.**
+- `internal/api/httpx/auth.go` (middleware + seams), `internal/api/portal/gate.go` (gate), `internal/api/hooks.go` (hook); `chain.go` perde os três stubs; `api.go` pluga tudo no `OnServe`.
+- Mudança de contrato de acesso: os testes de Fase 4 em `internal/api/api_test.go` passam a enviar `X-Pangolin-User` (helper `appHeaders`).
+- Testes de segurança cobrem permitido (2xx) e negado (401/403), path exato e o hook de reforço. `archtest` segue verde.
+- `docs/architecture.md §0.7` documenta auth + gate.
+
+---
+
+## 2026-10-21 — Onda "pocketbase-core" (Fase 4): contrato `/v1` por ator
+
+**Contexto.** A Fase 4 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) expõe o contrato HTTP público `/v1/*` (envelope, DTOs, segregação por ator, Swagger) sobre o adapter das fases anteriores. Esta entrada registra só as decisões de contrato novas; D2/D6.3/D7/D13 não são reabertas.
+
+**Decisões.**
+1. **REST automática do PocketBase trancada por regra nula (sem migration nova).** As coleções do MER nascem com regras de acesso nulas (Fase 3), o que o PocketBase trata como "somente superuser" — `/api/collections/.../records` responde 403 a qualquer acesso não-superuser. O contrato público é **exclusivamente** `/v1/*`. A Fase 4 apenas documenta isso e blinda com um teste de contrato (D13); mesmo um superuser lê o campo clínico como envelope cifrado, nunca o claro. Não adicionamos hook para remover `/api/*` no binário (defesa é `nil`-rules + Pangolin + cifra); bloqueio ativo fica em aberto (PA-3), a confirmar se desejado.
+2. **`message` de erro 4xx é sempre frase PT-BR curta do serviço; nunca `err.Error()` de I/O.** Os tipos `*ValidationError`/`*ConflictError` carregam só mensagens fixas de regra de negócio; erro de I/O (DB/rede) cai no ramo 500 com detalhe **apenas** no log. O helper `Fail` trunca a `message` a 300 chars como guarda. O `request_id` vai no header `X-Request-Id`, não no envelope (R7.2 define exatamente `{message, elapsed_ms, data, error}`).
+3. **Config de cifra via ambiente, com boot fail-closed.** `buildServices` lê `PSICOMAN_CIPHER_KEY_ID` + `PSICOMAN_CIPHER_KEYS` (`id:base64,...`); ausência/base64 inválido aborta o boot. Troca para arquivo (`config.*.yaml`) muda só `loadCipherConfig`, sem mexer na assinatura de `Register` (PA-4).
+
+**Consequências.**
+- `internal/api/{httpx,app,portal,admin,swagger,service}` + `wiring.go`; novo `app.ProntuarioService` em `internal/app`.
+- `internal/archtest/arch_test.go` ganha `TestAppNaoImportaPocketBase` (app não importa `platform/pb` nem `pocketbase`), mantendo `TestDomainNaoImportaPocketBase`.
+- `test/e2e/boot_test.go` passa a exportar a env de cifra de teste antes do boot (o binário real exige cifra para subir).
+- `docs/architecture.md §0.6` documenta o contrato `/v1`.
+
+---
+
+## 2026-10-21 — Onda "pocketbase-core" (Fase 3): coleções/migrations e adapter `platform/pb`
+
+**Contexto.** A Fase 3 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a camada de persistência prevista na ADR-base (decisões 5 e 6): as coleções do PocketBase derivadas do MER canônico (D4b) e o adapter `internal/platform/pb` que implementa as portas de `internal/app/ports.go`, com cifra por campo na borda. Esta entrada registra as decisões que não eram triviais e valem como lastro; a arquitetura-base não é reaberta.
+
+**Decisões.**
+1. **`id` ULID via `TextField` custom, não o id default do PocketBase.** O campo `id` padrão do PB é 15 chars `[a-z0-9]` com autogeração, incompatível com o ULID do projeto (26 chars Crockford base32 maiúsculo). Em cada coleção substituímos o `id` por um `TextField{PrimaryKey, System, Required, Min:26, Max:26, Pattern:"^[0-9A-HJKMNP-TV-Z]{26}$"}` **sem** `AutogeneratePattern` — o PB não autogera e o adapter grava o ULID do agregado (`rec.Set("id", agg.ID)`). Confirmado na fonte (v0.40.6) que `initIdField` respeita um `id` pré-existente e que o `TextField` só autogera quando há `AutogeneratePattern`. *Consequência:* o ULID permanece a identidade canônica, gerado em Go (`internal/platform/ulid`), nunca pelo framework.
+2. **Timestamps TEXT ISO-8601 gerados pela aplicação.** `created_at`/`updated_at`/`deleted_at` são `TextField` preenchidos pela app via `clock.Format` (RFC3339 em America/Sao_Paulo), não `AutodateField` do PB (que usa UTC e formato próprio) nem `DEFAULT CURRENT_TIMESTAMP`. Mantém o fuso do projeto e a comparação lexicográfica por string nos filtros de período. `deleted_at` vazio = ativo; listagens filtram `deleted_at = ''`.
+3. **Coleção de auth do paciente adiada para a Fase 9 (portal).** Nenhuma porta de `ports.go` precisa dela: `patient` é a coleção de negócio (não-auth) e o gate de aprovação opera sobre `patient.approval_status`. A spec e o MER (D4b.2) colocam a auth do paciente no portal; `core.NewAuthCollection` arrasta configuração (password, tokenKey, OAuth) que é assunto da Fase 9. Todas as coleções da Fase 3 são `core.NewBaseCollection`.
+4. **Coleção `google_token` existe, mas sem porta/adapter nesta fase.** O MER lista `google_token` (token cifrado, escopos, expiry) e a coleção é criada na migration do grupo C. Porém não há agregado de domínio nem porta em `ports.go` para ela — o repositório chega junto do OAuth do Google (Fase 6/7). Na Fase 3 a coluna `token` apenas reserva o formato de envelope cifrado.
+5. **Tradução de erros do PocketBase para os sentinelas de `internal/app`.** O adapter mapeia `sql.ErrNoRows → app.ErrNotFound` e violação de índice único → `app.ErrConflict` (o PB surfaça a unicidade como validação "must be unique"; o SQLite como "UNIQUE constraint failed" — cobrimos ambas). `InsertIfAbsent` (débito) checa a `idempotency_key` antes de inserir e trata colisão de UNIQUE como `created=false`; `UpsertSessionCost` respeita o UNIQUE `session_id` fazendo find-then-update.
+
+**Consequências.**
+- `internal/platform/pb/migrations/{0010,0020,0030}_*.go` com as coleções do MER e os índices; `internal/platform/pb/*_repo.go` com um repositório por porta de `ports.go` (patient, origin, session+costSessionSource, appointment, location+availability, plan, contract, debt, payment, cost, report, prontuário com cifra, ged_file, audit).
+- Cifra por campo na borda **somente** no `ProntuarioRepository`; testes de integração garantem round-trip do claro e **não-vazamento** (a coluna guarda só o envelope `v1.aes-256-gcm.…`, nunca o claro).
+- `internal/archtest/arch_test.go` continua verde: o domínio não importa `pocketbase`/`platform/pb`.
+- `docs/architecture.md §0.5` documenta as coleções/migrations e o adapter desta fase.
+
+---
+
+## 2026-10-21 — Onda "pocketbase-core" (Fase 2): domínio rico por bounded context
+
+**Contexto.** A Fase 2 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) materializa a decisão 4 da ADR abaixo (domínio rico) e as tasks 2.1/2.1b/2.2: agregados por bounded context com comportamento próprio, regras de negócio portadas das ondas anteriores (não reinventadas) e serviços enxutos em `internal/app`. Esta entrada registra as decisões de granularidade que não eram triviais e que valem como lastro; a arquitetura-base não é reaberta.
+
+**Decisões.**
+1. **Portas de repositório ficam em `internal/app`, não no domínio.** As interfaces de porta (repositórios + integrações consumidas pelos serviços) vivem em `internal/app/ports.go`, junto do serviço que as consome, tipadas contra os pacotes de domínio. O domínio permanece núcleo puro de regras, sem portas de persistência órfãs. D5 permite "domínio/app"; concentrar em `app` evita acoplamento do domínio a contratos de I/O. O adapter `platform/pb` (Fase 3) implementará essas portas.
+2. **`scheduling` é o kernel compartilhado; dependências entre contexts são unidirecionais e explícitas.** `scheduling` não importa nenhum context irmão e exporta as constantes de ciclo de vida (`SessionCategory`), período (`PeriodDiario/Mensal/Anual`) e modalidade. As únicas dependências cruzadas no domínio são `costs → scheduling` (constantes de período, no rateio) e `clinical → scheduling` (motor de métricas consome `SessionCategory`) e `clinical → billing` (timeline referencia débitos/pagamentos). Onde um serviço precisa cruzar contexts sem criar import (ex.: finalizar sessão → gerar débito), a orquestração fica em `internal/app` passando dados primitivos — não importando o pacote irmão. Evita ciclos e mantém os contexts desacoplados (R4.2).
+3. **Rateio de custo trunca (divisão inteira de centavos).** `RateioAmount(costAmount, count) = costAmount / count` em divisão inteira de `int64` centavos, truncando para baixo, sem distribuição de resto — paridade exata com o legado (`loc.CostAmount / int64(count)`). `count < 1` é tratado como 1 (a própria sessão sendo finalizada). O `BaseSnapshot` do `SessionCost` guarda a base auditável (período, custo, nº de sessões, janela). Documentado no agregado `costs` (`rateio.go`). A periodização de custo no ROI (`periodizedCost`) usa `float64` **apenas** como fator temporal (dias), com o resultado truncado para `int64` centavos — o valor monetário nunca é `float64`.
+4. **Enums, funções puras e transições que mutam ficam no context dono do agregado.** `SessionCategory`/`ValidStatus`/`transitions` e os métodos de transição (`Confirm`/`Cancel`/`Finish`/`Reschedule`) são comportamento do agregado `scheduling.Session`; a composição de `idempotency_key`, períodos de faturamento e as guardas (`GeneratesPerSessionDebt`/`GeneratesCycleDebt`) são do `billing`. Os serviços de `app` só coordenam I/O, auditoria e hooks. Divergência obrigatória de modelo: os campos clínicos de `clinical` (`Note.Content`, `Anamnesis.Content`, `AISummary.Resumo`) passam de `string` para `domain.SealedText` (R6/D6) — campo clínico nunca é `string` em claro.
+
+**Consequências.**
+- `internal/domain/{patient,clinical,billing,scheduling,costs,therapist}` com agregados ricos + testes unitários por context (feliz + borda, incl. não-vazamento do `SealedText` na timeline); transversais `audit.go`/`ged.go` no pacote raiz `domain`.
+- `internal/app/ports.go` (portas por context) + serviços enxutos (`session`, `billing`, `payment`, `cost`, `report`, `metrics`, `history`, `dayfeed`, `patient`, `audit`) com testes usando fakes das portas.
+- `internal/archtest/arch_test.go` mantém o gate "domínio não importa PocketBase/`platform/pb`/`app`/`api`".
+- `docs/architecture.md §0` documenta camadas, bounded contexts e dependências desta fase (a reescrita integral das seções 1–9 fica para a Fase 10).
+
+---
+
+## 2026-10-21 — Onda "pocketbase-core": PocketBase como framework, binário único, domínio rico e cripto por campo
+
+**Contexto.** A V1 do Psicoman **ainda não foi publicada** — não há lastro, não há dados reais em produção e a base técnica pode ser reescrita à vontade. A plataforma é **single-tenant** (uma VM por terapeuta) e roda **sempre atrás do [`Pangolin`](https://docs.fossorial.io/)**, nunca exposta diretamente à internet. A demanda de concorrência é mínima: um único terapeuta operando e, nos dias mais agitados, dois ou três cadastros de paciente. Ao longo da evolução anterior ficou claro que faltavam **invariantes transacionais** (unicidade de email/CPF, FK, transação, idempotência de efeito financeiro) que as ideias de arquitetura exploradas até aqui não entregavam de forma barata. Esta entrada fixa a arquitetura-alvo da onda `pocketbase-core` e a **nomenclatura canônica** que as specs e steerings desta onda consomem.
+
+**Alternativas consideradas e descartadas.** Avaliamos (não como passado a corrigir, mas como caminhos possíveis) três arquiteturas antes de escolher a atual:
+
+- **Alt.1 — SQLite local primário puro (da POC original).**
+  - *Prós:* simples, zero dependência externa, controle total do schema e das transações; invariantes transacionais nativos.
+  - *Contras:* não entrega HTTP server, file storage/server, auth/OAuth2, admin UI nem migrations prontos — tudo isso teria de ser reimplementado à mão, inflando o código de infraestrutura em vez de código de negócio.
+  - *Motivo do descarte:* reescreveríamos à mão várias peças que um framework já resolve, sem ganho de negócio.
+
+- **Alt.2 — Google Drive como fonte da verdade** (ver `/tmp/evolucao-ref.md`).
+  - *Prós:* acervo legível e portável, backup implícito, nenhum banco a operar.
+  - *Contras:* **sem constraints/FK/UNIQUE/transação**, consistência apenas eventual, sujeito a rate-limit e latência de rede no caminho de request. Inviável para invariantes financeiros (idempotência de débito) e de unicidade.
+  - *Motivo do descarte:* perde exatamente as garantias transacionais que motivam a onda; o Drive no caminho de escrita torna cada operação de negócio frágil.
+
+- **Alt.3 — Corte híbrido "acervo no Drive + controle no SQLite".**
+  - *Prós:* tira o conteúdo pesado (markdown clínico) do banco e mantém o controle relacional (sessões, débitos) com constraints.
+  - *Contras:* mantém o Drive no **caminho de escrita/verdade** do acervo e exige **sync bidirecional**; passam a existir dois lados de verdade a reconciliar, com janelas de inconsistência.
+  - *Motivo do descarte:* a complexidade de sync bidirecional e o duplo lado de verdade não compensam frente a um único banco transacional.
+
+**Motivo geral do descarte:** nenhuma dessas alternativas recupera, de forma barata, **invariantes transacionais + HTTP + file-server + auth + admin num binário único** atrás do `Pangolin`. É isso que a decisão abaixo entrega.
+
+**Decisão.** Adotamos o **PocketBase como framework** (biblioteca Go), e esta passa a ser a **arquitetura padrão da V1** — substitui integralmente as explorações anteriores (sem lastro, porque a plataforma não foi publicada). Nove pontos:
+
+1. **PocketBase como framework → binário único.** Importamos o PocketBase como lib Go em `cmd/psicoman/main.go` (`pocketbase.New()` + hook `app.OnServe()` para registrar as rotas próprias). Aproveitamos do PB o SQLite relacional com constraints/relations, o HTTP server, o file storage/server, o logging, o auth/OAuth2, as migrations e a admin UI. Isso recupera os invariantes transacionais (UNIQUE, FK, ON CONFLICT, transação) que a ideia de Drive-como-banco não dava.
+2. **Binário único** substitui os antigos `cmd/admin` + `cmd/portal`. A segregação admin/portal deixa de ser **física** (dois processos) e passa a ser **lógica** (grupos de rota + regras de auth), já que tudo roda atrás do `Pangolin` e nunca é exposto direto à internet. Um binário simplifica o roll out.
+3. **Auth simplificada.** O `Pangolin` é a barreira forte de borda; o app confia no gateway e mantém só o mínimo de defense-in-depth. Expomos de forma controlada apenas cadastro/login do paciente. A identidade do admin chega via header do `Pangolin`. O **gate de aprovação do paciente** (`pendente`/`aprovado`/`rejeitado`, com enforcement no servidor via hook) permanece.
+4. **Domínio rico** substitui o "domínio magro". Agregados por bounded context carregam comportamento, serialização/desserialização, formatação de log e ações no próprio domínio (OO bem feita); os serviços de negócio ficam enxutos, apenas orquestrando. Bounded contexts: `patient`, `clinical`, `billing`, `scheduling`, `costs`, `therapist`.
+5. **Ports & Adapters — `platform/pb`.** O mapeamento domínio↔Record do PocketBase fica isolado no pacote `internal/platform/pb`. Os agregados de domínio são a autoridade e **não** dependem do PocketBase; trocar o PB por outra base significa reescrever só o adapter.
+6. **Cripto por campo (`SealedText`).** Campos clínicos sensíveis (corpo da sessão, anamnese, notas, resumo de IA) usam o tipo wrapper `SealedText`, cuja serialização para persistência produz o envelope `versao_do_esquema.algoritmo.id_da_chave.nonce.ciphertext` (base64) e cujo `MarshalJSON` emite sempre o envelope **cifrado**, nunca o claro; o claro só sai via `Reveal(ctx)`. Algoritmo **AES-256-GCM**, pacote `internal/platform/crypto`, chave via config atrás de um `KeyProvider` (o `id_da_chave` no envelope habilita rotação; `versao_do_esquema`/`algoritmo` habilitam evolução sem quebrar dados antigos). A cifra é **por campo**: nome, email, telefone, datas, status e valores ficam em claro e indexáveis; a busca clínica se dá pelas **tags** da IA (em claro), não pelo corpo (cifrado). O PocketBase expõe `security.Encrypt`/`security.Decrypt` (AES-256-GCM, chave de 32 chars), mas o PB **não** cifra arquivo/DB sozinho — a cifra é do **nosso** `SealedText`.
+7. **Contrato de API revisado do zero.** Rotas próprias sob o prefixo `/v1/*` (namespaces lógicos `admin`/`portal`) registradas sobre o router do PocketBase; a REST automática do PB **não** é o contrato público. Envelope de resposta `{ message, elapsed_ms, data, error }` (`message` em PT-BR), rotas versionadas e Swagger.
+8. **Integrações.** O Google Calendar permanece **síncrono** (agenda/Meet, checagem de conflito via freebusy antes de confirmar a sessão) — é o único Google no caminho de request. O Google Drive **deixa de ser síncrono** e vira **fallback/DR**: um hook no ciclo de **backup** do PocketBase dispara o sync do snapshot para o Drive (em `internal/drivesync`, podendo ser segundo processo/hook); o Drive nunca mais é fonte da verdade nem caminho de request. A IA fica em `internal/integration/gemini` (Gemini pago com proteção de dados): resumo clínico + tagueamento com índice invertido de tags por paciente/ano, disparo explícito pelo terapeuta, resultado revisável antes de consolidar, **opt-in por instância** (default off), auditoria `ai.process` sem conteúdo clínico e minimização. Base legal: os dados são da própria terapeuta (controladora), que já faz esse trabalho manualmente.
+9. **Persistência.** Coleções PocketBase com constraints/relations recuperam unicidade (email/CPF), idempotência de débito (chave `UNIQUE`), FK e transação. Os padrões de domínio permanecem não-negociáveis: ULID em toda entidade, dinheiro `int64` em centavos BRL, tempo `America/Sao_Paulo` em ISO-8601, idempotência de efeito financeiro por chave única.
+
+**Estrutura de pastas alvo:** `cmd/psicoman/main.go` (único); `internal/domain/{patient,clinical,billing,scheduling,costs,therapist}` + o tipo `SealedText`; `internal/app` (serviços enxutos); `internal/platform/{crypto,pb}`; `internal/integration/{google,gemini}`; `internal/drivesync`; `internal/api` (rotas `/v1/*` próprias, envelope PT-BR, sobre o router do PB).
+
+**Consequências.**
+- **Steerings reescritos nesta onda:** [`psicoman-golang.md`](../.kiro/steering/psicoman-golang.md) (domínio rico + binário único + estrutura de pastas nova), com ajustes alinhados em [`psicoman-seguranca-lgpd.md`](../.kiro/steering/psicoman-seguranca-lgpd.md) (binário único com segregação lógica, gate de aprovação via hook, `SealedText` por campo, Drive como fallback/DR) e [`psicoman-google-api.md`](../.kiro/steering/psicoman-google-api.md) (Calendar síncrono, Drive fallback via hook de backup).
+- **Nasce a spec** [`.kiro/specs/pocketbase-core/`](../.kiro/specs/pocketbase-core/requirements.md) (requirements/design/tasks) descrevendo a reescrita por fases.
+- **Binário único** (`cmd/psicoman`) substitui `cmd/admin` + `cmd/portal`; segregação admin/portal vira lógica.
+- **Domínio rico** por bounded context; serviços enxutos em `internal/app`.
+- **Cripto por campo** via `SealedText` (AES-256-GCM, envelope com `id_da_chave` para rotação, `KeyProvider`).
+- **Contrato `/v1`** revisto com envelope `{ message, elapsed_ms, data, error }` e Swagger.
+- **Drive vira fallback/DR** (hook de backup → `drivesync`); **Gemini opt-in** por instância.
+- `docs/requirements.md` e `docs/architecture.md` **serão reescritos** para esta arquitetura pela fase de fechamento das tasks da onda (**não** por esta entrada, que cobre ADR + spec + steerings).
+
+**Refinamento (validação da spec, mesma data).** Uma revisão crítica da spec antes de implementar fechou lacunas que teriam custado retrabalho. Ajustes incorporados ao design/requirements:
+- **Cifra via interface, não acoplamento direto.** O domínio conhece só a interface `Cipher` (`Seal`/`Open`); a implementação concreta em `platform/crypto` encapsula o primitivo AES-256-GCM e o `KeyProvider`. Mesmo padrão de porta para toda lib externa (persistência, Calendar, IA) — o domínio nunca importa a lib.
+- **Leitura de prontuário repensada (sem `MarshalJSON` mágico).** A cifra/decifra acontece na **borda de persistência** (`platform/pb`): grava o envelope, lê e decifra para `SealedText` em memória. `SealedText` **não** tem `MarshalJSON` que exponha o claro; a saída para a API passa por **DTO explícito** — o terapeuta lê o claro via `Reveal()` (fluxo central do produto), e nenhum DTO do portal inclui campo clínico. Isso elimina a tensão de "ler o prontuário" que a regra anterior criava.
+- **Modelo de dados canônico (MER).** O design ganhou a seção D4b com o MER (entidades, campos, constraints, relations) preservando o modelo maduro das ondas anteriores e adicionando `contract`, `ai_summary`, `tag_index` e os campos `SealedText`. Vira a fonte de verdade das coleções e dos agregados.
+- **Regras de negócio portadas, não reinventadas.** As tasks referenciam explicitamente as regras existentes (billing por sessão/ciclo com idempotência, rateio de custo, ROI, ciclo de vida da sessão, timeline, métricas) a portar para os bounded contexts.
+- **Rotas segregadas por ator (para o `Pangolin`).** Paths distintos por ator — `/v1/app/*` (terapeuta, que é a operadora/"admin" no single-tenant), `/v1/portal/*` (paciente, aberto), `/v1/admin/*` (operação técnica) — para o `Pangolin` aplicar controle de acesso por prefixo. O gate de aprovação do paciente é imposto no **middleware do grupo do portal** (ponto por onde a requisição passa), com hook de coleção como reforço.
+- **Gmail fora do escopo.** A plataforma **gera o PDF de cobrança** (armazenado no GED); o envio é por WhatsApp, fora da plataforma. `internal/integration/google` cobre só Calendar e Drive.
+- **Admin UI do PocketBase (`/_/`) sob o `Pangolin` + superuser.** O Dashboard nativo do PocketBase é servido sob a mesma política de borda do `/v1/admin/*` (só a terapeuta autenticada no `Pangolin` alcança), e exige adicionalmente o login de superuser do PocketBase — não há SSO unificado com o header do `Pangolin` (são dois passos). Como a cifra do prontuário é da nossa camada (`SealedText`/`Cipher`), o superuser vê os campos clínicos como **envelope cifrado**, não em claro; o clínico em claro é exclusivo de `/v1/app/*` via DTO + `Reveal()`. Isso é intencional: o Dashboard serve à operação técnica, não à leitura clínica.
+
+---
+
+## 2026-10-13 — Observabilidade: detalhe técnico dos erros 5xx vai para o log
+
+**Contexto.** Ao investigar o 500 do agendamento, o diagnóstico foi dificultado porque o `RespondError` escrevia o envelope de erro mas **nunca registrava o `Internal`** (detalhe técnico) — o corpo da resposta esconde o detalhe por segurança (correto) e o middleware de logging só registra o status. Resultado: 500 opacos, sem rastro da causa.
+
+**Decisão.** O `httpx.RespondError` passa a **logar o detalhe técnico dos erros 5xx** (nível error), correlacionado por `request_id`, `code` e `path` — nunca no corpo da resposta (o `detail` ao cliente continua `null`). Erros 4xx não são logados como erro interno. Um logger de pacote é injetado no boot via `httpx.SetLogger(log)` (em `bootstrap`, vale para admin e portal); sem logger, o log é omitido sem panic. A interface `httpx.ErrorLogger` desacopla o `httpx` do pacote de logger concreto.
+
+**Consequências.**
+- `internal/api/httpx/envelope.go`: `ErrorLogger` + `SetLogger` + log do `Internal` nos 5xx em `RespondError`.
+- `internal/app/app.go`: `httpx.SetLogger(log)` no `bootstrap`.
+- Testes unitários (`envelope_test.go`): 5xx loga o detalhe e não vaza no corpo; 4xx não loga; sem logger não entra em panic.
+- `docs/architecture.md §6`: nota de que o detalhe dos 5xx vai ao log.
+
+---
+
+## 2026-10-13 — Fix: agendar/backup sem Google configurado não deve dar 500
+
+**Contexto.** Em `dev_mode` (ou numa instância ainda não autorizada no Google), criar uma sessão já como `agendada` retornava **HTTP 500**: o `buildAdmin` injetava o cliente Google **real** sempre que não havia mock, mesmo sem credenciais OAuth; ao criar o evento no Calendar, a chamada falhava no OAuth sem token. Reproduzido com o seed ("dia lotado"): as sessões `agendada` davam 500 e as `solicitada` passavam. Bug **pré-existente** (anterior à onda `patient-timeline`), exposto ao rodar o seed na stack local. O backup/restore tinha o mesmo risco: `BackupService` chamaria `drive.Upload`/`List` com `drive` nil → panic.
+
+**Decisões.**
+1. **Só ativar os clientes Google reais quando houver credenciais** (`client_id` + `client_secret`). Sem elas, `calendar`/`gmail`/`drive` ficam `nil`: o `SessionService` já trata `nil` como no-op (agenda sem evento, usa o `noopConflictChecker`), o envio de email é pulado (registro/PDF seguem) e o boot emite um `AVISO`. Alinha com `psicoman-google-api` ("sem panic", degraded) e com o propósito do `dev_mode` (rodar local sem dependências externas).
+2. **`BackupService.Backup`/`Restore` toleram `drive` nil**, devolvendo erro de validação tratável ("Drive não configurado") em vez de estourar.
+
+**Consequências.**
+- `internal/app/app.go`: injeção condicional do cliente Google; `SetCalendar`/`SetConflictChecker`/sender só quando o cliente existe.
+- `internal/service/backup.go`: guard de `drive == nil` em `Backup` e `Restore`.
+- Testes E2E novos: `TestAgendarSemGoogle` (agendar 201 sem Google, sem Meet) e `TestBackupSemGoogle` (backup não dá 500). Harness ganhou `StartAdminNoGoogle` (admin sem mocks e sem credenciais). Corrigida também uma fragilidade de borda no `TestDayFeed` (sessão/plano ancorados ao dia local, não a `+2h`).
+- Produção inalterada quando o Google está configurado.
+
+---
+
 ## 2026-10-12 — Onda "patient-timeline" (Fase H): feed de prontuário e título com a marca
 
 **Contexto.** Spec [`patient-timeline`](../.kiro/specs/patient-timeline/requirements.md) R3 e R5. O terapeuta quer ler o prontuário como feed cronológico reverso com a anamnese como marco fundacional, e que o título da aba sempre carregue a marca "Psicoman".

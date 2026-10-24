@@ -1,8 +1,9 @@
 // Package pdf gera PDFs simples de uma página em Go puro, sem dependência
-// externa. Suficiente para o lastro de cobrança do MVP (texto em linhas).
+// externa. Suficiente para o lastro de cobrança (texto em linhas).
 //
 // Produz um PDF 1.4 válido com a fonte padrão Helvetica. Não suporta imagens
-// nem múltiplas páginas — escopo deliberadamente mínimo.
+// nem múltiplas páginas — escopo deliberadamente mínimo (D9b). Portado de
+// c3ab585:internal/platform/pdf/pdf.go.
 package pdf
 
 import (
@@ -56,9 +57,7 @@ func (d *Document) Render() []byte {
 		content.WriteString("T*\n")
 	}
 	content.WriteString("ET\n")
-
 	contentBytes := content.Bytes()
-
 	// Objetos do PDF.
 	objects := []string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
@@ -69,16 +68,13 @@ func (d *Document) Render() []byte {
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
 	}
-
 	var buf bytes.Buffer
 	buf.WriteString("%PDF-1.4\n")
-
 	offsets := make([]int, len(objects)+1)
 	for i, obj := range objects {
 		offsets[i+1] = buf.Len()
 		buf.WriteString(fmt.Sprintf("%d 0 obj\n%s\nendobj\n", i+1, obj))
 	}
-
 	xrefStart := buf.Len()
 	buf.WriteString(fmt.Sprintf("xref\n0 %d\n", len(objects)+1))
 	buf.WriteString("0000000000 65535 f \n")
@@ -87,6 +83,5 @@ func (d *Document) Render() []byte {
 	}
 	buf.WriteString(fmt.Sprintf("trailer\n<< /Size %d /Root 1 0 R >>\n", len(objects)+1))
 	buf.WriteString(fmt.Sprintf("startxref\n%d\n%%%%EOF\n", xrefStart))
-
 	return buf.Bytes()
 }

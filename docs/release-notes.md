@@ -4,6 +4,30 @@ O que muda a cada onda de trabalho, em linguagem para quem usa o sistema. Detalh
 
 ---
 
+## 2026-10-24 — Base técnica nova: um só aplicativo, prontuário cifrado e assistência por IA (onda `pocketbase-core`)
+
+Reconstrói a fundação do Psicoman sobre uma base mais sólida e segura, sem mudar o jeito de trabalhar no dia a dia: agora é **um único aplicativo**, o prontuário fica **cifrado**, a agenda checa conflito na hora, a cobrança vira PDF pronto para enviar, o backup ganha uma cópia de segurança na nuvem e surge uma **ajuda opcional de IA** para resumir sessões. Detalhe técnico em [`decisions.md`](./decisions.md) e [`architecture.md`](./architecture.md).
+
+**Novidades**
+- **Prontuário protegido por criptografia.** As anotações clínicas, a anamnese e os resumos passam a ser **guardados cifrados**. Só você, no seu acesso de terapeuta, enxerga o conteúdo em texto; o portal do paciente e as ferramentas técnicas jamais mostram o conteúdo clínico.
+- **Agenda avisa conflito na hora de marcar.** Antes de confirmar uma sessão, o sistema consulta a sua agenda do Google e, se houver choque de horário com qualquer compromisso, **bloqueia e avisa** — nada é sobrescrito. Sessões online ganham o link do Meet automaticamente.
+- **Cobrança em PDF pronta para compartilhar.** Gere o **PDF da cobrança** de um débito com um clique; ele fica guardado como comprovante e você compartilha com o paciente por onde preferir (ex.: WhatsApp). O sistema não envia email — o canal continua sendo você.
+- **Cópia de segurança na nuvem (Google Drive).** Além do backup local, o sistema envia uma **cópia cifrada** para uma pasta reservada no seu Google Drive, como plano de recuperação de desastre. Se o Google não estiver configurado, o backup local continua funcionando normalmente.
+- **Assistência por IA para resumir sessões (opcional).** Se você ativar a IA (fornecendo sua chave do Gemini), pode pedir um **resumo** de uma sessão com **tags temáticas** — sempre a seu pedido e **para você revisar** antes de salvar. As tags ajudam a **buscar** sessões de um paciente por tema. Sem a chave, a IA fica desligada e nada é enviado para fora.
+- **Portal do paciente com login próprio.** O paciente se cadastra com email e senha e entra no portal; continua valendo a sua **aprovação** antes de ele acessar qualquer coisa.
+
+**Melhorias**
+- **Um aplicativo só.** Onde antes havia dois programas (admin e portal), agora há **um único aplicativo** que atende os dois, mais simples de operar e atualizar. A tela técnica de administração continua disponível em `/_/`.
+- **Configuração em um arquivo.** Tudo (chaves, Google, IA) fica num `config.yaml`, e dá para sobrescrever por variáveis de ambiente — o sistema registra de onde veio cada ajuste, sem nunca expor senhas ou chaves.
+- **Busca clínica por tags.** As tags geradas pela IA ficam pesquisáveis por paciente e por ano, mantendo o conteúdo das anotações cifrado.
+
+**Notas de migração/operação**
+- O sistema agora é **um único binário** que roda **atrás do Pangolin** (que cuida do acesso e do HTTPS). Configure a chave de criptografia no `config.yaml` **antes** de subir — sem ela, o sistema não inicia (proteção proposital).
+- **Envio de cobrança por email saiu** desta base: a cobrança é o PDF guardado no sistema, compartilhado por você. 
+- A **cópia no Google Drive** e a **IA** são opcionais: funcionam só quando você fornece as credenciais correspondentes; na ausência delas, o resto do sistema segue normal.
+
+---
+
 ## 2026-10-12 — A história do paciente numa linha do tempo e o seu dia num feed (onda `patient-timeline`)
 
 Transforma a tela do paciente na história completa dele e dá ao seu dia um resumo didático; o faturamento por sessão passa a ser automático e os planos fechados cobram no dia certo. Detalhe técnico em [`decisions.md`](./decisions.md).

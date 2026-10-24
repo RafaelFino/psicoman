@@ -1,80 +1,60 @@
-// Package httpx contém o contrato HTTP compartilhado: envelope de resposta,
-// erros de domínio mapeados para HTTP, e helpers de serialização.
-//
-// Envelope padrão (docs/architecture.md §5):
-//
-//	{ "message": "texto PT-BR", "elapsed_ms": 12, "data": {}, "error": null }
+// Package httpx reúne o que é transversal ao contrato /v1/* do Psicoman: o
+// envelope de resposta, o mapeamento erro→HTTP, a middleware chain e helpers de
+// formatação. Não tem regra de negócio e é reusado pelos três atores
+// (app/portal/admin), sem que nenhum pacote de ator importe o outro (D2/D7).
 package httpx
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/pocketbase/pocketbase/core"
 )
 
-// ctxKey é o tipo das chaves de contexto deste pacote.
-type ctxKey int
-
-const (
-	ctxKeyRequestID ctxKey = iota
-	ctxKeyStart
-	ctxKeyActor
-)
-
-// Envelope é o formato único de toda resposta da API.
+// Envelope é a resposta padrão de toda rota /v1/*. A ordem das chaves
+// {message, elapsed_ms, data, error} é contrato (R7.2) e fica garantida por
+// construção: encoding/json serializa campos de struct na ordem de declaração.
+// Os helpers Respond*/Fail/FailBadRequest montam SEMPRE esta struct, nunca um
+// map[string]any (que seria serializado em ordem alfabética).
 type Envelope struct {
-	Message   string `json:"message"`
-	ElapsedMS int64  `json:"elapsed_ms"`
-	Data      any    `json:"data,omitempty"`
-	Error     any    `json:"error,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
+	Message   string    `json:"message"`
+	ElapsedMS int64     `json:"elapsed_ms"`
+	Data      any       `json:"data"`
+	Error     *APIError `json:"error"`
 }
 
-// Respond escreve o envelope com o status informado.
-// O elapsed_ms é calculado a partir do início da requisição no contexto.
-func Respond(w http.ResponseWriter, r *http.Request, status int, message string, data any) {
-	writeEnvelope(w, r, status, message, data, nil)
+// APIError é o corpo de erro: code em PT-BR snake_case; nunca detalhe interno.
+type APIError struct {
+	Code string `json:"code"`
 }
 
-// RespondError escreve um erro no envelope, mapeando APIError para HTTP.
-func RespondError(w http.ResponseWriter, r *http.Request, err error) {
-	apiErr := AsAPIError(err)
-	writeEnvelope(w, r, apiErr.Status, apiErr.Message, nil, map[string]any{
-		"code":   apiErr.Code,
-		"detail": apiErr.detailForClient(),
-	})
-}
-
-func writeEnvelope(w http.ResponseWriter, r *http.Request, status int, message string, data, errObj any) {
-	env := Envelope{
-		Message:   message,
-		Data:      data,
-		Error:     errObj,
-		ElapsedMS: elapsedMS(r),
-		RequestID: RequestID(r.Context()),
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(env)
-}
-
-func elapsedMS(r *http.Request) int64 {
-	if r == nil {
+// elapsedMS lê o instante inicial gravado pela middleware Timing no store do
+// RequestEvent e devolve o tempo decorrido em milissegundos. Sem o marcador
+// (ex.: handler fora da chain), devolve 0.
+func elapsedMS(e *core.RequestEvent) int64 {
+	v := e.Get(storeStartedAt)
+	started, ok := v.(time.Time)
+	if !ok || started.IsZero() {
 		return 0
 	}
-	if start, ok := r.Context().Value(ctxKeyStart).(time.Time); ok {
-		return time.Since(start).Milliseconds()
+	ms := time.Since(started).Milliseconds()
+	if ms < 0 {
+		ms = 0
 	}
-	return 0
+	return ms
 }
 
-// DecodeJSON lê o corpo JSON da requisição em dst, com limite de tamanho.
-func DecodeJSON(r *http.Request, dst any) error {
-	const maxBody = 5 << 20 // 5 MiB
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxBody))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return ErrInvalidBody("Não foi possível interpretar os dados enviados.")
-	}
-	return nil
+// RespondOK responde 200 com data preenchido e error nulo.
+func RespondOK(e *core.RequestEvent, message string, data any) error {
+	return e.JSON(http.StatusOK, Envelope{Message: message, ElapsedMS: elapsedMS(e), Data: data})
+}
+
+// RespondCreated responde 201 (criação de recurso).
+func RespondCreated(e *core.RequestEvent, message string, data any) error {
+	return e.JSON(http.StatusCreated, Envelope{Message: message, ElapsedMS: elapsedMS(e), Data: data})
+}
+
+// RespondAccepted responde 202 (operação aceita para processamento posterior).
+func RespondAccepted(e *core.RequestEvent, message string, data any) error {
+	return e.JSON(http.StatusAccepted, Envelope{Message: message, ElapsedMS: elapsedMS(e), Data: data})
 }

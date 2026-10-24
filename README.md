@@ -1,199 +1,92 @@
 # Psicoman
 
-Sistema de gestão de atendimentos para psicologia — pacientes, agenda, sessões, prontuário, financeiro e custos, com portal self-service para pacientes.
+Sistema de gestão de atendimentos para psicologia — pacientes, agenda, sessões, prontuário, financeiro e custos, com portal self-service para o paciente. **Single-tenant:** uma instância isolada por terapeuta.
 
 ---
 
 ## Contexto
 
-Um terapeuta precisa de uma ferramenta única para conduzir a operação do consultório: manter o cadastro dos pacientes, agendar sessões integradas ao Google Calendar/Meet, registrar o prontuário clínico, gerar cobranças, controlar custos e entender o retorno dos investimentos em plataformas de aquisição (ex: Doctoralia).
+Um terapeuta precisa de uma ferramenta única para conduzir o consultório: cadastro de pacientes, agenda integrada ao Google Calendar/Meet, prontuário clínico, cobranças, custos e retorno dos canais de aquisição (ex.: Doctoralia). O Psicoman é uma solução **simples, auto-contida e de baixa manutenção**, para rodar em infraestrutura própria e segregada — uma **VM por terapeuta**.
 
-O Psicoman nasce como uma solução **simples, auto-contida e de baixa manutenção**, projetada para rodar em infraestrutura própria e segregada. Cada terapeuta que adotar o sistema recebe uma **instância isolada** (uma VM por terapeuta), preservando privacidade e a mesma arquitetura.
+## Arquitetura em uma frase
 
-## Escopo
-
-O escopo descrito na documentação corresponde ao **MVP**. Ideias futuras discutidas com a terapeuta ficaram deliberadamente fora desta versão.
-
-**Dentro do escopo:**
-- Perfil do terapeuta (nome, CRP, contatos, foto, bio, locais de atendimento, links de plataformas como Doctoralia/Zenklub/Terapy).
-- Cadastro de pacientes (com origem de aquisição, email e CPF únicos) e locais de atendimento. Telefone normalizado (DDI 55) e exibido como link de WhatsApp no admin.
-- Agenda integrada ao Google Calendar, com checagem de conflito (freebusy) antes de confirmar, Google Meet e notificações delegadas ao Google. Visão semanal fluida (o dia cresce com a lotação).
-- Ciclo de vida de sessões (agendada → confirmada → realizada / cancelada / falta) com confirmação opcional, autor e motivo de cancelamento, controle explícito de cobrança e custo, e edição de sessão (data/hora, local, modalidade; remarcação rastreável).
-- Planos e pagamentos com gatilho de débito por tipo de plano (por sessão automático com opt-out, ou por fechamento de ciclo a partir do dia de vencimento, ou nunca no caso do atendimento social), geração idempotente, PDF de cobrança, quitação com comprovantes.
-- Tela base do paciente é uma **timeline** (história completa, do mais recente ao mais antigo): cadastro, sessões, remarcações, registros clínicos, anamnese, débitos, pagamentos e arquivos, com filtro por categoria.
-- **Calendário mensal** do paciente, com as sessões passadas e futuras coloridas por status e navegação por mês.
-- **Métricas de sessão** por paciente (comparecimento, cancelamento, faturado das realizadas) e **relatório mensal por local** (categorias + total + faturado) para repasse a clínicas parceiras.
-- **Feed do dia** do terapeuta como visão inicial do admin: eventos de todos os pacientes (sessões, pagamentos, débitos, arquivos, pedidos) agrupados por faixa temporal, com resumo colapsável e janela ajustável.
-- Prontuário unificado: feed clínico do mais recente ao mais antigo, com a anamnese como ficha inicial em destaque e marco fundacional; composição rápida de anotação; templates em Markdown.
-- Título da aba do navegador sempre com a marca (`Psicoman · <contexto>`).
-- Controle de custos (local, CRP, infra, plataformas), rateio por sessão e ROI por canal de origem.
-- Relatórios financeiros e de custos.
-- Portal do paciente (self-service): login social Google (com vínculo por email a cadastro pré-existente), agenda aberta, pedido de agendamento, acompanhamento de sessões e débitos — com TLS e rate limiting próprios nas rotas públicas.
-- GED (Gestão Eletrônica de Documentos) segregado por paciente, com integridade por hash.
-- Backup diário cifrado no Google Drive, com restore.
-- Observabilidade (logs, métricas, healthchecks), API versionada e documentada (Swagger).
-
-**Fora do escopo (MVP):**
-- Google Workspace / domínio próprio de email (upgrade opcional futuro).
-- Vault externo para chaves (hoje via config, com interface plugável).
-- Recursos avançados de Meet (gravação).
-- Canais de notificação próprios além do Google Calendar.
-
-## Atores
-
-| Ator | Aplicação | Acesso |
-|------|-----------|--------|
-| Terapeuta | `psicoman-admin` | Total — atrás do gateway Pangolin (header de email + secret) |
-| Paciente | `psicoman-portal` | Mínimo — login social Google; vê apenas seus próprios dados |
-
-São **dois binários separados**, ambos atrás do Pangolin (que termina TLS/HTTPS para os dois). O Pangolin aplica controle de acesso só no admin; no portal ele só garante TLS, e a autenticação do paciente é feita na própria aplicação via login social Google. O portal não contém código administrativo nem acesso a dados clínicos.
-
-## Arquitetura (visão rápida)
+**Um único binário Go** com o [PocketBase](https://pocketbase.io) embarcado **como framework** (SQLite relacional, servidor HTTP, file storage, auth/OAuth2, migrations e admin UI nativa em `/_/`), rodando **sempre atrás do [Pangolin](https://docs.fossorial.io/)** (gateway que termina TLS e injeta identidade). As rotas próprias `/v1/*` são registradas no hook `app.OnServe()`.
 
 ```mermaid
 flowchart TB
-    Terapeuta -->|header email + secret| Pangolin[Pangolin - OCI - TLS]
-    Paciente -->|OAuth Google| Pangolin
-    Pangolin -->|com controle de acesso| Admin[psicoman-admin]
-    Pangolin -->|só TLS, sem auth| Portal[psicoman-portal]
-    Admin --> DB[(SQLite WAL)]
-    Portal --> DB
-    Admin --> GED[/GED - disco/]
-    Portal --> GED
-    Admin --> Google[Google Calendar / Meet / Gmail / Drive]
+    Terapeuta -->|identidade no header| Pangolin[Pangolin - TLS + borda]
+    Paciente -->|sessão do portal Bearer| Pangolin
+    Pangolin -->|/v1/app/*, /v1/admin/*, /_/| Bin[psicoman - binário único]
+    Pangolin -->|/v1/portal/* aberto| Bin
+    Bin --> PB[(PocketBase: SQLite WAL + file storage)]
+    Bin -->|síncrono, no request| Cal[Google Calendar / Meet]
+    Bin -->|hook de backup, fora do request| Drive[Google Drive - fallback/DR]
+    Bin -->|opt-in, revisável| Gemini[Gemini - resumo + tags]
 ```
 
-- **Backend em Go**, servindo também a interface web (HTML/CSS/JS embutido via `embed.FS`).
-- **SQLite** local em modo WAL, compartilhado pelos dois binários.
-- **GED** em pasta local, segregado por paciente, arquivos com hash SHA-256.
-- **Integração Google** via OAuth 3-legged com refresh token (conta pessoal).
-- Roda em **VM privada** (Proxmox no servidor X99); acesso externo via **Pangolin** (OCI), que termina TLS para as duas aplicações — com controle de acesso no admin e só TLS no portal.
+### Princípios estruturais
 
-Camadas: domínio (magro) → repositórios → serviços → integrações → API (HTTP) → web.
+- **Domínio rico por bounded context** em `internal/domain/{patient,clinical,billing,scheduling,costs,therapist}`; serviços enxutos em `internal/app`; portas (interfaces de repositório) em `internal/app/ports.go`.
+- **Regra de dependência (testada por `internal/archtest`):** `internal/domain` e `internal/app` **não** importam o PocketBase; o adapter `internal/platform/pb` é o **único** que o importa; `internal/config` é um pacote de borda puro.
+- **Cifra por campo (`SealedText`):** o prontuário clínico (corpo da sessão, anamnese, notas, resumo de IA) é cifrado **por campo** (AES-256-GCM) na borda de persistência. O `SealedText` carrega o claro só em memória, não tem `MarshalJSON` que o exponha, e a API responde **sempre por DTO explícito** — o claro só sai pelo ator terapeuta via `Reveal()`. Nem o superuser vê clínico em claro pela REST nativa (envelope cifrado em repouso).
+- **Contrato `/v1` por ator:** `/v1/app` (terapeuta), `/v1/portal` (paciente, aberto), `/v1/admin` (operação). Envelope de resposta `{ message, elapsed_ms, data, error }` em PT-BR. A REST automática do PocketBase **não** é contrato público (coleções trancadas). Swagger em `/v1/swagger`.
+- **Padrões não-negociáveis:** ULID em toda entidade; dinheiro em `int64` centavos; tempo `America/Sao_Paulo` ISO-8601; erros ao usuário em PT-BR; segredos nunca em log nem no repositório.
+
+## Atores e autenticação
+
+| Path | Ator | Auth |
+|------|------|------|
+| `/v1/app/*` | Terapeuta (também a operadora, no single-tenant) | Header de identidade injetado pelo Pangolin (401 se ausente) |
+| `/v1/portal/*` | Paciente | Sessão própria (coleção de auth `patient_user` do PocketBase) + **gate de aprovação** |
+| `/v1/admin/*` | Operação técnica (backup, auditoria) | Header do Pangolin |
+| `/_/` (admin UI nativa) | Operação técnica | Política de borda do Pangolin + login de superuser do PocketBase |
+
+**Gate de aprovação:** o paciente se auto-cadastra e nasce `pendente`; não acessa recurso algum até o terapeuta aprovar (imposto no servidor, HTTP 403, com hook de reforço de defesa em profundidade). O `/v1/portal/*` é aberto no Pangolin (só TLS); a autenticação do paciente é da própria aplicação.
+
+## Integrações
+
+- **Google Calendar/Meet** — síncrono, **único Google no caminho de request**. Antes de confirmar uma sessão, consulta o `freebusy` (conflito → 409); cria o evento com o paciente convidado e reminders; Meet quando a sessão é online. Sem credenciais, degrada (agenda sem evento, sem derrubar). Escopo OAuth mínimo: `calendar`.
+- **Google Drive** — **fallback/DR**, nunca fonte da verdade. Um hook no ciclo de **backup** do PocketBase cifra o snapshot (AES-256-GCM) e o envia a uma pasta fria no Drive, fora do caminho de request. Escopo mínimo: `drive.file`. Sem credenciais, o backup local segue (no-op observável).
+- **Cobrança em PDF** — gerada a partir do débito (Go puro, sem dependência) e armazenada no GED (file storage do PocketBase), com dedup por SHA-256. **Sem envio por email** — o canal é a terapeuta (WhatsApp), fora da plataforma. Gmail fora de escopo.
+- **IA (Gemini)** — **opt-in pela presença da chave** `llm.gemini.api_key` (default off). Resumo clínico + tags por **disparo explícito** do terapeuta, **revisável** antes de consolidar. Auditoria `ai.process` sem conteúdo clínico (minimização). Índice invertido de tags por paciente/ano: tags em **claro** (busca), corpo clínico **cifrado**, isolado por paciente.
 
 ## Stack
 
-- **Linguagem:** Go
-- **Banco:** SQLite (WAL)
-- **Front-end:** server-side render + framework CSS leve (Pico.css/Tailwind) + JS leve (htmx/Alpine), embutido no binário
-- **Integrações:** Google Calendar, Meet, Gmail, Drive
-- **Moeda:** BRL (valores em centavos) · **Timezone:** `America/Sao_Paulo`
-- **IDs:** ULID em todas as entidades
-
-## Documentação
-
-| Documento | Natureza | Conteúdo |
-|-----------|----------|----------|
-| [`docs/requirements.md`](./docs/requirements.md) | Durável | Requisitos — o que o sistema faz e por quê |
-| [`docs/architecture.md`](./docs/architecture.md) | Durável | Arquitetura — estrutura, modelo de dados, contratos, integrações, decisões |
-| [`.kiro/specs/mvp/tasks.md`](./.kiro/specs/mvp/tasks.md) | Execução | Plano de implementação do MVP — 21 tasks em 7 fases, com dependências e rastreabilidade |
-
-**Organização da documentação:** documentos duráveis (requisitos e arquitetura) vivem em `docs/` e evoluem com o produto. O plano de execução vive em `.kiro/specs/mvp/` como artefato da primeira implementação (formato de spec do Kiro: `requirements.md` + `design.md` + `tasks.md`, os dois primeiros apontando para `docs/`). Cada nova feature ganha sua própria spec em `.kiro/specs/`.
-
-## Estrutura do repositório (planejada)
-
-```
-psicoman/
-├── cmd/admin/           # main do psicoman-admin
-├── cmd/portal/          # main do psicoman-portal
-├── internal/
-│   ├── domain/          # entidades e tipos
-│   ├── repository/      # sqlite + ged
-│   ├── service/         # regras de negócio
-│   ├── integration/     # google (calendar, gmail, drive, oauth)
-│   ├── api/             # rotas admin/portal + middleware
-│   ├── web/             # templates e assets embutidos
-│   ├── config/          # carregamento de config
-│   ├── platform/        # logger, metrics, ulid, crypto
-│   └── migration/       # migrations versionadas
-├── migrations/          # .sql versionados
-├── api/                 # openapi/swagger
-├── test/e2e/            # testes end-to-end
-├── config.example.yaml
-└── Makefile
-```
-
-> A estrutura acima reflete a arquitetura; o código é construído incrementalmente conforme [`.kiro/specs/mvp/tasks.md`](./.kiro/specs/mvp/tasks.md).
+- **Linguagem:** Go · **Framework/infra:** PocketBase embarcado (SQLite WAL, HTTP, file storage, auth, migrations, admin UI)
+- **Moeda:** BRL (centavos, `int64`) · **Fuso:** `America/Sao_Paulo` · **IDs:** ULID
+- **Cifra:** AES-256-GCM por campo (`SealedText`) + snapshot de backup cifrado
 
 ## Build e execução
 
-> O projeto está em fase de especificação. Os comandos abaixo refletem o alvo do `Makefile` definido no design.
-
 ```bash
-# compilar os dois binários
-make build
+make build        # compila UM binário em bin/psicoman
+make check        # gate: fmt + vet + build + testes unit + e2e
+make test-unit    # só testes unitários
+make e2e          # só testes end-to-end
 
-# rodar localmente em modo dev (auth desligada), gera config.dev.yaml
-make run-local   # admin em :8080, portal em :8081
-
-# testes e qualidade
-make test        # unit + e2e
-make check       # gate completo: fmt + vet + build + testes (+ lint advisory)
-
-# aplicar migrations
-make migrate
+# executar (atrás do Pangolin, em produção):
+bin/psicoman serve --http 127.0.0.1:8090 --dir ./pb_data
 ```
 
-> `make run-local` sobe a aplicação com `dev_mode: true` (autenticação desligada) para validação local. **Nunca** use esse modo em produção.
+A configuração vem de um `config.yaml` (ver `config.example.yaml`): cifra, header do Pangolin, credenciais Google e chave do Gemini. **Variáveis de ambiente sobrescrevem o arquivo**; a origem de cada chave é logada no boot, sem vazar segredos. A admin UI nativa do PocketBase fica em `/_/`.
 
-Configuração por instância via `config.yaml` (baseado em `config.example.yaml`): paths de SQLite/GED/logs, email e secret do admin, credenciais OAuth Google, chave de cifragem, intervalos de lembrete e portas.
+## Documentação
+
+| Documento | Conteúdo |
+|-----------|----------|
+| [`docs/requirements.md`](./docs/requirements.md) | O quê/por quê — requisitos de produto |
+| [`docs/architecture.md`](./docs/architecture.md) | Como — estrutura, coleções, contratos, integrações |
+| [`docs/decisions.md`](./docs/decisions.md) | Registro de decisões (ADR leve) |
+| [`docs/deploy.md`](./docs/deploy.md) | Instalação e operação |
+| [`docs/release-notes.md`](./docs/release-notes.md) | Notas de versão por onda |
+| [`.kiro/specs/pocketbase-core/`](./.kiro/specs/pocketbase-core/) | Spec da onda atual (requirements/design/tasks) |
 
 ## Segurança e privacidade
 
-- Dados de prontuário são dados sensíveis de saúde: infra segregada e permissionada, audit log de operações sensíveis, backup cifrado.
-- Admin com defense in depth (não confia apenas no Pangolin).
-- Portal isolado, sem acesso a dados clínicos; paciente enxerga só os próprios dados. Fica atrás do Pangolin (que garante TLS) mas sem o controle de acesso do gateway, então tem autenticação própria (login social) e rate limiting nas rotas públicas (cadastro, pedido de agendamento).
-- **Gate de aprovação do portal:** paciente que se auto-cadastra fica `pendente` e não acessa nenhum recurso até o terapeuta aprovar (imposto no servidor, HTTP 403); aprovação/rejeição no admin com audit log.
-- Refresh tokens e backups cifrados (AES-GCM).
-
-## Steering (padrões para o desenvolvimento)
-
-Além dos steerings globais do usuário (Go, Docker, Git), o workspace tem steerings específicos do Psicoman em `.kiro/steering/`, carregados automaticamente por tipo de arquivo:
-
-| Steering | Aplica-se a | Conteúdo |
-|----------|-------------|----------|
-| `psicoman-golang.md` | `**/*.go` | Camadas, regra de dependência, ULID/dinheiro/tempo/idempotência, contrato de API |
-| `psicoman-sqlite.md` | `**/*.sql`, `repository/sqlite/**`, `migrations/**` | WAL, convenções de schema, migrations append-only |
-| `psicoman-google-api.md` | `integration/google/**` | OAuth 3-legged, escopos mínimos, freebusy, backup no Drive |
-| `psicoman-seguranca-lgpd.md` | `api/**`, `service/**`, `platform/crypto/**`, `config/**` | Defense in depth, TLS/rate limit do portal, segredos, audit log |
-| `psicoman-web-responsivo.md` | `web/**`, `*.html`, `*.css` | Stack SSR + htmx/Alpine, mobile-first, WCAG AA |
-| `psicoman-testes-e2e.md` | `test/e2e/**`, `*_test.go` | Fluxos mínimos exigidos, mocks do Google, critério de "task concluída" |
-
-## Auditoria de prontidão
-
-A spec passou por uma revisão de coerência antes do início da implementação. Problemas encontrados e já corrigidos nos três documentos:
-
-- **Conflito de agenda**: a spec original previa ler o Calendar para evitar choque de horário; isso havia se perdido na reescrita e foi restaurado (`docs/requirements.md §3.3`, checagem via freebusy antes de confirmar sessão).
-- **Cobrança de plano fechado**: o gatilho de débito não cobria `plano_fechado_mensal`/`trimestral` (que cobra por ciclo, não por sessão) nem impedia geração indevida para `atendimento_social`. Formalizado um gatilho por tipo de plano, incluindo um job de fechamento de ciclo (`docs/architecture.md §4.1.1`).
-- **Duplicidade de paciente**: sem regra de unicidade de email/CPF nem de vínculo entre cadastro feito pelo terapeuta e cadastro feito pelo próprio paciente no portal. Corrigido com `UNIQUE` no schema e upsert por email.
-- **TLS e rate limiting do portal**: o portal fica atrás do Pangolin (que termina TLS para as duas aplicações) mas sem o controle de acesso do gateway; faltava definir a autenticação (login social na aplicação) e como mitigar abuso nas rotas públicas (rate limiting). Definido em `docs/architecture.md §8`.
-- **Plano de execução**: o grafo de dependências do `tasks.md` estava incompleto (a Task 20 declarava depender de várias tasks sem que o grafo cobrisse todos os caminhos); corrigido e a matriz de rastreabilidade requisito→task atualizada.
-
-Não foram encontrados outros bloqueadores. A spec está consistente entre `requirements.md`, `architecture.md` e `tasks.md`, e pronta para o início da implementação.
-
-## Teste local (Docker)
-
-Para subir o sistema inteiro (admin + portal) num container local, com dados de
-demonstração e limpeza completa depois:
-
-```bash
-make stack-up      # sobe a stack em modo dev e aplica a carga inicial
-make stack-down    # derruba e limpa tudo (containers, volume e imagem)
-```
-
-Admin em http://localhost:8080/app/ e portal em http://localhost:8081/app/.
-Detalhes (seed, logs, variações) em [`docs/stack-local.md`](./docs/stack-local.md).
-
-## Deploy
-
-Instalação e atualização em um servidor (uma VM por terapeuta, atrás do Pangolin):
-
-- **Guia passo a passo:** [`docs/deploy.md`](./docs/deploy.md) — provisão da VM, credenciais Google (Calendar/Meet, Gmail, Drive), configuração do Pangolin, primeiro uso e operação.
-- **Instalação interativa:** `make deploy` (ou `sudo ./scripts/deploy.sh`) — pergunta tudo, gera o `config.yaml` com chave de cifragem, compila os binários e cria os serviços systemd.
-- **Atualização segura:** `make update` (ou `sudo ./scripts/update-server.sh`) — backup completo, `git` da versão alvo, rebuild, migrations no boot, validação por `/readyz` e rollback automático em caso de falha.
+- Prontuário é dado sensível de saúde: cifra por campo em repouso (`SealedText`), snapshot de backup cifrado, audit log de operações sensíveis (sem conteúdo clínico), infra segregada (uma VM por terapeuta).
+- Defesa em profundidade: toda regra sensível é imposta no servidor, mesmo com o Pangolin na frente.
+- Segredos (chave de cifra, client secret OAuth, refresh tokens, chave Gemini) nunca em log, resposta de erro ou código — só via `config.yaml` (fora do repo) ou env.
 
 ## Status
 
-MVP implementado e verde: as 21 tasks das 7 fases em [`.kiro/specs/mvp/tasks.md`](./.kiro/specs/mvp/tasks.md) estão concluídas, com testes unitários e suíte E2E cobrindo os fluxos de negócio (cadastro → sessão → débito → cobrança → quitação; pedido do portal → confirmação → evento no Calendar; backup → restore; isolamento e rate limiting do portal). `make build`, `make test` e `make e2e` passam; `go vet` limpo.
-
-Os dois binários (`psicoman-admin`, `psicoman-portal`) sobem, aplicam as migrations no boot, servem a API versionada (`/v1`), o Swagger (`/v1/swagger`) e a interface web embutida, e expõem health/readiness/liveness/metrics.
+Onda `pocketbase-core` implementada e verde: binário único com PocketBase embarcado, cifra por campo, contrato `/v1` por ator, Calendar síncrono, PDF de cobrança no GED, Drive como DR, Gemini opt-in com índice de tags e portal do paciente com auth própria. `make check` passa (fmt + vet + build + unit + e2e).

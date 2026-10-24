@@ -1,5 +1,14 @@
 # Psicoman — Guia de Instalação e Deploy
 
+> ⚠️ **Desatualizado pela onda `pocketbase-core`.** Este guia descreve o modelo
+> **anterior** (dois binários `psicoman-admin`/`psicoman-portal`, Gmail, `dev_mode`,
+> portas 8080/8081). A arquitetura vigente é **um único binário** (`bin/psicoman`,
+> PocketBase embarcado) atrás do Pangolin, configurado por `config.yaml` (ver
+> [`../config.example.yaml`](../config.example.yaml)) — detalhes em
+> [`architecture.md`](./architecture.md) e [`../README.md`](../README.md). A
+> reescrita operacional deste guia (systemd de um binário, escopos OAuth
+> `calendar`/`drive.file`, sem Gmail) está pendente.
+
 Guia passo a passo para colocar uma instância do Psicoman no ar. Cada terapeuta
 roda **uma instância isolada** (uma VM por terapeuta), com dois binários
 (`psicoman-admin` e `psicoman-portal`) atrás do gateway **Pangolin**.

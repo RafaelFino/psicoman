@@ -1,49 +1,28 @@
-// Package swagger serve a documentação OpenAPI/Swagger dos dois binários,
-// com escopo por namespace (docs/architecture.md §5).
-//
-// A spec base é embutida e servida em /v1/swagger.json; uma página HTML mínima
-// (Swagger UI via CDN) é servida em /v1/swagger.
+// Package swagger serve a documentação OpenAPI/Swagger do contrato /v1 (um único
+// documento com os três atores por tags: app/portal/admin). A spec é embutida
+// via //go:embed e servida em GET /v1/swagger.json; a UI (Swagger UI via CDN)
+// em GET /v1/swagger.
 package swagger
 
 import (
 	_ "embed"
 	"net/http"
-	"strings"
+
+	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 //go:embed openapi.base.json
 var baseSpec []byte
 
-// Surface identifica qual conjunto de rotas documentar.
-type Surface string
-
-const (
-	// Admin documenta o namespace /v1/admin.
-	Admin Surface = "admin"
-	// Portal documenta o namespace /v1/portal.
-	Portal Surface = "portal"
-)
-
-// Register instala /v1/swagger (UI) e /v1/swagger.json (spec) no mux.
-func Register(mux *http.ServeMux, surface Surface) {
-	mux.HandleFunc("GET /v1/swagger.json", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_, _ = w.Write(specFor(surface))
+// Mount registra /v1/swagger (UI) e /v1/swagger.json (spec) no grupo /v1.
+func Mount(g *router.RouterGroup[*core.RequestEvent]) {
+	g.GET("/swagger.json", func(e *core.RequestEvent) error {
+		return e.Blob(http.StatusOK, "application/json; charset=utf-8", baseSpec)
 	})
-	mux.HandleFunc("GET /v1/swagger", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(swaggerHTML))
+	g.GET("/swagger", func(e *core.RequestEvent) error {
+		return e.HTML(http.StatusOK, swaggerHTML)
 	})
-}
-
-// specFor devolve a spec ajustada para a superfície (título/descrição).
-func specFor(surface Surface) []byte {
-	title := "Psicoman — API Admin"
-	if surface == Portal {
-		title = "Psicoman — API Portal"
-	}
-	s := strings.ReplaceAll(string(baseSpec), "__TITLE__", title)
-	return []byte(s)
 }
 
 const swaggerHTML = `<!doctype html>
@@ -58,12 +37,7 @@ const swaggerHTML = `<!doctype html>
   <div id="swagger-ui"></div>
   <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script>
-    window.onload = () => {
-      window.ui = SwaggerUIBundle({
-        url: '/v1/swagger.json',
-        dom_id: '#swagger-ui',
-      });
-    };
+    window.ui = SwaggerUIBundle({ url: "/v1/swagger.json", dom_id: "#swagger-ui" });
   </script>
 </body>
 </html>`

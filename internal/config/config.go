@@ -1,213 +1,255 @@
-// Package config carrega e valida a configuração de uma instância do Psicoman.
+// Package config é o loader de configuração do binário único do Psicoman.
 //
-// Cada terapeuta roda uma instância isolada; toda a parametrização (paths,
-// credenciais, segredos) vem de um único arquivo YAML, permitindo deploy seguro
-// e segregação de ambientes (docs/architecture.md §8).
+// É um pacote de BORDA PURO: usa apenas a stdlib + gopkg.in/yaml.v3. NÃO importa
+// o PocketBase nem internal/platform/pb (garantido pelo archtest). Quem liga a
+// config ao framework é o wiring (internal/api) e o main (cmd/psicoman).
+//
+// Modelo (decisões do Rafael, Fase 6, Opção B):
+//   - A config vem de um arquivo YAML (dev: config.dev.yaml, git-ignored).
+//   - Variáveis de ambiente SOBRESCREVEM o arquivo (precedência env > arquivo).
+//   - A origem de cada chave (arquivo | env | default) é reportada ao chamador
+//     via []OriginEvent para ser LOGADA, sem que este pacote faça I/O de log
+//     acoplado — mantendo config livre de dependência de logger do framework.
+//   - Gemini é opt-in pela PRESENÇA de llm.gemini.api_key (R10.3): com chave, a
+//     IA liga; sem chave, desliga. Não há flag on/off separada.
+//   - NENHUM valor de segredo (crypto.keys, gemini.api_key, google.client_secret)
+//     é exposto nos OriginEvent: só a chave lógica e a origem (psicoman-seguranca-lgpd).
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"time"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Config é a configuração completa de uma instância.
+// Config é o struct tipado que espelha config.dev.yaml (formato atual).
 type Config struct {
-	// Server agrupa as portas/binds dos dois binários.
-	Admin  ServerConfig `yaml:"admin"`
-	Portal ServerConfig `yaml:"portal"`
-
-	// Paths de dados locais.
-	Paths PathsConfig `yaml:"paths"`
-
-	// Auth do admin (validação própria, defense in depth sobre o Pangolin).
-	AdminAuth AdminAuthConfig `yaml:"admin_auth"`
-
-	// Google OAuth + integrações.
-	Google GoogleConfig `yaml:"google"`
-
-	// Crypto: chave de cifragem de tokens e backup.
-	Crypto CryptoConfig `yaml:"crypto"`
-
-	// Logging.
-	Log LogConfig `yaml:"log"`
-
-	// Reminders default do Google Calendar (acumulativos).
-	Reminders RemindersConfig `yaml:"reminders"`
-
-	// RateLimit das rotas públicas do portal.
-	RateLimit RateLimitConfig `yaml:"rate_limit"`
-
-	// Dev liga o modo de desenvolvimento local: DESLIGA a autenticação (admin e
-	// portal) para facilitar a validação local. NUNCA usar em produção — o boot
-	// emite um aviso enquanto estiver ativo.
-	Dev bool `yaml:"dev_mode"`
+	DataDir  string
+	Log      LogConfig
+	Crypto   CryptoConfig
+	Pangolin PangolinConfig
+	Google   GoogleConfig
+	Gemini   GeminiConfig
 }
 
-// ServerConfig descreve o bind HTTP de um binário.
-type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
-}
-
-// Addr devolve o endereço no formato host:port.
-func (s ServerConfig) Addr() string {
-	return fmt.Sprintf("%s:%d", s.Host, s.Port)
-}
-
-// PathsConfig agrupa os caminhos de dados locais.
-type PathsConfig struct {
-	SQLite  string `yaml:"sqlite"`   // arquivo .db
-	GEDRoot string `yaml:"ged_root"` // raiz do GED (segregado por paciente)
-	LogDir  string `yaml:"log_dir"`  // diretório de logs (rotação diária)
-}
-
-// AdminAuthConfig são as credenciais que o admin valida por conta própria.
-type AdminAuthConfig struct {
-	Email  string `yaml:"email"`  // email do terapeuta (header via Pangolin)
-	Secret string `yaml:"secret"` // secret compartilhado
-	// Headers customizáveis (Pangolin pode reescrever).
-	EmailHeader  string `yaml:"email_header"`
-	SecretHeader string `yaml:"secret_header"`
-}
-
-// GoogleConfig são as credenciais OAuth e parâmetros de integração.
-type GoogleConfig struct {
-	ClientID     string   `yaml:"client_id"`
-	ClientSecret string   `yaml:"client_secret"`
-	RedirectURL  string   `yaml:"redirect_url"`
-	Scopes       []string `yaml:"scopes"`
-	// CalendarID: geralmente "primary".
-	CalendarID string `yaml:"calendar_id"`
-	// DriveFolder: pasta lógica de backup no Drive.
-	DriveFolder string `yaml:"drive_folder"`
-}
-
-// CryptoConfig carrega a chave de cifragem (backup + tokens).
-// No MVP vem do config, atrás da interface KeyProvider (docs/architecture.md §4.4).
-type CryptoConfig struct {
-	// Key é a chave base64 (32 bytes → AES-256-GCM).
-	Key string `yaml:"key"`
-}
-
-// LogConfig parametriza o logger.
+// LogConfig espelha o bloco `log`.
 type LogConfig struct {
-	Level string `yaml:"level"` // debug|info|warn|error
+	Level string
 }
 
-// RemindersConfig: intervalos (em minutos) antes do evento. Default 1440 + 30.
-type RemindersConfig struct {
-	MinutesBefore []int `yaml:"minutes_before"`
+// CryptoConfig espelha o bloco `crypto` (cifra por campo).
+type CryptoConfig struct {
+	KeyID string            // crypto.key_id — id da chave corrente.
+	Keys  map[string]string // crypto.keys — id -> base64(32 bytes).
 }
 
-// RateLimitConfig: limites das rotas públicas do portal.
-type RateLimitConfig struct {
-	RequestsPerMinute int `yaml:"requests_per_minute"`
-	Burst             int `yaml:"burst"`
+// PangolinConfig espelha o bloco `pangolin`.
+type PangolinConfig struct {
+	IdentityHeader string
 }
 
-// Load lê e valida o arquivo de configuração no caminho informado.
-func Load(path string) (*Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("lendo config %q: %w", path, err)
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return nil, fmt.Errorf("parseando config %q: %w", path, err)
-	}
-
-	cfg.applyDefaults()
-
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+// GoogleConfig espelha o bloco `google`.
+type GoogleConfig struct {
+	ClientID     string
+	ClientSecret string
+	CalendarID   string
+	DriveFolder  string
 }
 
-// applyDefaults preenche valores default para campos não informados.
-func (c *Config) applyDefaults() {
-	if c.Admin.Host == "" {
-		c.Admin.Host = "0.0.0.0"
-	}
-	if c.Admin.Port == 0 {
-		c.Admin.Port = 8080
-	}
-	if c.Portal.Host == "" {
-		c.Portal.Host = "0.0.0.0"
-	}
-	if c.Portal.Port == 0 {
-		c.Portal.Port = 8081
-	}
-	if c.AdminAuth.EmailHeader == "" {
-		c.AdminAuth.EmailHeader = "X-Pangolin-Email"
-	}
-	if c.AdminAuth.SecretHeader == "" {
-		c.AdminAuth.SecretHeader = "X-Pangolin-Secret"
-	}
-	if c.Log.Level == "" {
-		c.Log.Level = "info"
-	}
-	if c.Google.CalendarID == "" {
-		c.Google.CalendarID = "primary"
-	}
-	if len(c.Google.Scopes) == 0 {
-		c.Google.Scopes = []string{
-			"https://www.googleapis.com/auth/calendar",
-			"https://www.googleapis.com/auth/gmail.send",
-			"https://www.googleapis.com/auth/drive.file",
+// GeminiConfig espelha o bloco `llm.gemini`.
+type GeminiConfig struct {
+	APIKey string
+}
+
+// Enabled reporta o opt-in da IA pela PRESENÇA da api_key (R10.3; decisão
+// Rafael #1): com chave não-vazia a IA liga; sem chave desliga (default off).
+func (g GeminiConfig) Enabled() bool { return strings.TrimSpace(g.APIKey) != "" }
+
+// OriginEvent descreve de onde cada chave de config foi lida, para o chamador
+// logar. NUNCA carrega o VALOR de segredos — só a chave lógica e a origem.
+type OriginEvent struct {
+	Key    string // chave lógica, ex.: "crypto.key_id", "llm.gemini.api_key"
+	Source string // SourceFile | SourceEnv | SourceDefault
+}
+
+// Origens possíveis de uma config.
+const (
+	SourceFile    = "arquivo"
+	SourceEnv     = "env"
+	SourceDefault = "default"
+)
+
+// Variáveis de ambiente que sobrescrevem o arquivo (precedência env > arquivo).
+const (
+	EnvConfig         = "PSICOMAN_CONFIG"
+	EnvCipherKeyID    = "PSICOMAN_CIPHER_KEY_ID"
+	EnvCipherKeys     = "PSICOMAN_CIPHER_KEYS"
+	EnvPangolinHeader = "PSICOMAN_PANGOLIN_IDENTITY_HEADER"
+	EnvGeminiAPIKey   = "PSICOMAN_GEMINI_API_KEY"
+)
+
+// Options parametriza a descoberta do arquivo de config.
+type Options struct {
+	// Path é o caminho explícito do arquivo (ex.: do flag --config). Se vazio,
+	// cai para PSICOMAN_CONFIG e, depois, para a busca padrão no cwd.
+	Path string
+}
+
+// Candidatos padrão de arquivo no cwd, em ordem de preferência.
+var defaultCandidates = []string{"config.dev.yaml", "config.yaml"}
+
+// yamlDoc é o struct intermediário SÓ para decode do YAML aninhado. Isola as
+// tags de serialização (incl. o agrupador `llm`) do struct público Config.
+type yamlDoc struct {
+	DataDir string `yaml:"data_dir"`
+	Log     struct {
+		Level string `yaml:"level"`
+	} `yaml:"log"`
+	Crypto struct {
+		KeyID string            `yaml:"key_id"`
+		Keys  map[string]string `yaml:"keys"`
+	} `yaml:"crypto"`
+	Pangolin struct {
+		IdentityHeader string `yaml:"identity_header"`
+	} `yaml:"pangolin"`
+	Google struct {
+		ClientID     string `yaml:"client_id"`
+		ClientSecret string `yaml:"client_secret"`
+		CalendarID   string `yaml:"calendar_id"`
+		DriveFolder  string `yaml:"drive_folder"`
+	} `yaml:"google"`
+	LLM struct {
+		Gemini struct {
+			APIKey string `yaml:"api_key"`
+		} `yaml:"gemini"`
+	} `yaml:"llm"`
+}
+
+// Load lê a config do arquivo descoberto e aplica a precedência env > arquivo.
+//
+// Ordem de descoberta do arquivo:
+//  1. opts.Path (flag --config), se informado;
+//  2. env PSICOMAN_CONFIG, se setada;
+//  3. ./config.dev.yaml no cwd;
+//  4. ./config.yaml no cwd.
+//
+// A AUSÊNCIA de arquivo NÃO é fatal: cai para defaults + env (a cifra, porém,
+// continua fail-closed no boot — responsabilidade do wiring, não deste pacote).
+//
+// Devolve o Config resolvido e os OriginEvent (origem de cada chave) para o
+// chamador logar. Não loga nada nem faz I/O de log aqui (sem acoplar a logger).
+func Load(opts Options) (Config, []OriginEvent, error) {
+	path := resolvePath(opts)
+
+	var doc yamlDoc
+	fileLoaded := false
+	if path != "" {
+		data, err := os.ReadFile(path)
+		switch {
+		case err == nil:
+			if err := yaml.Unmarshal(data, &doc); err != nil {
+				return Config{}, nil, fmt.Errorf("config: decode de %s: %w", path, err)
+			}
+			fileLoaded = true
+		case os.IsNotExist(err):
+			// Ausência não é fatal: segue com defaults + env.
+		default:
+			return Config{}, nil, fmt.Errorf("config: ler %s: %w", path, err)
 		}
 	}
-	if len(c.Reminders.MinutesBefore) == 0 {
-		c.Reminders.MinutesBefore = []int{1440, 30} // 1 dia + 30 min
+
+	var origins []OriginEvent
+	// resolve escolhe entre env e o valor do arquivo, registrando a origem.
+	resolve := func(key, envName, fileVal string) string {
+		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+			origins = append(origins, OriginEvent{Key: key, Source: SourceEnv})
+			return v
+		}
+		if strings.TrimSpace(fileVal) != "" && fileLoaded {
+			origins = append(origins, OriginEvent{Key: key, Source: SourceFile})
+			return fileVal
+		}
+		origins = append(origins, OriginEvent{Key: key, Source: SourceDefault})
+		return fileVal
 	}
-	if c.RateLimit.RequestsPerMinute == 0 {
-		c.RateLimit.RequestsPerMinute = 30
+
+	cfg := Config{
+		DataDir: resolve("data_dir", "", doc.DataDir), // informativo: --dir do PB vence.
+		Log:     LogConfig{Level: resolve("log.level", "", doc.Log.Level)},
+		Crypto: CryptoConfig{
+			KeyID: resolve("crypto.key_id", EnvCipherKeyID, doc.Crypto.KeyID),
+			Keys:  resolveKeys(&origins, doc.Crypto.Keys, fileLoaded),
+		},
+		Pangolin: PangolinConfig{
+			IdentityHeader: resolve("pangolin.identity_header", EnvPangolinHeader, doc.Pangolin.IdentityHeader),
+		},
+		Google: GoogleConfig{
+			// google.* sem env por ora (decisão Fase 6): origem é sempre arquivo/default.
+			ClientID:     resolve("google.client_id", "", doc.Google.ClientID),
+			ClientSecret: resolve("google.client_secret", "", doc.Google.ClientSecret),
+			CalendarID:   resolve("google.calendar_id", "", doc.Google.CalendarID),
+			DriveFolder:  resolve("google.drive_folder", "", doc.Google.DriveFolder),
+		},
+		Gemini: GeminiConfig{
+			APIKey: resolve("llm.gemini.api_key", EnvGeminiAPIKey, doc.LLM.Gemini.APIKey),
+		},
 	}
-	if c.RateLimit.Burst == 0 {
-		c.RateLimit.Burst = 10
-	}
+	return cfg, origins, nil
 }
 
-// Validate garante que campos obrigatórios estão presentes e coerentes.
-func (c *Config) Validate() error {
-	var errs []error
-
-	if c.Paths.SQLite == "" {
-		errs = append(errs, errors.New("paths.sqlite é obrigatório"))
+// resolvePath aplica a ordem de descoberta do arquivo e devolve o caminho a
+// carregar ("" se nenhum candidato existe no cwd).
+func resolvePath(opts Options) string {
+	if p := strings.TrimSpace(opts.Path); p != "" {
+		return p
 	}
-	if c.Paths.GEDRoot == "" {
-		errs = append(errs, errors.New("paths.ged_root é obrigatório"))
+	if p := strings.TrimSpace(os.Getenv(EnvConfig)); p != "" {
+		return p
 	}
-	// Em modo dev a autenticação é desligada, então as credenciais do admin
-	// não são obrigatórias (facilita rodar localmente).
-	if !c.Dev {
-		if c.AdminAuth.Email == "" {
-			errs = append(errs, errors.New("admin_auth.email é obrigatório"))
-		}
-		if c.AdminAuth.Secret == "" {
-			errs = append(errs, errors.New("admin_auth.secret é obrigatório"))
+	for _, c := range defaultCandidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c
 		}
 	}
-	for _, m := range c.Reminders.MinutesBefore {
-		if m < 0 {
-			errs = append(errs, errors.New("reminders.minutes_before não pode ter valor negativo"))
-			break
-		}
-	}
-
-	return errors.Join(errs...)
+	return ""
 }
 
-// ReminderDurations converte os minutos configurados em []time.Duration.
-func (c *Config) ReminderDurations() []time.Duration {
-	out := make([]time.Duration, 0, len(c.Reminders.MinutesBefore))
-	for _, m := range c.Reminders.MinutesBefore {
-		out = append(out, time.Duration(m)*time.Minute)
+// resolveKeys aplica a precedência env > arquivo às chaves de cifra. O env
+// PSICOMAN_CIPHER_KEYS usa o formato "id:base64,id2:base64" (mesmo parse
+// histórico do loadCipherConfig do wiring). Registra só a origem, nunca o valor.
+func resolveKeys(origins *[]OriginEvent, fileKeys map[string]string, fileLoaded bool) map[string]string {
+	const key = "crypto.keys"
+	if raw := strings.TrimSpace(os.Getenv(EnvCipherKeys)); raw != "" {
+		*origins = append(*origins, OriginEvent{Key: key, Source: SourceEnv})
+		return parseCipherKeys(raw)
 	}
-	return out
+	if len(fileKeys) > 0 && fileLoaded {
+		*origins = append(*origins, OriginEvent{Key: key, Source: SourceFile})
+		return fileKeys
+	}
+	*origins = append(*origins, OriginEvent{Key: key, Source: SourceDefault})
+	return fileKeys
+}
+
+// parseCipherKeys converte a lista "id:base64,id2:base64" em map[id]base64.
+// Entradas vazias são ignoradas; a validação do base64/tamanho fica a cargo do
+// KeyProvider no boot (fail-closed), fora deste pacote de borda.
+func parseCipherKeys(raw string) map[string]string {
+	keys := map[string]string{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, b64, ok := strings.Cut(part, ":")
+		id = strings.TrimSpace(id)
+		b64 = strings.TrimSpace(b64)
+		if !ok || id == "" || b64 == "" {
+			continue
+		}
+		keys[id] = b64
+	}
+	return keys
 }

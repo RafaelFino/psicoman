@@ -1,60 +1,53 @@
-# Psicoman — configuração de exemplo de uma instância.
-# Copie para config.yaml e ajuste. NUNCA versione o config.yaml real (segredos).
+# Psicoman — configuração de exemplo (arquitetura pocketbase-core).
+#
+# Copie para config.yaml (ou config.dev.yaml em dev) e ajuste. NUNCA versione o
+# arquivo com segredos reais — campos sensíveis abaixo ficam VAZIOS de propósito.
+#
+# Precedência: variáveis de ambiente SOBRESCREVEM o arquivo. A origem de cada
+# chave (arquivo|env|default) é logada no boot, sem vazar valores de segredo.
+# Descoberta do arquivo: --config / $PSICOMAN_CONFIG → ./config.dev.yaml → ./config.yaml.
+#
+# O Psicoman é UM binário único (PocketBase embarcado como framework), que roda
+# SEMPRE atrás do Pangolin. O HTTP/porta e o data dir são controlados pelos
+# flags do próprio PocketBase (ex.: `psicoman serve --http 127.0.0.1:8090 --dir ./pb_data`).
 
-# Bind de IP e porta de cada binário. Default 0.0.0.0 (todas as interfaces).
-# Em produção atrás do Pangolin, você pode restringir para 127.0.0.1.
-admin:
-  host: "0.0.0.0"
-  port: 8080
-
-portal:
-  host: "0.0.0.0"
-  port: 8081
-
-# Modo de desenvolvimento local: DESLIGA a autenticação (admin e portal).
-# NUNCA use true em produção — é apenas para validar a aplicação localmente.
-dev_mode: false
-
-paths:
-  sqlite: "./data/psicoman.db"
-  ged_root: "./data/ged"
-  log_dir: "./data/logs"
-
-# Autenticação do admin (defense in depth sobre o Pangolin).
-# O Pangolin injeta o header de email; o secret é compartilhado.
-admin_auth:
-  email: "terapeuta@example.com"
-  secret: "troque-por-um-segredo-forte"
-  email_header: "X-Pangolin-Email"
-  secret_header: "X-Pangolin-Secret"
-
-# Credenciais OAuth do Google (Calendar/Meet, Gmail send, Drive.file).
-google:
-  client_id: ""
-  client_secret: ""
-  redirect_url: "https://admin.example.com/v1/admin/google/callback"
-  calendar_id: "primary"
-  drive_folder: "psicoman-backup"
-  scopes:
-    - "https://www.googleapis.com/auth/calendar"
-    - "https://www.googleapis.com/auth/gmail.send"
-    - "https://www.googleapis.com/auth/drive.file"
-
-# Chave de cifragem (AES-256-GCM) para tokens e backup.
-# Gere com: openssl rand -base64 32
-crypto:
-  key: ""
+# Diretório de dados (informativo aqui; o flag --dir do PocketBase tem precedência).
+data_dir: "./pb_data"
 
 log:
   level: "info" # debug|info|warn|error
 
-# Lembretes do Google Calendar (minutos antes do evento, acumulativos).
-reminders:
-  minutes_before:
-    - 1440 # 1 dia
-    - 30
+# Cifra por campo do prontuário (AES-256-GCM, SealedText) e do snapshot de backup.
+# key_id: id da chave CORRENTE (usada para cifrar o que é novo).
+# keys: mapa id -> chave base64 (32 bytes). Chaves antigas permanecem aqui para
+#       decifrar dados gravados antes de uma rotação (o id vai no envelope).
+# Gere uma chave com: openssl rand -base64 32
+# Env equivalente: PSICOMAN_CIPHER_KEY_ID / PSICOMAN_CIPHER_KEYS ("id:base64,id2:base64").
+# Sem cifra configurada o boot ABORTA (fail-closed) — defina antes de subir.
+crypto:
+  key_id: "k1"
+  keys:
+    k1: "" # base64 de 32 bytes — PREENCHA (nunca versione a chave real)
 
-# Rate limiting das rotas públicas do portal (por IP e por email).
-rate_limit:
-  requests_per_minute: 30
-  burst: 10
+# Identidade injetada pelo Pangolin nos grupos /v1/app/* e /v1/admin/*.
+# Env equivalente: PSICOMAN_PANGOLIN_IDENTITY_HEADER. Default: X-Pangolin-User.
+pangolin:
+  identity_header: "X-Pangolin-User"
+
+# Credenciais OAuth do Google. Escopos MÍNIMOS por integração:
+#   calendar  → Calendar/Meet (síncrono, no caminho de request)
+#   drive.file → Drive como fallback/DR (hook de backup, fora do request)
+# Gmail está FORA de escopo (cobrança é PDF no GED; envio pela terapeuta via WhatsApp).
+# Sem client_id/client_secret/calendar_id o Calendar degrada (no-op, sem evento).
+# Sem client_id/client_secret/drive_folder o DR do Drive degrada (no-op, backup local segue).
+google:
+  client_id: ""
+  client_secret: ""
+  calendar_id: "" # ex.: "primary"
+  drive_folder: "" # pasta fria de DR no Drive
+
+# IA (Gemini) — OPT-IN pela PRESENÇA da chave: com api_key, a IA liga; sem, desliga.
+# Env equivalente: PSICOMAN_GEMINI_API_KEY. Lida da config, NUNCA logada.
+llm:
+  gemini:
+    api_key: ""
