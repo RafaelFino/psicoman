@@ -6,6 +6,19 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` Fase 2: OAuth 3-legged real + refresh token cifrado, env como fallback só-dev (R2)
+
+**Contexto.** O refresh token do Google vinha de um env (`PSICOMAN_GOOGLE_REFRESH_TOKEN`, seam); a coleção `google_token` existia sem adapter; não havia fluxo para o terapeuta autorizar a instância. Como persistir o token e onde deixar o env.
+
+**Decisão.** Fluxo OAuth 3-legged real nas rotas admin (`/v1/admin/google/authorize` → consentimento com `access_type=offline`+`prompt=consent`; `/v1/admin/google/callback` troca o code pelo refresh token). Token persistido **cifrado** em `google_token` (envelope, como o prontuário). No boot, **precedência do repo** sobre o env (⟨R2⟩): o env fica como fallback só de dev, com a origem logada sem vazar o segredo. Falha de token → estado "reautorização necessária" (`GoogleAuthService.Status` → degraded), sem panic. Disciplina de dependência mantida: o `app` não importa `integration/google`; a troca code→token vive no handler admin via `google.AuthFlow`.
+
+**Consequências.**
+- Novos: `domain.GoogleToken` (refresh token `SealedText`), porta `app.GoogleTokenRepository`, adapter `pb.NewGoogleTokenRepository` (cifra na borda), `app.GoogleAuthService` (persistência + estado de reautorização), `google.AuthFlow` + seam de endpoint para teste, handlers admin (authorize/callback/status), `service.Services.GoogleAuth` + `GoogleOAuth` (client creds), rotas e Swagger.
+- `wireCalendar`/`wireDriveSync` passam a receber o `GoogleAuthService` e resolvem o token via `resolveGoogleRefreshToken` (repo→env).
+- Testes: unit do serviço, adapter round-trip + não-vazamento, E2E em processo do callback com servidor OAuth fake (nenhum toca o Google real). O estado de reautorização alimenta o `/readyz` na Fase 3.
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` Fase 1: perfil do terapeuta como singleton 1:1 + cabeçalho na cobrança (R3)
 
 **Contexto.** O agregado `domain/therapist` (`TherapistProfile`, `TherapistPlatformLink`) e a coleção `therapist_profile` existiam desde a `pocketbase-core`, mas sem porta/serviço/rota — e o PDF de cobrança (`InvoiceService.compose`) omitia o cabeçalho do terapeuta por não ter de onde lê-lo. Como modelar o perfil: há exatamente um por instância (single-tenant).

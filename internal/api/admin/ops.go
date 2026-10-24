@@ -29,6 +29,11 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	h := &Handlers{svc: svc}
 	g.POST("/backup", h.Backup)
 	g.GET("/audit-log", h.AuditLog)
+
+	// Autorização OAuth 3-legged do Google (R2).
+	g.GET("/google/authorize", h.GoogleAuthorize)
+	g.GET("/google/callback", h.GoogleCallback)
+	g.GET("/google/status", h.GoogleStatus)
 }
 
 // Backup POST /v1/admin/backup — dispara o backup local do PocketBase. O hook

@@ -28,8 +28,8 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | Fase | Estado | Commit | Observação |
 |------|--------|--------|------------|
 | 0 — Spec (requirements/design/tasks) | ✅ concluída | `ac3519d` | decisões resolvidas em 2026-10-24 |
-| 1 — Perfil do terapeuta (R3) | ✅ concluída | _(a seguir)_ | porta+adapter+serviço+rotas+cabeçalho na cobrança; make check verde |
-| 2 — OAuth 3-legged real + `google_token` (R2) | ⬜ pendente | — | remove o seam de env; estado de reautorização |
+| 1 — Perfil do terapeuta (R3) | ✅ concluída | `2e84663` | porta+adapter+serviço+rotas+cabeçalho na cobrança; make check verde |
+| 2 — OAuth 3-legged real + `google_token` (R2) | ✅ concluída | _(a seguir)_ | fluxo admin authorize/callback + token cifrado + precedência do repo; make check verde |
 | 3 — Observabilidade `/readyz` + `/livez` (R5) | ⬜ pendente | — | `/readyz` reflete o OAuth (dep. Fase 2) |
 | 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ⬜ pendente | — | destrava o débito por sessão via API |
 | 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ⬜ pendente | — | handlers finos sobre serviços existentes |
@@ -39,7 +39,7 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 1 (perfil do terapeuta) concluída e verde — commit a seguir. **Próximo:** Fase 2 (OAuth 3-legged real + `google_token` cifrado).
+**Agora:** Fase 2 (OAuth real) concluída e verde — commit a seguir. **Próximo:** Fase 3 (observabilidade `/readyz` + `/livez`, `/readyz` reflete o estado OAuth do Google).
 
 ---
 
@@ -59,19 +59,19 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ## Fase 2 — OAuth 3-legged real + `google_token` cifrado (R2)
 
-- [ ] **2.1 Adapter `google_token` (token cifrado na borda)** (dep: —)
-  - Porta `GoogleTokenRepository` (`Save`/`Load`); adapter em `platform/pb` cifrando `token` via `Cipher` (envelope); `scopes`/`expiry` em claro.
-  - **Testes:** round-trip + não-vazamento do token.
+- [x] **2.1 Adapter `google_token` (token cifrado na borda)** (dep: —)
+  - Porta `GoogleTokenRepository` (`Save`/`Load`); adapter em `platform/pb` cifrando `token` via `Cipher` (envelope); `scopes`/`expiry` em claro. Domínio `GoogleToken` com refresh token `SealedText`.
+  - **Testes:** round-trip + não-vazamento do token. ✅
   - **Refs:** R2.1–R2.2 · D2.
-- [ ] **2.2 Fluxo de autorização (admin)** (dep: 2.1)
-  - `GET /v1/admin/google/authorize` (URL de consentimento, `access_type=offline`, `prompt=consent`, escopos `calendar`+`drive.file`) e `GET /v1/admin/google/callback` (troca code→refresh token, persiste cifrado).
-  - **Testes:** E2E do callback com servidor OAuth fake (sem Google real).
+- [x] **2.2 Fluxo de autorização (admin)** (dep: 2.1)
+  - `GET /v1/admin/google/authorize` (URL de consentimento, `access_type=offline`, `prompt=consent`, escopos `calendar`+`drive.file`), `GET /v1/admin/google/callback` (troca code→refresh token, persiste cifrado) e `GET /v1/admin/google/status`.
+  - **Testes:** E2E in-process do callback com servidor OAuth fake (sem Google real). ✅
   - **Refs:** R2.1 · D2.
-- [ ] **2.3 Boot lê token do repo + estado de reautorização** (dep: 2.1, 2.2)
-  - `wireCalendar`/`wireDriveSync` carregam o refresh token do `google_token` (env como fallback de dev conforme ⟨R2⟩); renovação automática; falha → estado "reautorização necessária" sem panic.
-  - **Testes:** boot lê do repo; degradação observável quando ausente.
+- [x] **2.3 Boot lê token do repo + estado de reautorização** (dep: 2.1, 2.2)
+  - `wireCalendar`/`wireDriveSync` carregam o refresh token do `google_token` (env fallback de dev, precedência do repo ⟨R2⟩); falha → `GoogleAuthService` degraded ("reautorização necessária") sem panic.
+  - **Testes:** `GoogleAuthService` status/precedência/reauth (unit); degradação observável. ✅
   - **Refs:** R2.3–R2.4 · D2.
-- [ ] **Fechamento Fase 2:** docs + decisions (fluxo OAuth), `make check` verde → commit.
+- [x] **Fechamento Fase 2:** docs (architecture §0.14 + decisions + Swagger), `make check` verde → commit.
 
 ---
 

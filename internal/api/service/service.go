@@ -24,5 +24,23 @@ type Services struct {
 	Invoice    *app.InvoiceService
 	AI         *app.AIService
 	Therapist  *app.TherapistService
+	GoogleAuth *app.GoogleAuthService
 	PortalAuth app.PortalAuth
+
+	// GoogleOAuth carrega as credenciais do app (client_id/secret) para o fluxo
+	// de autorização 3-legged (rotas admin). Vazio quando não configurado — o
+	// handler responde 422 nesse caso. NUNCA logar/serializar o secret.
+	GoogleOAuth GoogleOAuthConfig
+}
+
+// GoogleOAuthConfig são as credenciais do app Google para o fluxo de
+// autorização (montadas pelo wiring a partir do internal/config).
+type GoogleOAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+}
+
+// Configured indica se há client_id + client_secret para iniciar o fluxo OAuth.
+func (c GoogleOAuthConfig) Configured() bool {
+	return c.ClientID != "" && c.ClientSecret != ""
 }

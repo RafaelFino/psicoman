@@ -408,6 +408,29 @@
         "parameters": [{ "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 } }],
         "responses": { "200": { "description": "OK" } }
       }
+    },
+    "/v1/admin/google/authorize": {
+      "get": {
+        "tags": ["admin"], "summary": "Inicia a autorização OAuth 3-legged do Google (redireciona ao consentimento; access_type=offline, prompt=consent, escopos calendar+drive.file).", "security": [{ "pangolinHeader": [] }],
+        "responses": { "302": { "description": "Redireciona ao consentimento do Google" }, "422": { "description": "Credenciais do app não configuradas" } }
+      }
+    },
+    "/v1/admin/google/callback": {
+      "get": {
+        "tags": ["admin"], "summary": "Callback do OAuth: troca o code pelo refresh token e o persiste cifrado. Não expõe o token.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "code", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "error", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Autorização concluída" }, "400": { "description": "Callback sem código" }, "422": { "description": "Autorização negada ou app não configurado" }, "502": { "description": "Falha ao trocar o código com o Google" } }
+      }
+    },
+    "/v1/admin/google/status": {
+      "get": {
+        "tags": ["admin"], "summary": "Estado da autorização do Google (ok|degraded), sem expor o token.", "security": [{ "pangolinHeader": [] }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "state": { "type": "string", "enum": ["ok", "degraded"] }, "reason": { "type": "string" } } } } } } }
+      }
     }
   }
 }

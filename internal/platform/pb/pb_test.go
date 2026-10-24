@@ -487,3 +487,73 @@ func TestTherapistPlatformLinkRoundTrip(t *testing.T) {
 		t.Errorf("link não removido: %d restantes", len(links))
 	}
 }
+
+// --- google_token (refresh token cifrado na borda) ---
+
+func TestGoogleTokenCifraRoundTripENaoVazamento(t *testing.T) {
+	a := newTestApp(t)
+	cipher := testCipher(t)
+	repo := NewGoogleTokenRepository(a, cipher)
+
+	// Sem token: ErrNotFound.
+	if _, err := repo.Load(ctx()); !errors.Is(err, app.ErrNotFound) {
+		t.Fatalf("Load sem token deveria ser ErrNotFound, veio: %v", err)
+	}
+
+	const segredo = "1//refresh-token-super-secreto-abc123"
+	now := clock.Now()
+	tok := &domain.GoogleToken{
+		ID:           ulid.New(),
+		RefreshToken: domain.NewSealedText(segredo),
+		Scopes:       []string{"https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/drive.file"},
+		Expiry:       now.Add(time.Hour),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := repo.Save(ctx(), tok); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Releitura decifra o refresh token.
+	got, err := repo.Load(ctx())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.RefreshToken.Reveal() != segredo {
+		t.Errorf("refresh token não round-trip: %q", got.RefreshToken.Reveal())
+	}
+	if len(got.Scopes) != 2 || got.Scopes[0] != "https://www.googleapis.com/auth/calendar" {
+		t.Errorf("scopes (JSON) não round-trip: %+v", got.Scopes)
+	}
+
+	// NÃO-VAZAMENTO: a coluna crua guarda só o envelope, nunca o refresh token.
+	raw, err := a.FindFirstRecordByFilter("google_token", "id = {:id}", dbxParams("id", got.ID))
+	if err != nil {
+		t.Fatalf("leitura crua: %v", err)
+	}
+	env := raw.GetString("token")
+	if strings.Contains(env, segredo) {
+		t.Errorf("VAZAMENTO: a coluna token contém o refresh token em claro: %q", env)
+	}
+	if !strings.HasPrefix(env, "v1.aes-256-gcm.") {
+		t.Errorf("prefixo de envelope inesperado: %q", env)
+	}
+
+	// Save novamente (singleton): atualiza o mesmo registro, não duplica.
+	got.RefreshToken = domain.NewSealedText("1//novo-token-xyz")
+	got.UpdatedAt = clock.Now()
+	if err := repo.Save(ctx(), got); err != nil {
+		t.Fatalf("Save (update): %v", err)
+	}
+	all, err := a.FindRecordsByFilter("google_token", "", "created_at", 0, 0)
+	if err != nil {
+		t.Fatalf("contar registros: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("Save duplicou o singleton: %d registros", len(all))
+	}
+	reread, _ := repo.Load(ctx())
+	if reread.RefreshToken.Reveal() != "1//novo-token-xyz" {
+		t.Errorf("update não persistiu: %q", reread.RefreshToken.Reveal())
+	}
+}

@@ -234,6 +234,19 @@ type GEDMetaRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// GoogleTokenRepository persiste o refresh token OAuth do Google (R2), cifrado
+// na borda (envelope no campo token; scopes/expiry em claro). Singleton lógico
+// por instância: Load devolve o único token (ErrNotFound se ainda não há
+// autorização); Save cria-ou-atualiza.
+type GoogleTokenRepository interface {
+	// Load devolve o token persistido (ErrNotFound se a instância ainda não foi
+	// autorizada). O refresh token vem decifrado em memória (SealedText).
+	Load(ctx context.Context) (*domain.GoogleToken, error)
+	// Save grava o token (cria se ausente, senão atualiza), cifrando o refresh
+	// token na borda.
+	Save(ctx context.Context, t *domain.GoogleToken) error
+}
+
 // AuditRepository persiste registros de auditoria.
 type AuditRepository interface {
 	Insert(ctx context.Context, entry *domain.AuditLog) error
