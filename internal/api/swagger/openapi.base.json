@@ -285,6 +285,33 @@
         "responses": { "200": { "description": "PDF", "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } } }, "404": { "description": "Débito não encontrado" } }
       }
     },
+    "/v1/app/sessions/{id}/ai-summary": {
+      "post": {
+        "tags": ["app"], "summary": "Dispara a IA (opt-in): resumo revisável + tags sugeridas. 422 se IA desligada.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string", "description": "Conteúdo clínico a resumir (minimização: só o texto vai à IA)." } } } } } },
+        "responses": { "201": { "description": "Resumo sugerido (revisar antes de consolidar)" }, "422": { "description": "IA desligada ou entrada inválida" } }
+      }
+    },
+    "/v1/app/ai-summaries/{id}/consolidate": {
+      "post": {
+        "tags": ["app"], "summary": "Consolida o resumo e indexa as tags revisadas (por paciente/ano).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "tags": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "Consolidado e indexado" }, "404": { "description": "Resumo não encontrado" } }
+      }
+    },
+    "/v1/app/patients/{id}/tags": {
+      "get": {
+        "tags": ["app"], "summary": "Busca sessões do paciente por tag (isolado por paciente).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "tag", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "ano", "in": "query", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Sessões com a tag" } }
+      }
+    },
     "/v1/app/reports/financial": {
       "get": {
         "tags": ["app"], "summary": "Resumo financeiro do período.", "security": [{ "pangolinHeader": [] }],

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/app"
 	"github.com/RafaelFino/psicoman/internal/config"
 	"github.com/RafaelFino/psicoman/internal/drivesync"
+	"github.com/RafaelFino/psicoman/internal/integration/gemini"
 	"github.com/RafaelFino/psicoman/internal/integration/google"
 	"github.com/RafaelFino/psicoman/internal/platform/crypto"
 	"github.com/RafaelFino/psicoman/internal/platform/pb"
@@ -107,6 +109,8 @@ func buildServices(a core.App) (*service.Services, error) {
 	gedRepo := pb.NewGEDMetaRepository(a)
 	auditRepo := pb.NewAuditRepository(a)
 	prontuarioRepo := pb.NewProntuarioRepository(a, cipher)
+	aiSummaryRepo := pb.NewAISummaryRepository(a, cipher)
+	tagIndexRepo := pb.NewTagIndexRepository(a)
 
 	// Serviços.
 	audit := app.NewAuditService(auditRepo)
@@ -133,6 +137,11 @@ func buildServices(a core.App) (*service.Services, error) {
 	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256).
 	invoice := app.NewInvoiceService(debtsRepo, patientsRepo, gedRepo, pb.NewGEDBlobStore(a), audit)
 
+	// IA Gemini (Fase 8): opt-in pela presença de llm.gemini.api_key. Sem chave,
+	// aiSummarizerBuilder devolve nil e o AIService fica desligado (Enabled()
+	// false). Resumo revisável + índice invertido de tags por paciente/ano.
+	ai := app.NewAIService(aiSummarizerBuilder(a), aiSummaryRepo, tagIndexRepo, sessionsRepo, audit)
+
 	return &service.Services{
 		Patients:   patients,
 		Sessions:   sessions,
@@ -146,6 +155,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		Audit:      audit,
 		Prontuario: prontuario,
 		Invoice:    invoice,
+		AI:         ai,
 	}, nil
 }
 
@@ -179,6 +189,48 @@ func (a *driveUploaderAdapter) Upload(ctx context.Context, name string, content 
 		return "", err
 	}
 	return res.FileID, nil
+}
+
+// geminiSummarizerAdapter adapta um gemini.Summarizer à porta app.AISummarizer
+// (desacopla o app do SDK/HTTP do Gemini). Traduz os tipos de borda do app para
+// os do pacote de integração e de volta.
+type geminiSummarizerAdapter struct {
+	client gemini.Summarizer
+}
+
+var _ app.AISummarizer = (*geminiSummarizerAdapter)(nil)
+
+func (a *geminiSummarizerAdapter) Summarize(ctx context.Context, in app.AISummaryInput) (*app.AISummaryOutput, error) {
+	res, err := a.client.Summarize(ctx, gemini.SummaryInput{Text: in.Text})
+	if err != nil {
+		return nil, err
+	}
+	return &app.AISummaryOutput{Summary: res.Summary, Tags: res.Tags}, nil
+}
+
+// aiSummarizerBuilder é o seam que resolve o Summarizer da IA a partir do
+// Config. Default: liga o Gemini real pela PRESENÇA de llm.gemini.api_key
+// (opt-in, R10.3); sem chave devolve nil (IA desligada). Os testes em processo
+// o reatribuem para injetar um fake sem tocar a rede.
+var aiSummarizerBuilder = buildAISummarizer
+
+// buildAISummarizer liga o Gemini real quando há api_key (opt-in). A chave vem
+// do Config (internal/config), NUNCA hard-coded e NUNCA logada
+// (psicoman-seguranca-lgpd.md). Sem chave → nil (AIService.Enabled() == false).
+func buildAISummarizer(a core.App) app.AISummarizer {
+	cfg, _, err := configLoader()
+	if err != nil {
+		a.Logger().Warn("IA (Gemini) desativada: falha ao ler config", "erro", err.Error())
+		return nil
+	}
+	if !cfg.Gemini.Enabled() {
+		a.Logger().Info("IA (Gemini) desativada: sem llm.gemini.api_key (opt-in pela presença da chave)")
+		return nil
+	}
+	a.Logger().Info("IA (Gemini) ativada (opt-in pela presença da api_key)")
+	return &geminiSummarizerAdapter{
+		client: gemini.NewRESTSummarizer(http.DefaultClient, cfg.Gemini.APIKey),
+	}
 }
 
 // wireDriveSync registra o hook de DR no ciclo de backup (Fase 7). Ativa o

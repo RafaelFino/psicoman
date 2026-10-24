@@ -93,6 +93,31 @@ type InvoiceDTO struct {
 	SHA256    string `json:"sha256"`
 }
 
+// AISuggestionDTO é a resposta do disparo da IA: o resumo (em CLARO, só no ator
+// app via Reveal) + as tags sugeridas para revisão. Status "sugerido".
+type AISuggestionDTO struct {
+	SummaryID     string   `json:"summary_id"`
+	SessionID     string   `json:"session_id"`
+	Summary       string   `json:"summary"`
+	Status        string   `json:"status"`
+	SuggestedTags []string `json:"suggested_tags"`
+}
+
+// AISummaryDTO é a projeção de um resumo de IA consolidado (resumo em CLARO).
+type AISummaryDTO struct {
+	SummaryID string `json:"summary_id"`
+	SessionID string `json:"session_id"`
+	Summary   string `json:"summary"`
+	Status    string `json:"status"`
+}
+
+// TagSearchDTO é a resposta da busca por tag (sessões do paciente no ano).
+type TagSearchDTO struct {
+	Tag        string   `json:"tag"`
+	Ano        int      `json:"ano"`
+	SessionIDs []string `json:"session_ids"`
+}
+
 // PayResultDTO é a resposta de POST /v1/app/debts/{id}/pay.
 type PayResultDTO struct {
 	Debt    DebtDTO    `json:"debt"`

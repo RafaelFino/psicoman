@@ -130,6 +130,15 @@ A Fase 7 espelha os backups do PocketBase para o Google Drive como **fallback/DR
 - **Best-effort, degrada sem credenciais.** `wireDriveSync` registra o `Syncer` sempre; ativa o uploader real só com `client_id` + `client_secret` + `drive_folder` **e** refresh token. Faltando qualquer um, o `Syncer` roda com uploader nil: o hook é **no-op observável** (aviso logado), o backup local segue, sem 500. Mesmo com Drive configurado, falha de cifra/upload é **logada mas não propagada** — não invalida o backup local nem derruba o processo.
 - **Rota de backup real.** `POST /v1/admin/backup` deixa de ser stub: chama `app.CreateBackup(ctx, "")` (timeout dedicado de 2 min), disparando o hook de DR. E2E prova que, sem Google, responde 202 sem 500.
 
+### 0.11 IA Gemini (resumo revisável) + índice invertido de tags (Fase 8)
+
+A Fase 8 adiciona assistência por IA (Gemini): resumo clínico + tagueamento, com **disparo explícito** pelo terapeuta, resultado **revisável** antes de consolidar, **opt-in** pela presença da chave, auditoria minimizada e um índice invertido de tags por paciente/ano (R10).
+
+- **Gemini atrás de interface + fake (`internal/integration/gemini`).** `Summarizer{ Summarize(ctx, SummaryInput) (*SummaryResult, error) }`; `restSummarizer` chama o `generateContent` da API (pede `responseMimeType: application/json`, parseia `{summary, tags}`); `FakeSummarizer` nos testes — nenhum teste toca a API real. `SummaryInput` carrega **só o texto clínico** (minimização: sem id/nome de paciente). A `api_key` vem do `internal/config` (`llm.gemini.api_key`), **nunca** hard-coded nem logada.
+- **Opt-in pela presença da chave (default OFF).** `wireDriveSync`/`buildAISummarizer` liga o Gemini real só quando `cfg.Gemini.Enabled()` (api_key não-vazia); sem chave, o `AISummarizer` injetado é nil e `AIService.Enabled()` é false. `POST /v1/app/sessions/{id}/ai-summary` com a IA desligada responde **422** (nunca 500). O opt-in é a presença da chave — não há flag on/off separada.
+- **Ciclo revisável (`AIService`).** `Suggest` envia o texto, grava o resumo como **`sugerido`** (`ai_summary.resumo` é `SealedText`, cifrado na borda) e **devolve as tags sugeridas sem indexá-las** — o terapeuta revisa. `Consolidate(summaryID, reviewedTags)` marca o resumo como **`consolidado`** e só então grava as tags **revisadas** no índice. A auditoria `ai.process` registra apenas o fato (ator, `session_id`, contagem de tags) — **nunca** o texto enviado/retornado (minimização, psicoman-seguranca-lgpd).
+- **Índice invertido de tags (`tag_index`).** Entrada `(patient_id, ano, tag) → session_ids`, tags em **claro** (indexáveis) enquanto o corpo clínico permanece `SealedText` cifrado. `TagIndexRepository.Upsert` faz merge idempotente; `FindByTag`/busca são **sempre isolados por paciente** (nenhuma consulta cruza pacientes, R10.2). `GET /v1/app/patients/{id}/tags?tag=&ano=` devolve as sessões do paciente que carregam a tag no ano.
+
 ---
 
 ## 1. Objetivo e Escopo

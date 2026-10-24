@@ -51,6 +51,11 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	g.POST("/debts/{id}/invoice", h.GenerateInvoice)
 	g.GET("/debts/{id}/invoice.pdf", h.DownloadInvoice)
 
+	// IA (Gemini) — resumo clínico revisável + índice de tags (opt-in).
+	g.POST("/sessions/{id}/ai-summary", h.SuggestAISummary)
+	g.POST("/ai-summaries/{id}/consolidate", h.ConsolidateAISummary)
+	g.GET("/patients/{id}/tags", h.SearchByTag)
+
 	// Relatórios.
 	g.GET("/reports/financial", h.ReportFinancial)
 	g.GET("/reports/roi", h.ReportROI)

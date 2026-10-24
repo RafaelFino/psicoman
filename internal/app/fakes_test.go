@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -633,3 +634,101 @@ func (f *fakeAppointmentRepo) ListByPatient(context.Context, string) ([]*schedul
 	return nil, nil
 }
 func (f *fakeAppointmentRepo) UpdateStatus(context.Context, string, string) error { return nil }
+
+// --- IA (Gemini) ---
+
+// fakeSummarizer registra os inputs (asserção de minimização) e devolve um
+// resultado determinístico.
+type fakeSummarizer struct {
+	result AISummaryOutput
+	err    error
+	calls  []AISummaryInput
+}
+
+func (f *fakeSummarizer) Summarize(_ context.Context, in AISummaryInput) (*AISummaryOutput, error) {
+	f.calls = append(f.calls, in)
+	if f.err != nil {
+		return nil, f.err
+	}
+	r := f.result
+	return &r, nil
+}
+
+// fakeAISummaryRepo guarda os resumos em memória.
+type fakeAISummaryRepo struct {
+	byID map[string]*clinical.AISummary
+}
+
+func newAISummaryRepo() *fakeAISummaryRepo {
+	return &fakeAISummaryRepo{byID: map[string]*clinical.AISummary{}}
+}
+
+func (f *fakeAISummaryRepo) Create(_ context.Context, s *clinical.AISummary) error {
+	cp := *s
+	f.byID[s.ID] = &cp
+	return nil
+}
+func (f *fakeAISummaryRepo) Get(_ context.Context, id string) (*clinical.AISummary, error) {
+	s, ok := f.byID[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return s, nil
+}
+func (f *fakeAISummaryRepo) GetBySession(_ context.Context, sessionID string) (*clinical.AISummary, error) {
+	for _, s := range f.byID {
+		if s.SessionID == sessionID {
+			return s, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+func (f *fakeAISummaryRepo) UpdateStatus(_ context.Context, id, status string) error {
+	if s, ok := f.byID[id]; ok {
+		s.Status = status
+		return nil
+	}
+	return ErrNotFound
+}
+
+// fakeTagIndexRepo é o índice invertido em memória, chaveado por
+// (patient_id, ano, tag) -> conjunto de session_ids.
+type fakeTagIndexRepo struct {
+	entries map[string][]string // "pid|ano|tag" -> session_ids
+}
+
+func newTagIndexRepo() *fakeTagIndexRepo {
+	return &fakeTagIndexRepo{entries: map[string][]string{}}
+}
+
+func tagKey(pid string, ano int, tag string) string {
+	return pid + "|" + strconv.Itoa(ano) + "|" + tag
+}
+
+func (f *fakeTagIndexRepo) Upsert(_ context.Context, patientID string, ano int, tag, sessionID string) error {
+	k := tagKey(patientID, ano, tag)
+	for _, id := range f.entries[k] {
+		if id == sessionID {
+			return nil
+		}
+	}
+	f.entries[k] = append(f.entries[k], sessionID)
+	return nil
+}
+func (f *fakeTagIndexRepo) FindByTag(_ context.Context, patientID string, ano int, tag string) ([]string, error) {
+	ids, ok := f.entries[tagKey(patientID, ano, tag)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return ids, nil
+}
+func (f *fakeTagIndexRepo) ListTags(_ context.Context, patientID string, ano int) ([]*clinical.TagIndex, error) {
+	var out []*clinical.TagIndex
+	prefix := patientID + "|" + strconv.Itoa(ano) + "|"
+	for k, ids := range f.entries {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			out = append(out, &clinical.TagIndex{PatientID: patientID, Ano: ano, Tag: k[len(prefix):], SessionIDs: ids})
+		}
+	}
+	return out, nil
+}

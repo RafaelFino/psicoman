@@ -30,12 +30,14 @@ Convenções:
 | 4 — Contrato `/v1` (envelope, DTOs, Swagger) | ✅ concluída | `a8248d0` | DTOs sem vazar clínico; D13 superuser |
 | 5 — Auth `Pangolin` + gate de aprovação | ✅ concluída | `c30295a` | 401/403 permitido+negado + hook defesa-em-profundidade |
 | 6 — Google Calendar síncrono + PDF cobrança | ✅ concluída | `05f3def` | 6.0 config + 6.1 Calendar + 6.2 PDF no GED; `make check` verde |
-| 7 — Drive fallback/DR (hook de backup) | ✅ concluída | _(pendente)_ | `drivesync` + hook `OnBackupCreate`, snapshot cifrado (`BlobSealer`), `drive.file`; backup sem Google = 202 |
-| 8 — IA Gemini + índice de tags | 🔄 em progresso | — | próxima |
-| 9 — Portal do paciente | ⬜ pendente | — | — |
+| 7 — Drive fallback/DR (hook de backup) | ✅ concluída | `f2b31a4` | `drivesync` + hook `OnBackupCreate`, snapshot cifrado (`BlobSealer`), `drive.file`; backup sem Google = 202 |
+| 8 — IA Gemini + índice de tags | ✅ concluída | _(pendente)_ | Gemini (interface+fake), resumo revisável, opt-in pela chave, auditoria minimizada, `tag_index` isolado por paciente |
+| 9 — Portal do paciente | 🔄 em progresso | — | próxima |
 | 10 — Fechamento (docs + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 7 **concluída e verde** (commit a seguir). Entregue: cifra de blob dedicada `crypto.BlobSealer` (AES-256-GCM, mesmas chaves do `KeyProvider`, envelope binário com rotação e AAD); `google.DriveClient` (interface + fake + REST multipart, escopo mínimo `drive.file`); `internal/drivesync.Syncer` com hook `OnBackupCreate` (deixa o backup local rodar, lê o snapshot, cifra e sobe à pasta fria `drive_folder`); wiring opcional (`wireDriveSync` degrada para no-op sem credenciais); `POST /v1/admin/backup` agora dispara `CreateBackup` real. Testes: unit (cifra blob round-trip/rotação/não-vazamento, Drive upload, Syncer cifra+envia) + E2E (backup sem Google = 202, sem 500). Docs no mesmo ciclo: `architecture.md §0.10`, `decisions.md` (ADR Fase 7, Opção A), Swagger (summary do backup). `make check` verde. **Próximo:** Fase 8 — IA Gemini (`internal/integration/gemini`, interface + fake): resumo + tags, disparo explícito, revisável, opt-in pela presença de `llm.gemini.api_key`, auditoria `ai.process` sem clínico; índice invertido de tags por paciente/ano (tags em claro, corpo `SealedText`, isolado por paciente). Nenhuma ação pendente do Rafael.
+**Agora:** Fase 8 **concluída e verde** (commit a seguir). Entregue: `internal/integration/gemini` (Summarizer interface + fake + REST `generateContent`, minimização do envio, api_key da config nunca logada); `app.AIService` (opt-in pela presença da chave → off recusa 422; `Suggest` grava resumo `sugerido` cifrado e devolve tags para revisão sem indexar; `Consolidate` marca `consolidado` e indexa só as tags revisadas; auditoria `ai.process` sem conteúdo clínico); `tag_index` (tags em claro, corpo `SealedText`, isolado por paciente, merge idempotente); adapters pb (cifra na borda do `ai_summary`); rotas no ator app. Testes: unit (IA off recusa, minimização, auditoria sem clínico, consolidação/indexação, isolamento por paciente; cifra na borda não-vazamento; merge/isolamento do índice; REST parse/minimização) + E2E (IA off → 422). Docs: `architecture.md §0.11`, `decisions.md` (ADR Fase 8), Swagger (+3 rotas). `make check` verde. **Próximo:** Fase 9 — Portal do paciente: coleção auth do paciente (`core.NewAuthCollection`, adiada da Fase 5), substituir o SEAM `X-Portal-Email` pela identidade real da sessão, recursos mínimos respeitando o gate; E2E cadastro/login + gate permitido (2xx) e negado (403) com auth real. **PRÓXIMO PONTO DE ATENÇÃO (Fase 10):** validar com o Rafael o ajuste da redação de D13/steering sobre `SealedText` sem `MarshalJSON` antes de editar o steering.
+
+**(histórico) Fase 7 concluída e verde.** Entregue: cifra de blob dedicada `crypto.BlobSealer` (AES-256-GCM, mesmas chaves do `KeyProvider`, envelope binário com rotação e AAD); `google.DriveClient` (interface + fake + REST multipart, escopo mínimo `drive.file`); `internal/drivesync.Syncer` com hook `OnBackupCreate` (deixa o backup local rodar, lê o snapshot, cifra e sobe à pasta fria `drive_folder`); wiring opcional (`wireDriveSync` degrada para no-op sem credenciais); `POST /v1/admin/backup` agora dispara `CreateBackup` real. Testes: unit (cifra blob round-trip/rotação/não-vazamento, Drive upload, Syncer cifra+envia) + E2E (backup sem Google = 202, sem 500). Docs no mesmo ciclo: `architecture.md §0.10`, `decisions.md` (ADR Fase 7, Opção A), Swagger (summary do backup). `make check` verde. **Próximo:** Fase 8 — IA Gemini (`internal/integration/gemini`, interface + fake): resumo + tags, disparo explícito, revisável, opt-in pela presença de `llm.gemini.api_key`, auditoria `ai.process` sem clínico; índice invertido de tags por paciente/ano (tags em claro, corpo `SealedText`, isolado por paciente). Nenhuma ação pendente do Rafael.
 
 ---
 
@@ -213,19 +215,19 @@ Convenções:
 
 ## Fase 8 — IA Gemini + índice de tags (R10)
 
-- [ ] **8.1. Gemini: resumo + tagueamento (opt-in, revisável)** (dep: 4.2, 2.1)
+- [x] **8.1. Gemini: resumo + tagueamento (opt-in, revisável)** (dep: 4.2, 2.1)
   - `internal/integration/gemini` (interface + fake): resumo clínico + tags; disparo explícito; resultado revisável antes de consolidar; opt-in por instância (default off); auditoria `ai.process` sem conteúdo clínico; minimização.
   - **Aceite:** com IA off, nada roda; com IA on, resumo/tags gerados e revisáveis; auditoria sem clínico.
   - **Testes:** unit com fake (minimização, auditoria sem clínico); E2E opt-in on/off.
   - **Refs:** R10.1, R10.3, R10.4 · D10.
 
-- [ ] **8.2. Índice invertido de tags por paciente/ano** (dep: 8.1, 3.2)
+- [x] **8.2. Índice invertido de tags por paciente/ano** (dep: 8.1, 3.2)
   - Coleção/estrutura `tag -> lista de IDs de sessão`, por paciente e ano, isolada por paciente; tags em **claro** (indexáveis) enquanto o corpo é `SealedText`.
   - **Aceite:** consultar por tag devolve as sessões do paciente/ano; sem busca cross-paciente; corpo clínico permanece cifrado.
   - **Testes:** unit do índice (inserção/consulta por tag, isolamento por paciente); E2E de busca por tag.
   - **Refs:** R10.2, R6.5 · D10.
 
-- [ ] **Fechamento Fase 8:** `docs/architecture.md`/`docs/requirements.md` (IA + índice de tags), `docs/decisions.md` (tags em claro, corpo cifrado), Swagger; `make check` verde → commit "pocketbase-core Fase 8: Gemini e índice invertido de tags".
+- [x] **Fechamento Fase 8:** `docs/architecture.md`/`docs/requirements.md` (IA + índice de tags), `docs/decisions.md` (tags em claro, corpo cifrado), Swagger; `make check` verde → commit "pocketbase-core Fase 8: Gemini e índice invertido de tags".
 
 ---
 

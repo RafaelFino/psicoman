@@ -22,4 +22,5 @@ type Services struct {
 	Audit      *app.AuditService
 	Prontuario *app.ProntuarioService
 	Invoice    *app.InvoiceService
+	AI         *app.AIService
 }

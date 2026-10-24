@@ -6,6 +6,23 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — Onda "pocketbase-core" (Fase 8): IA Gemini revisável + índice invertido de tags (tags em claro, corpo cifrado)
+
+**Contexto.** A Fase 8 integra a IA (Gemini) para resumo clínico + tagueamento e um índice de busca por tags (R10, D10). Decisões de produto/arquitetura implementadas conforme o design fechado: opt-in, revisão humana, minimização, isolamento por paciente e a combinação tags-em-claro / corpo-cifrado.
+
+**Decisões (do design D10 fechado).**
+1. **Opt-in pela presença da chave.** A IA liga apenas quando `llm.gemini.api_key` existe no `internal/config` (default OFF). Sem chave, `AIService.Enabled()` é false e o disparo responde 422 — não há flag on/off separada. A chave é lida da config, **nunca** hard-coded nem logada (psicoman-seguranca-lgpd).
+2. **Disparo explícito + resultado revisável.** O terapeuta dispara (`Suggest`); o resumo entra como `sugerido` (cifrado, `SealedText`) e as tags voltam **sem** serem indexadas. Só `Consolidate` (com as tags **revisadas** pelo terapeuta) marca `consolidado` e grava as tags no índice. A revisão humana é um passo obrigatório antes de qualquer indexação.
+3. **Minimização + auditoria sem clínico.** À IA vai só o texto clínico (sem id/nome de paciente). A auditoria `ai.process` registra o fato (ator, `session_id`, contagem de tags), **nunca** o texto enviado/retornado.
+4. **Tags em claro, corpo cifrado, isolado por paciente.** O `tag_index` guarda `(patient_id, ano, tag) → session_ids` com a tag em **claro** (indexável para busca) enquanto o corpo clínico segue `SealedText`. Toda consulta é isolada por paciente — **não** há busca cross-paciente (R10.2). É o que torna a busca clínica viável sem expor conteúdo.
+
+**Consequências.**
+- Novos: `internal/integration/gemini` (`gemini.go` interface + REST, `fake.go`, testes), `app.AIService` (`ai_service.go` + teste), adapters `pb.NewAISummaryRepository` (cifra na borda) e `pb.NewTagIndexRepository` (+testes), handlers `internal/api/app/ai.go`, porta `AISummarizer`/`AISummaryRepository`/`TagIndexRepository` em `app/ports.go`, ação `AuditActionAIProcess`.
+- Rotas no ator app: `POST /v1/app/sessions/{id}/ai-summary` (dispara, devolve resumo+tags sugeridas), `POST /v1/app/ai-summaries/{id}/consolidate` (consolida + indexa tags revisadas), `GET /v1/app/patients/{id}/tags?tag=&ano=` (busca isolada por paciente). Swagger atualizado.
+- O resumo de IA é clínico e nunca aparece em claro fora do ator app (via `Reveal()`), coerente com D6.3.
+
+---
+
 ## 2026-10-24 — Onda "pocketbase-core" (Fase 7): Drive como fallback/DR + cifra de blob dedicada (Opção A)
 
 **Contexto.** A Fase 7 espelha os backups do PocketBase para o Google Drive como fallback/DR (D9), disparado por um hook no ciclo de backup. O snapshot precisa subir **cifrado** (AES-256-GCM, psicoman-google-api / psicoman-seguranca-lgpd). A cifra de campo existente (`domain.Cipher.Seal(ctx, string) string`) produz um envelope **texto** base64 pensado para uma nota clínica curta — aplicá-la num zip de backup binário desperdiça memória e mistura semânticas. Como cifrar o snapshot: (A) helper binário dedicado em `platform/crypto` reusando o mesmo `KeyProvider`; (B) reusar a cifra de campo nos bytes do zip. O Rafael escolheu a **Opção A**.

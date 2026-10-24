@@ -178,6 +178,28 @@ type ProntuarioRepository interface {
 	DeleteNote(ctx context.Context, id string) error
 }
 
+// AISummaryRepository persiste os resumos de IA (resumo clínico cifrado na
+// borda). O ciclo de revisão (sugerido → revisado → consolidado) é gravado no
+// campo status.
+type AISummaryRepository interface {
+	Create(ctx context.Context, s *clinical.AISummary) error
+	Get(ctx context.Context, id string) (*clinical.AISummary, error)
+	GetBySession(ctx context.Context, sessionID string) (*clinical.AISummary, error)
+	UpdateStatus(ctx context.Context, id, status string) error
+}
+
+// TagIndexRepository persiste o índice invertido de tags por paciente/ano (tags
+// em CLARO). Isolado por paciente: nenhuma consulta cruza pacientes (R10.2/R6).
+type TagIndexRepository interface {
+	// Upsert adiciona o sessionID à entrada (patient_id, ano, tag), criando-a
+	// se não existir (merge idempotente — não duplica sessão numa tag).
+	Upsert(ctx context.Context, patientID string, ano int, tag, sessionID string) error
+	// FindByTag devolve as sessões que carregam a tag no ano, para o paciente.
+	FindByTag(ctx context.Context, patientID string, ano int, tag string) ([]string, error)
+	// ListTags devolve as tags do paciente no ano (para navegação).
+	ListTags(ctx context.Context, patientID string, ano int) ([]*clinical.TagIndex, error)
+}
+
 // --- transversais ---
 
 // GEDMetaRepository persiste os metadados dos arquivos do GED.

@@ -36,4 +36,8 @@ const (
 	AuditActionSessionConfirm    = "session.confirm"
 	AuditActionSessionCancel     = "session.cancel"
 	AuditActionSessionReschedule = "session.reschedule"
+	// Processamento de IA (R10). Auditável SEM conteúdo clínico: só o fato do
+	// processamento (ator, sessão, quando), nunca o texto enviado ou retornado
+	// (minimização — psicoman-seguranca-lgpd.md).
+	AuditActionAIProcess = "ai.process"
 )
