@@ -6,6 +6,19 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` Fase 5: telas iniciais (feed, história, métricas, calendário) (R1 sub-fase 2)
+
+**Contexto.** `DayFeedService`/`HistoryService`/`SessionMetricsService` estavam no container, testados em unit, mas sem rota `/v1`. Features de produto das ondas `patient-timeline`/`prontuario-ux` inacessíveis pela API nova.
+
+**Decisão.** Expor handlers finos para feed do dia, história do paciente, métricas de sessão e calendário. Os view-models do domínio (`clinical.DayFeed`/`HistoryItem`/`PatientMetrics`) já são leak-safe (tags JSON, sem `SealedText`) e são serializados direto no envelope — não se duplica DTO para eles; o calendário usa o `SessionDTO`. O calendário sem `patient_id` exige `from`+`to` (guarda contra varredura).
+
+**Consequências.**
+- Novos: handler `api/app/screens.go` (DayFeed, PatientHistory, PatientSessionMetrics, ListSessions) + helper `parseOptionalRange`; rotas `GET /v1/app/day-feed`, `/patients/{id}/history`, `/patients/{id}/session-metrics`, `GET /v1/app/sessions`; Swagger.
+- A história e o feed mantêm a auditoria de leitura (`AuditActionRead`) e a regra de não revelar clínico (os itens são rótulos, não `Reveal()`).
+- Testes: E2E de contrato + não-vazamento (nota com conteúdo secreto não aparece em feed/história/calendário; `taxa_comparecimento` nas métricas; 422 do calendário sem filtro).
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` Fase 4: núcleo utilizável (locais, origens, planos) + comprovante de pagamento (R1 sub-fase 1)
 
 **Contexto.** `LocationRepository`, `OriginRepository`, `PlanRepository` existiam sem superfície HTTP; o débito por sessão dependia de um plano vigente não cadastrável pela API (só via seed de superuser). Recorte ⟨R1⟩ já decidido: sub-fase 1 (locais+planos) entra nesta onda.

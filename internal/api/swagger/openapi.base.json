@@ -270,7 +270,41 @@
     "/v1/app/patients/{id}/debts": {
       "get": { "tags": ["app"], "summary": "Débitos do paciente.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
     },
+    "/v1/app/day-feed": {
+      "get": {
+        "tags": ["app"], "summary": "Feed do dia do terapeuta (R1.1). Sem conteúdo clínico; leitura auditada.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "window", "in": "query", "required": false, "schema": { "type": "string", "enum": ["hoje", "7d", "recentes"] } }],
+        "responses": { "200": { "description": "OK (resumo + eventos)" } }
+      }
+    },
+    "/v1/app/patients/{id}/history": {
+      "get": {
+        "tags": ["app"], "summary": "História cronológica do paciente (R1.2). Itens com rótulos legíveis, NUNCA conteúdo clínico. Leitura auditada.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Paciente não encontrado" } }
+      }
+    },
+    "/v1/app/patients/{id}/session-metrics": {
+      "get": {
+        "tags": ["app"], "summary": "Métricas de sessão do paciente (R1.3): comparecimento, cancelamento, quebra por categoria. Recorte opcional ?de=&ate= (AAAA-MM-DD).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "de", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "ate", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
     "/v1/app/sessions": {
+      "get": {
+        "tags": ["app"], "summary": "Lista sessões para o calendário: ?patient_id= (do paciente) ou ?from=&to= (intervalo, AAAA-MM-DD). Sem patient_id exige from+to.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "patient_id", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "from", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "422": { "description": "Sem patient_id e sem intervalo" } }
+      },
       "post": {
         "tags": ["app"], "summary": "Cria sessão.", "security": [{ "pangolinHeader": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["patient_id", "modality", "starts_at", "ends_at"], "properties": { "patient_id": { "type": "string" }, "location_id": { "type": "string" }, "modality": { "type": "string" }, "starts_at": { "type": "string", "format": "date-time" }, "ends_at": { "type": "string", "format": "date-time" }, "status": { "type": "string" } } } } } },

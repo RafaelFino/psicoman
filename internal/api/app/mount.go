@@ -37,7 +37,13 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	g.PUT("/patients/{id}/anamnesis", h.UpsertAnamnesis)
 	g.GET("/patients/{id}/debts", h.ListPatientDebts)
 
+	// Telas iniciais (R1.1-R1.3): feed do dia, história, métricas de sessão.
+	g.GET("/day-feed", h.DayFeed)
+	g.GET("/patients/{id}/history", h.PatientHistory)
+	g.GET("/patients/{id}/session-metrics", h.PatientSessionMetrics)
+
 	// Sessões.
+	g.GET("/sessions", h.ListSessions) // calendário (R1.4): ?patient_id=&from=&to=
 	g.POST("/sessions", h.CreateSession)
 	g.GET("/sessions/{id}", h.GetSession)
 	g.PATCH("/sessions/{id}", h.UpdateSession)

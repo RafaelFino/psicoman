@@ -31,15 +31,15 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 1 — Perfil do terapeuta (R3) | ✅ concluída | `2e84663` | porta+adapter+serviço+rotas+cabeçalho na cobrança; make check verde |
 | 2 — OAuth 3-legged real + `google_token` (R2) | ✅ concluída | `0b5ca33` | fluxo admin authorize/callback + token cifrado + precedência do repo; make check verde |
 | 3 — Observabilidade `/readyz` + `/livez` (R5) | ✅ concluída | `a8963e5` | cifra+DB+OAuth; métricas adiadas; make check verde |
-| 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ✅ concluída | _(a seguir)_ | locais+disp.+origens+planos+comprovante; jornada ponta a ponta verde |
-| 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ⬜ pendente | — | handlers finos sobre serviços existentes |
+| 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ✅ concluída | `5aa8960` | locais+disp.+origens+planos+comprovante; jornada ponta a ponta verde |
+| 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ✅ concluída | _(a seguir)_ | handlers finos sobre serviços existentes; E2E não-vazamento |
 | 6 — R1 sub-fase 3: financeiro/custos | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
 | 7 — R1 sub-fase 4: agendamento pelo portal | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
 | 8 — Docs operacionais (R6) | ⬜ pendente | — | dep. Fase 2 (descreve a autorização real) |
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 4 (núcleo utilizável) concluída e verde — commit a seguir. **Próximo:** Fase 5 (telas iniciais: feed do dia + história + métricas + calendário).
+**Agora:** Fase 5 (telas iniciais) concluída e verde — commit a seguir. **Próximo:** Fase 8 (docs operacionais: reescrever deploy.md e stack-local.md para o binário único).
 
 ---
 
@@ -97,11 +97,11 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ## Fase 5 — R1 sub-fase 2: telas iniciais
 
-- [ ] **5.1 Feed do dia** `GET /v1/app/day-feed` (dep: —). **Refs:** R1.1.
-- [ ] **5.2 História do paciente** `GET /v1/app/patients/{id}/history` (auditada, sem clínico em metadados) (dep: —). **Refs:** R1.2.
-- [ ] **5.3 Métricas de sessão** `GET /v1/app/patients/{id}/session-metrics` (dep: —). **Refs:** R1.3.
-- [ ] **5.4 Calendário mensal** `GET /v1/app/sessions?patient_id=&from=&to=` (dep: —). **Refs:** R1.4.
-- [ ] **Fechamento Fase 5:** E2E de contrato de cada rota + não-vazamento clínico, docs + Swagger, `make check` verde → commit.
+- [x] **5.1 Feed do dia** `GET /v1/app/day-feed` ✅ **Refs:** R1.1.
+- [x] **5.2 História do paciente** `GET /v1/app/patients/{id}/history` (auditada, sem clínico em metadados) ✅ **Refs:** R1.2.
+- [x] **5.3 Métricas de sessão** `GET /v1/app/patients/{id}/session-metrics` ✅ **Refs:** R1.3.
+- [x] **5.4 Calendário mensal** `GET /v1/app/sessions?patient_id=&from=&to=` ✅ **Refs:** R1.4.
+- [x] **Fechamento Fase 5:** E2E de contrato + não-vazamento clínico, docs (architecture §0.17 + decisions + Swagger), `make check` verde → commit. ✅
 
 ---
 
