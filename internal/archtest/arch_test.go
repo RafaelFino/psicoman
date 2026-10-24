@@ -62,3 +62,23 @@ func TestAppNaoImportaPocketBase(t *testing.T) {
 		}
 	}
 }
+
+// TestConfigNaoImportaPocketBase garante que o loader de configuração
+// (internal/config) é um pacote de BORDA PURO: lê YAML+env com stdlib +
+// gopkg.in/yaml.v3 e NÃO conhece o framework (PocketBase) nem o adapter de
+// persistência platform/pb. Quem liga a config ao framework é o wiring/main
+// (Fase 6, decisão Rafael: Opção B; psicoman-golang.md regra de dependência).
+func TestConfigNaoImportaPocketBase(t *testing.T) {
+	proibidos := []string{
+		"github.com/pocketbase/pocketbase",
+		modulePath + "/internal/platform/pb",
+	}
+
+	for _, dep := range deps(t, modulePath+"/internal/config/...") {
+		for _, proibido := range proibidos {
+			if dep == proibido || strings.HasPrefix(dep, proibido+"/") {
+				t.Errorf("internal/config não pode importar %q (dependência proibida encontrada: %q)", proibido, dep)
+			}
+		}
+	}
+}

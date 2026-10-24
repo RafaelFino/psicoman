@@ -2,13 +2,12 @@ package api
 
 import (
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/RafaelFino/psicoman/internal/api/service"
 	"github.com/RafaelFino/psicoman/internal/app"
+	"github.com/RafaelFino/psicoman/internal/config"
 	"github.com/RafaelFino/psicoman/internal/platform/crypto"
 	"github.com/RafaelFino/psicoman/internal/platform/pb"
 )
@@ -19,40 +18,34 @@ type cipherConfig struct {
 	Keys         []crypto.KeySpec
 }
 
-// cipherConfigLoader resolve a config de cifra. Default lê do ambiente
-// (loadCipherConfig); os testes em processo trocam por um loader determinístico
-// com a KeySpec fixa, sem depender de env vars globais (§7).
+// configLoader é a fonte única de configuração do boot (internal/config). Seam
+// análogo a cipherConfigLoader: reatribuível para testes que queiram injetar um
+// Config determinístico sem tocar o ambiente global.
+var configLoader = func() (config.Config, []config.OriginEvent, error) {
+	return config.Load(config.Options{})
+}
+
+// cipherConfigLoader resolve a config de cifra. Default deriva de configLoader()
+// (internal/config); os testes em processo trocam este seam por um loader
+// determinístico com a KeySpec fixa, sem depender de env vars globais (§7).
 var cipherConfigLoader = loadCipherConfig
 
-// Variáveis de ambiente da config de cifra (PA-4).
-const (
-	envCipherKeyID = "PSICOMAN_CIPHER_KEY_ID"
-	envCipherKeys  = "PSICOMAN_CIPHER_KEYS"
-)
-
-// loadCipherConfig lê a config de cifra do ambiente:
-//   - PSICOMAN_CIPHER_KEY_ID: id da chave corrente.
-//   - PSICOMAN_CIPHER_KEYS: lista "id:base64key" separada por vírgula.
-//
-// Ausência/formato inválido → erro, abortando o boot (falhar cedo). O base64 e
-// o tamanho (32 bytes) são validados por NewMapKeyProvider.
+// loadCipherConfig deriva a config de cifra do Config carregado por
+// configLoader() (arquivo YAML + env sobrescreve). Cifra ausente/incoerente →
+// erro, abortando o boot (fail-closed). O base64 e o tamanho (32 bytes) são
+// validados depois por NewMapKeyProvider.
 func loadCipherConfig() (cipherConfig, error) {
-	keyID := strings.TrimSpace(os.Getenv(envCipherKeyID))
-	raw := strings.TrimSpace(os.Getenv(envCipherKeys))
-	if keyID == "" || raw == "" {
-		return cipherConfig{}, fmt.Errorf("config de cifra ausente: defina %s e %s", envCipherKeyID, envCipherKeys)
+	cfg, _, err := configLoader()
+	if err != nil {
+		return cipherConfig{}, err
 	}
-	var specs []crypto.KeySpec
-	for _, part := range strings.Split(raw, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		id, b64, ok := strings.Cut(part, ":")
-		if !ok || strings.TrimSpace(id) == "" || strings.TrimSpace(b64) == "" {
-			return cipherConfig{}, fmt.Errorf("entrada de chave de cifra inválida (esperado id:base64): %q", part)
-		}
-		specs = append(specs, crypto.KeySpec{ID: strings.TrimSpace(id), B64Key: strings.TrimSpace(b64)})
+	keyID := cfg.Crypto.KeyID
+	if keyID == "" || len(cfg.Crypto.Keys) == 0 {
+		return cipherConfig{}, fmt.Errorf("config de cifra ausente: defina %s e %s (ou crypto.key_id/crypto.keys no arquivo)", config.EnvCipherKeyID, config.EnvCipherKeys)
+	}
+	specs := make([]crypto.KeySpec, 0, len(cfg.Crypto.Keys))
+	for id, b64 := range cfg.Crypto.Keys {
+		specs = append(specs, crypto.KeySpec{ID: id, B64Key: b64})
 	}
 	return cipherConfig{CurrentKeyID: keyID, Keys: specs}, nil
 }
@@ -61,6 +54,15 @@ func loadCipherConfig() (cipherConfig, error) {
 // dentro do OnServe, quando o app e as coleções já existem. Falha (ex.: config
 // de cifra inconsistente) aborta o boot — não subir o servidor sem cifra.
 func buildServices(a core.App) (*service.Services, error) {
+	// Loga a origem (arquivo|env|default) de cada config SEM vazar segredo: só
+	// a chave lógica e a origem. Ignora o erro de carga aqui porque a cifra —
+	// único ponto fail-closed — é revalidada por cipherConfigLoader() abaixo.
+	if _, origins, cerr := configLoader(); cerr == nil {
+		for _, o := range origins {
+			a.Logger().Info("config carregada", "chave", o.Key, "origem", o.Source)
+		}
+	}
+
 	cfg, err := cipherConfigLoader()
 	if err != nil {
 		return nil, err

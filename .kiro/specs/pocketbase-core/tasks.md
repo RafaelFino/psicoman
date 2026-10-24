@@ -29,13 +29,13 @@ Convenções:
 | 3 — Adapter `platform/pb` + coleções | ✅ concluída | `c486b30` | cifra na borda comprovada por teste |
 | 4 — Contrato `/v1` (envelope, DTOs, Swagger) | ✅ concluída | `a8248d0` | DTOs sem vazar clínico; D13 superuser |
 | 5 — Auth `Pangolin` + gate de aprovação | ✅ concluída | `c30295a` | 401/403 permitido+negado + hook defesa-em-profundidade |
-| 6 — Google Calendar síncrono + PDF cobrança | 🔄 em progresso | — | iniciando |
+| 6 — Google Calendar síncrono + PDF cobrança | 🔄 em progresso | — | TASK 6.0: loader `internal/config` (contexto preparado) |
 | 7 — Drive fallback/DR (hook de backup) | ⬜ pendente | — | — |
 | 8 — IA Gemini + índice de tags | ⬜ pendente | — | — |
 | 9 — Portal do paciente | ⬜ pendente | — | — |
 | 10 — Fechamento (docs + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 5 fechada e verificada (`c30295a`). Iniciando a Fase 6 — Google Calendar síncrono (interface + fake, `freebusy` antes de confirmar, Meet online, degrada sem credenciais) e geração de PDF de cobrança no GED (sem Gmail). Nenhuma ação pendente do Rafael.
+**Agora:** Fase 6 iniciada pela **TASK 6.0 — loader `internal/config`** (pré-requisito de 6.1/6.2). Contexto preparado em `.agents/tasks/pocketbase-core/fase6-design.md`: struct tipada espelhando `config.dev.yaml`, ordem de descoberta do arquivo, env sobrescreve arquivo com log de origem (sem vazar segredo), Gemini opt-in pela presença de `llm.gemini.api_key`, `config` não importa o PocketBase. O refator do `wiring.go` preserva o seam `cipherConfigLoader` injetável e o boot fail-closed da cifra (todos os testes atuais verdes). Depois: 6.1 Google Calendar síncrono (`freebusy`→409, Meet online, degrada sem credenciais, timeout via `context.WithTimeout`) e 6.2 PDF de cobrança no GED (porte de `internal/platform/pdf` + `invoice.go` do commit `c3ab585`, sem Gmail). Nenhuma ação pendente do Rafael.
 
 ---
 

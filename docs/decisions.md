@@ -6,6 +6,26 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-21 — Onda "pocketbase-core" (Fase 6, TASK 6.0): config por arquivo (Opção B) + env sobrescreve
+
+**Contexto.** A Fase 6 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) precisa de uma fonte única de configuração para cifra, Pangolin, Google e Gemini, pré-requisito do Calendar síncrono (6.1) e do PDF de cobrança (6.2). Até a Fase 5, a cifra era lida direto do ambiente em `wiring.go` (`PSICOMAN_CIPHER_KEY_ID`/`PSICOMAN_CIPHER_KEYS`) e o PA-4 (ADR Fase 4) previa a troca para arquivo sem mexer na assinatura de `Register`. O Rafael escolheu a **Opção B** (config por arquivo, com env sobrescrevendo e log de origem). Design curto em [`../.agents/tasks/pocketbase-core/fase6-design.md`](../.agents/tasks/pocketbase-core/fase6-design.md).
+
+**Decisões (do Rafael).**
+1. **Config por arquivo YAML (Opção B) como fonte única.** Novo pacote `internal/config` lê um YAML tipado (`config.dev.yaml` em dev, git-ignored) com `gopkg.in/yaml.v3`. A ordem de descoberta é: flag `--config`/env `PSICOMAN_CONFIG` → `./config.dev.yaml` → `./config.yaml`; a **ausência de arquivo não é fatal** (cai para defaults + env). A cifra, porém, permanece **fail-closed** no boot (responsabilidade do wiring, não do loader).
+2. **Env sobrescreve o arquivo, com a origem logada.** Para cada chave, se a env var correspondente está setada, vence o env (origem `env`), senão o arquivo (origem `arquivo`) ou `default`. Mapeamento: `crypto.key_id`←`PSICOMAN_CIPHER_KEY_ID`, `crypto.keys`←`PSICOMAN_CIPHER_KEYS` (formato `id:base64,…`), `pangolin.identity_header`←`PSICOMAN_PANGOLIN_IDENTITY_HEADER`, `llm.gemini.api_key`←`PSICOMAN_GEMINI_API_KEY`. `config.Load` devolve `[]OriginEvent{Key, Source}` e o `buildServices` loga a origem de cada chave — **sem vazar valor de segredo** (só chave lógica + origem), alinhado a [`psicoman-seguranca-lgpd.md`](../.kiro/steering/psicoman-seguranca-lgpd.md).
+3. **Gemini opt-in pela presença da api_key.** `Config.Gemini.Enabled()` = `api_key` não-vazia. Com chave → IA ligada; sem chave → desligada (default off, R10.3). Não há flag `on/off` separada; a presença da chave é o liga/desliga.
+4. **`internal/config` é pacote de borda puro.** Usa só stdlib + `yaml.v3`; **não** importa o PocketBase nem `internal/platform/pb`. Quem liga a config ao framework é `wiring.go`/`main.go`. Reforçado por `TestConfigNaoImportaPocketBase` no `archtest`.
+5. **Seam de cifra preservado.** `var cipherConfigLoader = loadCipherConfig` mantém a assinatura `func() (cipherConfig, error)` (os testes em processo o reatribuem, `withTestCipher`). `loadCipherConfig` passa a derivar de um novo seam `var configLoader = config.Load`, convertendo `Config.Crypto.Keys` (map) em `[]crypto.KeySpec`. O boot fail-closed da cifra em `buildServices` é inalterado.
+
+**Consequências.**
+- Novo pacote `internal/config` (`config.go` + `config_test.go`); `internal/api/wiring.go` consome `config.Load` via `configLoader`/`loadCipherConfig`, preservando o seam.
+- `internal/archtest/arch_test.go` ganha `TestConfigNaoImportaPocketBase`; `TestDomainNaoImportaPocketBase`/`TestAppNaoImportaPocketBase` seguem verdes.
+- `go.mod`: `gopkg.in/yaml.v3` promovido de indirect para direct.
+- `config.dev.yaml` **inalterado** (preserva `llm.gemini.api_key` e `crypto.keys`); é git-ignored e nunca versionado.
+- `docs/architecture.md §0` ganha a subseção de `internal/config` (loader e precedência).
+
+---
+
 ## 2026-10-21 — Onda "pocketbase-core" (Fase 5): auth do Pangolin + gate de aprovação
 
 **Contexto.** A Fase 5 da onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/tasks.md) troca os stubs de auth no-op da Fase 4 por controle real (tasks 5.1 e 5.2), realizando R3/D3/D13. Design em [`../.agents/tasks/pocketbase-core/fase5-design.md`](../.agents/tasks/pocketbase-core/fase5-design.md). Arquitetura não reaberta.
