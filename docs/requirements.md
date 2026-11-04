@@ -134,6 +134,8 @@ Cadastro de custos: **local** (§3.2), **CRP** (anual), **infraestrutura** (Goog
 - **Relatórios de custo:** totais com visão anual, mensal ou por paciente.
 - **Relatório de sessões por local** (onda `patient-timeline` R7): para um local e um período (default: mês atual), agrega as sessões por categoria (as mesmas das métricas do paciente) e o **faturado das sessões realizadas** no período (soma dos débitos vinculados, em centavos). Agrupa por `starts_at` no fuso `America/Sao_Paulo`; serve de repasse para clínicas parceiras. Servido por `GET /v1/app/locations/{id}/session-report`. Exportação CSV/impressão fica como melhoria futura.
 
+> **Estado de implementação no `/v1`:** o relatório por local (`session-report`) e o CRUD de categorias/itens/custo de sessão ainda **não têm rota** (hoje só `GET /v1/app/reports/roi`). Ficam para a onda seguinte (`pocketbase-finish` Fase 6, adiada por decisão). Já expostos nesta onda: locais/disponibilidades, origens e planos por paciente (`architecture.md §0.16`), feed do dia, história, métricas de sessão e calendário (`§0.17`). Pedidos de agendamento pelo portal (`appointment_request`) também adiados (Fase 7).
+
 ### 3.6 Prontuário e Gestão de Atendimentos
 
 - **Anamnese** e **controle terapêutico** por paciente.
@@ -162,7 +164,9 @@ Assistência opcional da IA (Gemini) ao registro clínico, respeitando a privaci
 - Autorização única pelo terapeuta (OAuth 3-legged, conta pessoal), com renovação automática do acesso sem reautorização recorrente.
 - **Escopos mínimos**, nunca mais amplos que o necessário: `calendar` (Calendar/Meet) e `drive.file` (só arquivos criados pela app).
 
-> Realização técnica (OAuth 3-legged, escopos, refresh token cifrado): `architecture.md §0.9, §0.10`.
+> **Implementado (onda `pocketbase-finish`):** autorização pelas rotas admin `GET /v1/admin/google/authorize` → `GET /v1/admin/google/callback`; estado em `GET /v1/admin/google/status` e em `/v1/readyz` (`google: ok|degraded`). O refresh token fica cifrado em `google_token`; o env `PSICOMAN_GOOGLE_REFRESH_TOKEN` é só fallback de dev (o repositório tem precedência).
+
+> Realização técnica (OAuth 3-legged, escopos, refresh token cifrado): `architecture.md §0.9, §0.10, §0.14`.
 
 ### 3.8 Backup e Restore
 
@@ -182,7 +186,9 @@ O terapeuta tem uma tela para inserir e editar seus próprios dados. Como cada i
 - A foto e demais arquivos do perfil ficam no GED (área do próprio terapeuta, separada das pastas de pacientes).
 - Dados públicos do perfil (nome, foto, bio) podem ser exibidos no portal do paciente; CRP, contatos e email seguem a política de exibição definida na UI (não são dados sensíveis de saúde, mas o telefone/email do terapeuta só aparecem onde fizer sentido).
 
-> Realização técnica (entidade `therapist_profile`, relação com `location` e `origin`): `architecture.md §3.2`.
+> **Implementado (onda `pocketbase-finish`):** `GET/PUT /v1/app/therapist`, `POST /v1/app/therapist/platform-links`, `DELETE /v1/app/therapist/platform-links/{id}` e `GET /v1/portal/therapist` (só nome/foto/bio). O PDF de cobrança imprime nome e CRP quando o perfil está configurado.
+
+> Realização técnica (entidade `therapist_profile`, relação com `location` e `origin`): `architecture.md §3.2, §0.13`.
 
 ---
 
@@ -207,7 +213,7 @@ O terapeuta tem uma tela para inserir e editar seus próprios dados. Como cada i
 ### 4.3 Observabilidade e Operação
 
 - **Logs** com níveis (debug/warn/info/error) e **rotação diária**.
-- **Métricas** e endpoints de **healthcheck, readiness, liveness**.
+- Endpoints de **healthcheck, readiness, liveness**: `/v1/health`, `/v1/readyz` (cifra + DB + estado do Google) e `/v1/livez`. **Métricas (endpoint dedicado): adiadas** por decisão registrada em `decisions.md` — o timing por rota já é logado.
 - **Config por arquivo YAML** (`config.yaml`), com **env sobrescrevendo** o arquivo e a origem de cada chave logada no boot (sem vazar segredo), para deploy seguro e segregação de ambientes.
 - **Makefile** capaz de gerar o binário único (`make build` → `bin/psicoman`).
 - **Testes E2E** cobrindo a solução sobre o binário único (Google/Gemini mockados), garantindo não-regressão.
