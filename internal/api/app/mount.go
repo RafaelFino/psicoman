@@ -83,6 +83,16 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	g.GET("/locations/{id}/availability", h.ListAvailability)
 	g.POST("/locations/{id}/availability", h.AddAvailability)
 
+	// Custos (R1.6) e relatório de sessões por local (R1.5).
+	g.GET("/cost-categories", h.ListCostCategories)
+	g.POST("/cost-categories", h.CreateCostCategory)
+	g.GET("/cost-items", h.ListCostItems)
+	g.POST("/cost-items", h.CreateCostItem)
+	g.DELETE("/cost-items/{id}", h.DeleteCostItem)
+	g.GET("/sessions/{id}/cost", h.GetSessionCost)
+	g.GET("/reports/costs", h.ReportCosts)
+	g.GET("/locations/{id}/session-report", h.LocationSessionReport)
+
 	// Origens / canais de aquisição (R1.7).
 	g.GET("/origins", h.ListOrigins)
 	g.POST("/origins", h.CreateOrigin)

@@ -373,6 +373,49 @@
     "/v1/app/locations/availability/{id}": {
       "delete": { "tags": ["app"], "summary": "Remove uma janela de disponibilidade.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
     },
+    "/v1/app/cost-categories": {
+      "get": { "tags": ["app"], "summary": "Lista categorias de custo.", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria categoria de custo (kind: local|crp|infra|plataforma).", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["kind", "name"], "properties": { "kind": { "type": "string", "enum": ["local", "crp", "infra", "plataforma"] }, "name": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/cost-items": {
+      "get": { "tags": ["app"], "summary": "Lista itens de custo.", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria item de custo (centavos + periodicidade); origin_id liga custo de plataforma ao ROI.", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "period"], "properties": { "category_id": { "type": "string" }, "name": { "type": "string" }, "amount_cents": { "type": "integer", "format": "int64" }, "period": { "type": "string", "enum": ["por_sessao", "diario", "mensal", "anual"] }, "origin_id": { "type": "string" }, "location_id": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/cost-items/{id}": {
+      "delete": { "tags": ["app"], "summary": "Remove item de custo (soft-delete).", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/sessions/{id}/cost": {
+      "get": { "tags": ["app"], "summary": "Custo atribuído à sessão (direto ou rateio), em centavos.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" }, "404": { "description": "Sem custo atribuído" } } }
+    },
+    "/v1/app/reports/costs": {
+      "get": {
+        "tags": ["app"], "summary": "Relatório de custos do período por categoria e por paciente (centavos).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "de", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "ate", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "400": { "description": "Período inválido" }, "422": { "description": "de posterior a ate" } }
+      }
+    },
+    "/v1/app/locations/{id}/session-report": {
+      "get": {
+        "tags": ["app"], "summary": "Sessões do local por categoria + faturado das realizadas. Default: mês corrente.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "de", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "ate", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Local não encontrado" } }
+      }
+    },
     "/v1/app/origins": {
       "get": { "tags": ["app"], "summary": "Lista canais de aquisição (origens).", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
       "post": {

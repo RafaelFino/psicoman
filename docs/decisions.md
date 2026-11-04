@@ -6,6 +6,16 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` Fase 6: custos, ROI e relatório por local reincluídos na onda (R1 sub-fase 3)
+
+**Contexto.** A sub-fase 3 havia sido adiada por recorte (⟨R1⟩). Após o fechamento parcial, o Rafael pediu para concluir tudo que ficou pendente antes da auditoria para produção; a decisão de adiar foi revogada para as Fases 6 e 7.
+
+**Decisão.** Expor CRUD de categorias/itens de custo, custo de sessão, relatório de custos e relatório de sessões por local (default mês corrente), reutilizando os serviços existentes. Sem regra nova.
+
+**Consequências.** Novo `api/app/costs.go` + 8 rotas e Swagger; E2E de jornada com negativos. Os docs que diziam "sem rota" (requirements §3.5, release-notes, README) são atualizados no fechamento final.
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` Fase 8: docs operacionais + infra do binário único (R6)
 
 **Contexto.** `docs/deploy.md` e `docs/stack-local.md` descreviam o modelo antigo (dois binários, `dev_mode`, Gmail) e estavam com nota de "desatualizado". Ao reescrevê-los, descobriu-se que `Dockerfile`/`docker-compose.yml`/`deploy/config.docker.yaml` também referenciavam `cmd/admin`/`cmd/portal` (inexistentes) — a stack estava quebrada contra o código atual.

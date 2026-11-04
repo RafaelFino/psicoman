@@ -33,9 +33,9 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 3 — Observabilidade `/readyz` + `/livez` (R5) | ✅ concluída | `a8963e5` | cifra+DB+OAuth; métricas adiadas; make check verde |
 | 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ✅ concluída | `5aa8960` | locais+disp.+origens+planos+comprovante; jornada ponta a ponta verde |
 | 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ✅ concluída | `bf49fa2` | handlers finos sobre serviços existentes; E2E não-vazamento |
-| 6 — R1 sub-fase 3: financeiro/custos | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
-| 7 — R1 sub-fase 4: agendamento pelo portal | 🚫 fora de escopo | — | adiada p/ onda seguinte (⟨R1⟩) |
-| 8 — Docs operacionais (R6) | ✅ concluída | _(a seguir)_ | deploy/stack-local reescritos + Dockerfile/compose/config.docker consertados (imagem validada) |
+| 6 — R1 sub-fase 3: financeiro/custos | � em progresso | — | reincluída no escopo por instrução do Rafael (pós-Fase 10 parcial) |
+| 7 — R1 sub-fase 4: agendamento pelo portal | ⬜ pendente | — | reincluída no escopo por instrução do Rafael |
+| 8 — Docs operacionais (R6) | ✅ concluída | `d644188` | deploy/stack-local reescritos + Dockerfile/compose/config.docker consertados (imagem validada) |
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
@@ -107,9 +107,9 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ## Fase 6 — R1 sub-fase 3: financeiro/custos — **⟨R1⟩ candidata a onda seguinte**
 
-- [ ] **6.1 Custos/ROI completo** (CRUD `cost_*` + relatório de custo) (dep: 4.1). **Refs:** R1.6.
-- [ ] **6.2 Relatório de sessões por local** `GET /v1/app/locations/{id}/session-report` (dep: 4.1). **Refs:** R1.5.
-- [ ] **Fechamento Fase 6:** E2E + docs, `make check` verde → commit.
+- [x] **6.1 Custos/ROI completo** (CRUD categorias/itens, custo de sessão, `reports/costs`) ✅ **Refs:** R1.6.
+- [x] **6.2 Relatório de sessões por local** `GET /v1/app/locations/{id}/session-report` (default mês corrente) ✅ **Refs:** R1.5.
+- [x] **Fechamento Fase 6:** E2E + docs (architecture §0.19, decisions, Swagger), `make check` verde → commit. ✅
 
 ---
 

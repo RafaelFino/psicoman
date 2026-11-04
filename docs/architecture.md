@@ -208,3 +208,13 @@ Reescreve a documentação e a infra de container para a arquitetura vigente (pr
 - **`docs/stack-local.md`** reescrito para `docker compose up --build` de **um** serviço; probe por `/v1/livez`; `/v1/readyz` reporta `google: degraded` em teste (esperado, não bloqueia prontidão); alternativa `make serve` sem Docker.
 - **Infra consertada** (coerência com os docs): `Dockerfile` agora compila `./cmd/psicoman` (Go 1.27, estático) com `ENTRYPOINT psicoman` e `serve --http 0.0.0.0:8090 --dir /data`; `docker-compose.yml` vira um único serviço com a chave de cifra de teste por env (`PSICOMAN_CIPHER_*`); `deploy/config.docker.yaml` reescrito no formato atual. A imagem foi validada: build OK, container sobe, `/v1/livez` e `/v1/readyz` respondem 200.
 - **Scripts legados** (`scripts/deploy.sh`, `update-server.sh`, `stack-*.sh`, `seed.sh`) são do modelo antigo e **não** se aplicam; os docs apontam os passos manuais/compose atuais em vez deles (remoção/reescrita dos scripts fica para uma limpeza futura, fora do escopo desta onda).
+
+### 0.19 Custos, ROI e relatório por local (onda `pocketbase-finish`, R1 sub-fase 3)
+
+Expõe o que `CostService`, `ReportService` e `SessionMetricsService` já faziam. Handlers finos em `api/app/costs.go`; dinheiro sempre em centavos (`*_cents`).
+
+- **CRUD de custos.** `GET/POST /v1/app/cost-categories` (kind `local|crp|infra|plataforma`), `GET/POST /v1/app/cost-items`, `DELETE /v1/app/cost-items/{id}`. Um item com `origin_id` (custo de plataforma) alimenta o ROI por canal.
+- **Custo de sessão.** `GET /v1/app/sessions/{id}/cost` devolve o custo atribuído ao finalizar com `consider_cost` (direto para `por_sessao`, rateio nos demais); 404 se não houver.
+- **Relatório de custos.** `GET /v1/app/reports/costs?de=&ate=` → `by_kind_cents` e `by_patient_cents` (período inválido 400; invertido 422). O ROI (`/reports/roi`) já existia.
+- **Relatório de sessões por local (R1.5).** `GET /v1/app/locations/{id}/session-report?de=&ate=`; sem período, usa o **mês corrente** (America/Sao_Paulo). Agrega por categoria e soma o faturado das realizadas.
+- **Testes.** E2E de jornada: categoria → item ligado à origem → local por sessão → sessão finalizada com custo → custo da sessão (5000, direto), relatório de custos, ROI contendo a origem, session-report (1 realizada, faturado 18000), e os caminhos negativos (422/400/404).
