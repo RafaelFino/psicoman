@@ -308,9 +308,10 @@ A **chave de cifra** vive apenas no `config.yaml` (ou no env). Guarde uma cópia
 segura **fora da VM** — sem ela, nem os dados nem os backups cifrados são
 recuperáveis.
 
-> Os scripts `scripts/deploy.sh` e `scripts/update-server.sh` são do modelo
-> antigo (dois binários) e **não** se aplicam à arquitetura atual; use os passos
-> manuais acima.
+> Os scripts shell de instalação/atualização do modelo antigo (dois binários)
+> foram **removidos** nesta onda; a instalação e a atualização seguem os passos
+> manuais acima (compilar, trocar o binário, reiniciar o systemd, validar
+> `/v1/readyz`).
 
 ---
 

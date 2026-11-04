@@ -6,6 +6,22 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` auditoria de prontidão para produção
+
+**Contexto.** Após fechar todas as fases, o Rafael pediu uma auditoria exaustiva e testes em tudo antes de publicar.
+
+**Decisão / achados.**
+1. **Segurança (corrigido).** `GET /v1/portal/therapist` não exigia sessão (expunha o perfil a anônimos). Passou a exigir sessão de paciente (401 sem auth).
+2. **Contrato.** Teste de contrato Swagger↔rotas (`api/swagger/contract_test.go`): drift passa a quebrar o build. Matriz de autorização (`api/authmatrix_test.go`): toda rota protegida → 401 sem credencial; credenciais não se cruzam (Pangolin não abre portal; token de paciente não abre app/admin).
+3. **Fail-closed.** E2E (`test/e2e/boot_cipher_test.go`) prova que sem cifra o binário não serve `/v1`.
+4. **Concorrência.** `go test -race ./internal/...` limpo.
+5. **Cobertura.** `platform/clock` 0→92.9%; reforços em `httpx` e `drivesync`. `app`/`platform/pb`/`drivesync`/`api/{app,portal,admin}` têm cobertura efetiva alta via E2E/pacote agregador, não refletida no número unitário.
+6. **Scripts legados removidos** (`deploy.sh`, `update-server.sh`, `stack-up.sh`, `stack-down.sh`, `seed.sh`): modelo antigo de dois binários, órfãos; evita operador rodar tooling quebrada.
+
+**Consequências.** Relatório completo no fechamento da onda. `make check` e race verdes. Fora de escopo mantido: verificação de email (⟨R4⟩) e endpoint de métricas (⟨R5⟩). Push/PR aguardam OK do Rafael.
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` Fase 7: pedidos de agendamento pelo portal reincluídos na onda (R1 sub-fase 4)
 
 **Contexto.** Adiada por recorte, reincluída por instrução do Rafael (concluir tudo antes da auditoria para produção). A coleção, o repositório e o hook de aprovação já existiam; faltavam serviço e rotas.

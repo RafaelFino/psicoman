@@ -19,10 +19,15 @@ Completa o que a base nova ainda não entregava: agora dá para cadastrar planos
 **Melhorias**
 - **Guia de instalação refeito** para o aplicativo único, e stack local em Docker de um serviço só.
 
+**Mais novidades (fechamento da onda)**
+- **Custos e retorno por canal.** Cadastre categorias e itens de custo, veja o custo de cada sessão, o **relatório de custos** do período e o **ROI** por canal de origem.
+- **Relatório de sessões por local.** Para repassar a clínicas parceiras: sessões por categoria e faturado das realizadas, com o mês corrente como padrão.
+- **Agendamento pelo paciente.** O paciente aprovado **pede um horário** pelo portal; você vê a fila de pedidos e **confirma** (cria a sessão, checando conflito de agenda) ou recusa.
+
 **Notas de migração/operação**
 - Configure o `config.yaml` com as credenciais do Google e autorize pela rota de administração (ver `docs/deploy.md`). O token antigo por variável de ambiente só vale como atalho de desenvolvimento.
-- **Ainda não incluído** (próxima onda): relatório de custos/ROI completo e relatório por local, pedidos de agendamento feitos pelo paciente no portal e endpoint de métricas.
-- Os scripts antigos de instalação (`deploy.sh`, `update-server.sh`) são do modelo de dois programas e não devem ser usados; siga o guia atualizado.
+- **Conscientemente adiado:** verificação de email do portal (o gate de aprovação já cobre o risco) e endpoint de métricas (o tempo por rota já é registrado nos logs).
+- Os scripts antigos de instalação foram **removidos**; a instalação e a atualização seguem o guia atualizado (`docs/deploy.md`).
 
 ---
 

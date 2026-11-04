@@ -38,8 +38,8 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 8 — Docs operacionais (R6) | ✅ concluída | `d644188` | deploy/stack-local reescritos + Dockerfile/compose/config.docker consertados (imagem validada) |
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
-
-**Agora:** Fases 1–8 concluídas (6 e 7 reincluídas). **Próximo:** auditoria exaustiva (rotas×Swagger×testes, segurança, cobertura, scripts legados, boot) e fechamento final → PARAR p/ OK do Rafael antes de push/PR.
+| 10 — Fechamento (docs canônicos + release notes + push/PR) | ✅ concluída | _(a seguir)_ | docs/README/release-notes atualizados; auditoria OK; push/PR só com OK do Rafael |
+**Agora:** onda COMPLETA e auditada (fases 1–8, +6/7 reincluídas, +10). `make check` e `go test -race` verdes. **PARADO aguardando OK do Rafael para push/PR.**
 
 ---
 
