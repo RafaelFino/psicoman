@@ -529,6 +529,31 @@
     "/v1/portal/therapist": {
       "get": { "tags": ["portal"], "summary": "Dados PÚBLICOS do terapeuta (nome/foto/bio). Nunca CRP/contatos/email.", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "404": { "description": "Perfil ainda não configurado" } } }
     },
+    "/v1/app/appointment-requests": {
+      "get": { "tags": ["app"], "summary": "Fila de pedidos de agendamento pendentes (feitos pelos pacientes no portal).", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/appointment-requests/{id}/confirm": {
+      "post": {
+        "tags": ["app"], "summary": "Confirma o pedido: cria a sessão agendada (checa conflito no Google e cria o evento). Conflito → 409 e o pedido segue pendente.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "201": { "description": "Sessão agendada" }, "404": { "description": "Pedido não encontrado" }, "409": { "description": "Conflito de agenda ou pedido já respondido" } }
+      }
+    },
+    "/v1/app/appointment-requests/{id}/refuse": {
+      "post": {
+        "tags": ["app"], "summary": "Recusa um pedido pendente.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" }, "409": { "description": "Pedido já respondido" } }
+      }
+    },
+    "/v1/portal/appointment-requests": {
+      "get": { "tags": ["portal"], "summary": "Pedidos de agendamento do próprio paciente.", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Autenticação necessária" }, "403": { "description": "Cadastro não aprovado" } } },
+      "post": {
+        "tags": ["portal"], "summary": "Pede um horário (paciente APROVADO). A identidade vem da sessão.", "security": [{ "portalSession": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["slot_start", "slot_end"], "properties": { "location_id": { "type": "string" }, "slot_start": { "type": "string", "format": "date-time" }, "slot_end": { "type": "string", "format": "date-time" }, "note": { "type": "string", "maxLength": 500 } } } } } },
+        "responses": { "201": { "description": "Pedido enviado" }, "401": { "description": "Autenticação necessária" }, "403": { "description": "Cadastro não aprovado" }, "422": { "description": "Validação" } }
+      }
+    },
     "/v1/portal/me": {
       "get": { "tags": ["portal"], "summary": "Dados do próprio paciente (sem clínico).", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Autenticação necessária" } } }
     },

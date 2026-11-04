@@ -154,6 +154,9 @@ func buildServices(a core.App) (*service.Services, error) {
 	locations := app.NewLocationService(locationsRepo)
 	origins := app.NewOriginService(originsRepo)
 	plans := app.NewPlanService(plansRepo)
+	// Pedidos de agendamento (R1.8): confirmar cria a sessão agendada (conflito
+	// + evento de Calendar via SessionService).
+	appts := app.NewAppointmentService(appointmentsRepo, patientsRepo, locationsRepo, sessions)
 
 	// PDF de cobrança no GED (file storage do PocketBase, D9b): o blob store
 	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256). O perfil
@@ -192,6 +195,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		Locations:   locations,
 		Origins:     origins,
 		Plans:       plans,
+		Appts:       appts,
 		PortalAuth:  portalAuth,
 		Cipher:      cipher,
 		GoogleOAuth: oauthCfg,

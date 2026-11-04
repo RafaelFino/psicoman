@@ -31,6 +31,7 @@ type Services struct {
 	Locations  *app.LocationService
 	Origins    *app.OriginService
 	Plans      *app.PlanService
+	Appts      *app.AppointmentService
 	PortalAuth app.PortalAuth
 
 	// Cipher é a cifra montada no boot, exposta para o readiness check (/readyz)

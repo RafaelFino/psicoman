@@ -218,3 +218,13 @@ Expõe o que `CostService`, `ReportService` e `SessionMetricsService` já faziam
 - **Relatório de custos.** `GET /v1/app/reports/costs?de=&ate=` → `by_kind_cents` e `by_patient_cents` (período inválido 400; invertido 422). O ROI (`/reports/roi`) já existia.
 - **Relatório de sessões por local (R1.5).** `GET /v1/app/locations/{id}/session-report?de=&ate=`; sem período, usa o **mês corrente** (America/Sao_Paulo). Agrega por categoria e soma o faturado das realizadas.
 - **Testes.** E2E de jornada: categoria → item ligado à origem → local por sessão → sessão finalizada com custo → custo da sessão (5000, direto), relatório de custos, ROI contendo a origem, session-report (1 realizada, faturado 18000), e os caminhos negativos (422/400/404).
+
+### 0.20 Pedidos de agendamento pelo portal (onda `pocketbase-finish`, R1 sub-fase 4)
+
+Fecha o fluxo "paciente pede → terapeuta confirma", usando a coleção `appointment_request` e o hook de aprovação que já existiam.
+
+- **Serviço.** `AppointmentService`: `Request` (exige paciente **aprovado** e, se informado, local existente; nasce `pendente`), `ListPending`, `ListByPatient`, `Confirm` e `Refuse`. Só pedidos `pendente` mudam de estado (senão 409).
+- **Confirmar = criar a sessão.** `Confirm` chama `SessionService.Create` com status `agendada` e `RequestID`: reaproveita a checagem de conflito (freebusy) e a criação do evento de Calendar. Conflito → 409 e o pedido **segue pendente** (nenhuma sessão criada). A modalidade vem do local (ou `online` sem local).
+- **Rotas.** Portal (dentro do gate de aprovação; identidade da sessão, nunca do corpo): `POST/GET /v1/portal/appointment-requests`, com isolamento por paciente. Terapeuta: `GET /v1/app/appointment-requests` (fila), `POST .../{id}/confirm` (201 + sessão) e `POST .../{id}/refuse`.
+- **Defesa em profundidade (3 camadas).** Gate do portal (403 para não-aprovado) → regra no serviço (`Request` recusa não-aprovado) → hook de modelo em `appointment_request`. A nota livre do paciente é limitada a 500 caracteres.
+- **Testes.** Unit (aprovado/pendente/local inexistente/slot inválido; confirmar cria sessão `agendada` com `RequestID`; conflito mantém pendente; reconfirmar/recusar 409). E2E: pendente 403, sem sessão 401, validações 400/422, isolamento A×B, fila do terapeuta, confirmar→sessão visível só para A, recusar, 404/409 e app sem header 401.

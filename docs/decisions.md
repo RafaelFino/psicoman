@@ -6,6 +6,16 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — `pocketbase-finish` Fase 7: pedidos de agendamento pelo portal reincluídos na onda (R1 sub-fase 4)
+
+**Contexto.** Adiada por recorte, reincluída por instrução do Rafael (concluir tudo antes da auditoria para produção). A coleção, o repositório e o hook de aprovação já existiam; faltavam serviço e rotas.
+
+**Decisão.** `AppointmentService` + rotas no portal (criar/listar os próprios) e no app (fila/confirmar/recusar). Confirmar cria a sessão `agendada` pelo `SessionService` (conflito → 409, pedido segue pendente), em vez de duplicar a lógica de agenda. A regra "agendar exige aprovado" é aplicada também no serviço, além do gate e do hook.
+
+**Consequências.** Novos `app/appointment_service.go`, `api/app/appointments.go`, `api/portal/appointments.go`; Swagger; E2E com isolamento entre pacientes. Fases 6 e 7 deixam de ser "onda seguinte"; permanecem adiados apenas a verificação de email (⟨R4⟩) e o endpoint de métricas (⟨R5⟩).
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` Fase 6: custos, ROI e relatório por local reincluídos na onda (R1 sub-fase 3)
 
 **Contexto.** A sub-fase 3 havia sido adiada por recorte (⟨R1⟩). Após o fechamento parcial, o Rafael pediu para concluir tudo que ficou pendente antes da auditoria para produção; a decisão de adiar foi revogada para as Fases 6 e 7.

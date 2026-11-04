@@ -33,13 +33,13 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 3 — Observabilidade `/readyz` + `/livez` (R5) | ✅ concluída | `a8963e5` | cifra+DB+OAuth; métricas adiadas; make check verde |
 | 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ✅ concluída | `5aa8960` | locais+disp.+origens+planos+comprovante; jornada ponta a ponta verde |
 | 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ✅ concluída | `bf49fa2` | handlers finos sobre serviços existentes; E2E não-vazamento |
-| 6 — R1 sub-fase 3: financeiro/custos | � em progresso | — | reincluída no escopo por instrução do Rafael (pós-Fase 10 parcial) |
-| 7 — R1 sub-fase 4: agendamento pelo portal | ⬜ pendente | — | reincluída no escopo por instrução do Rafael |
+| 6 — R1 sub-fase 3: financeiro/custos | ✅ concluída | `723c4af` | CRUD custos + relatório de custos + session-report; reincluída por instrução do Rafael |
+| 7 — R1 sub-fase 4: agendamento pelo portal | ✅ concluída | _(a seguir)_ | pedidos portal→terapeuta; confirmar cria sessão; E2E com isolamento |
 | 8 — Docs operacionais (R6) | ✅ concluída | `d644188` | deploy/stack-local reescritos + Dockerfile/compose/config.docker consertados (imagem validada) |
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
 | 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
 
-**Agora:** Fase 8 (docs operacionais) concluída e verde — commit a seguir. **Próximo:** Fase 10 (fechamento: requirements/README/release-notes + make check na branch → PARAR p/ OK do Rafael antes de push/PR).
+**Agora:** Fases 1–8 concluídas (6 e 7 reincluídas). **Próximo:** auditoria exaustiva (rotas×Swagger×testes, segurança, cobertura, scripts legados, boot) e fechamento final → PARAR p/ OK do Rafael antes de push/PR.
 
 ---
 
@@ -113,10 +113,10 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ---
 
-## Fase 7 — R1 sub-fase 4: agendamento pelo portal — **⟨R1⟩ candidata a onda seguinte**
+## Fase 7 — R1 sub-fase 4: agendamento pelo portal (reincluída na onda)
 
-- [ ] **7.1 Pedidos de agendamento** `POST /v1/portal/appointment-requests`, `GET /v1/app/appointment-requests`, `POST /v1/app/appointment-requests/{id}/confirm` (cria a sessão) (dep: 4.1). O hook de aprovação já reforça. **Refs:** R1.8 · D1.
-- [ ] **Fechamento Fase 7:** E2E permitido (aprovado) e negado (pendente 403), docs + Swagger, `make check` verde → commit.
+- [x] **7.1 Pedidos de agendamento** `POST/GET /v1/portal/appointment-requests`, `GET /v1/app/appointment-requests`, `POST .../{id}/confirm` (cria a sessão) e `.../refuse`. ✅ **Refs:** R1.8 · D1.
+- [x] **Fechamento Fase 7:** E2E permitido (aprovado) e negado (pendente 403 / sem sessão 401 / isolamento), docs (architecture §0.20, decisions, Swagger), `make check` verde → commit. ✅
 
 ---
 
