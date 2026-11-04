@@ -186,6 +186,11 @@ func TestPortalTherapistSoPublico(t *testing.T) {
 	}
 	token := portalLogin(t, base, email, pass)
 
+	// Sem sessão → 401 (o perfil não é exposto a anônimos).
+	if st, _, _ := getRaw(t, base, "/v1/portal/therapist"); st != http.StatusUnauthorized {
+		t.Errorf("portal therapist sem sessão: quero 401, veio %d", st)
+	}
+
 	status, pbody := portalGet(t, base, "/v1/portal/therapist", token)
 	if status != http.StatusOK {
 		t.Fatalf("portal therapist: quero 200, veio %d (%s)", status, pbody)

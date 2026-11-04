@@ -101,3 +101,21 @@ func TestNew_SemUploaderNoOp(t *testing.T) {
 		t.Fatal("uploader deveria ser nil (DR desativado)")
 	}
 }
+
+// failSealer falha ao cifrar, para exercitar o ramo de erro de cifra.
+type failSealer struct{}
+
+func (failSealer) SealBytes([]byte) ([]byte, error) { return nil, errors.New("cifra indisponível") }
+
+// TestUploadSealed_PropagaErroCifra: falha ao cifrar não chega a chamar o
+// uploader e vira erro (propagado pelo mirror, tratado best-effort no Register).
+func TestUploadSealed_PropagaErroCifra(t *testing.T) {
+	up := &fakeUploader{}
+	s := New(up, failSealer{})
+	if _, err := s.uploadSealed(context.Background(), "x.zip", []byte("y")); err == nil {
+		t.Fatal("erro de cifra deveria propagar")
+	}
+	if up.calls != 0 {
+		t.Errorf("uploader não deveria ser chamado quando a cifra falha, foi %d", up.calls)
+	}
+}
