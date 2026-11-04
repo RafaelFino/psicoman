@@ -16,19 +16,26 @@ com o PocketBase embarcado) atrás do gateway **Pangolin**.
 
 ```mermaid
 flowchart TB
+    Paciente -->|internet, TLS| Borda[nginx de borda<br/>só /v1/portal/*]
     Terapeuta -->|header de identidade| Pangolin
-    Paciente -->|login PocketBase| Pangolin
-    Pangolin -->|TLS + controle de acesso por prefixo| Psicoman[bin/psicoman :8090]
+    Operador -->|header de identidade| Pangolin
+    Borda -->|/v1/portal/*| Psicoman[bin/psicoman :8090]
+    Pangolin -->|/v1/app/* e /v1/admin/*| Psicoman
     Psicoman --> DB[(SQLite — PocketBase)]
     Psicoman --> GED[/GED no storage do PocketBase/]
     Psicoman --> Google[Google Calendar/Meet + Drive DR]
 ```
 
-- O binário escuta **apenas em loopback** (`127.0.0.1:8090`). Quem expõe para a
-  internet, com TLS, é o Pangolin.
-- O Pangolin injeta o **header de identidade** do terapeuta em `/v1/app/*` e
-  `/v1/admin/*`; `/v1/portal/*` usa a sessão real do PocketBase (login do
-  paciente) + o gate de aprovação da aplicação.
+- O binário escuta **apenas em loopback** (`127.0.0.1:8090`) e **nunca** é
+  exposto direto à internet. Duas superfícies distintas chegam a ele:
+  - **Portal do paciente** (`/v1/portal/*`): exposto à internet por um **nginx
+    de borda endurecido** (rate limit, limite de corpo, timeouts), que encaminha
+    SOMENTE o portal e as sondas de saúde e **nega** `/v1/app`, `/v1/admin`,
+    `/api/` e `/_/`. É a única superfície pública.
+  - **Terapeuta/operação** (`/v1/app/*`, `/v1/admin/*`): atrás do **Pangolin**,
+    que injeta o header de identidade; nunca passa pelo nginx público.
+- A autenticação do paciente é da própria aplicação (sessão real do PocketBase)
+  + o gate de aprovação; o nginx apenas endurece a borda e segrega a exposição.
 
 ---
 
@@ -161,30 +168,46 @@ nem em log.
 
 ---
 
-## 5. Pangolin (borda)
+## 5. Borda: duas superfícies separadas
 
-O Pangolin termina o TLS e aplica o controle de acesso por **prefixo de rota**:
+O binário escuta só em `127.0.0.1:8090`. Duas camadas de borda distintas chegam
+a ele, com exposições diferentes:
 
-- `/v1/app/*` e `/v1/admin/*` → Pangolin injeta o **header de identidade** do
-  terapeuta (o mesmo `pangolin.identity_header` do config; default
-  `X-Pangolin-User`). Ausente/vazio ⇒ a aplicação responde **401**.
-- `/v1/portal/*` → Pangolin **só termina TLS**. A autenticação é do PocketBase
-  (login do paciente, `auth-with-password` da coleção `patient_user`) + o gate de
-  aprovação da aplicação.
+### 5.1 Portal do paciente → nginx público endurecido
 
-Configuração (nomes variam conforme a versão do Pangolin):
+O **único** ponto exposto à internet. Um `nginx` à frente encaminha SOMENTE o
+portal (`/v1/portal/*`) e as sondas de saúde, e **nega explicitamente** tudo o
+mais (`/v1/app`, `/v1/admin`, `/api/`, `/_/`, `/v1/swagger`). A config de
+referência está em [`../deploy/nginx/portal.conf`](../deploy/nginx/portal.conf)
+e é a mesma usada na stack local (`docker-compose.yml`). Ela aplica:
+
+- **rate limit** por IP nas rotas do portal (ex.: 30 req/min, burst 20 → 429);
+- **limite de corpo** (2 MB) e **timeouts curtos** (mitiga slowloris);
+- **limite de conexões** por IP;
+- limpeza do header de identidade do Pangolin vindo de fora (anti-spoofing);
+- cabeçalhos de segurança (`X-Content-Type-Options`, `X-Frame-Options`, etc.).
+
+TLS: o nginx local fala HTTP; em produção quem termina TLS é a camada acima
+(o próprio Pangolin/LB também pode cobrir o domínio do portal, ou monte um cert
+no nginx — ver o `.conf`). O app **também** impõe suas regras (gate de
+aprovação, validação), então o nginx é defesa em profundidade, não a única.
+
+### 5.2 Terapeuta e operação → Pangolin
+
+`/v1/app/*` e `/v1/admin/*` ficam atrás do **Pangolin**, que termina o TLS e
+injeta o **header de identidade** (o mesmo `pangolin.identity_header` do config;
+default `X-Pangolin-User`). Ausente/vazio ⇒ a aplicação responde **401**. Essas
+superfícies **nunca** passam pelo nginx público.
+
+Configuração do Pangolin (nomes variam conforme a versão):
 
 1. **Upstream**: `http://127.0.0.1:8090` (onde o binário escuta).
-2. **Domínio público**: `psicoman.seudominio.com.br` (TLS gerenciado pelo Pangolin).
-3. **Identidade**: configure o provedor de identidade do Pangolin para injetar o
-   header de e-mail do terapeuta nos prefixos `/v1/app` e `/v1/admin`.
-4. **DNS**: aponte o domínio para o Pangolin.
+2. **Domínio**: ex. `psicoman-admin.seudominio.com.br` (separado do domínio do portal).
+3. **Identidade**: injetar o header de e-mail do terapeuta nos prefixos `/v1/app` e `/v1/admin`.
+4. **DNS**: aponte os domínios (portal → nginx; admin → Pangolin).
 
 > Como o binário escuta só em loopback, ele **não** fica acessível direto da
-> internet. Todo o tráfego externo passa pelo Pangolin.
-
-Proteções de borda recomendadas no Pangolin para o portal: limite de requisições
-por IP em `/v1/portal/register`, limite de tamanho de corpo e timeouts curtos.
+> internet: o portal passa pelo nginx; o app/admin, pelo Pangolin.
 
 ---
 

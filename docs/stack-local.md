@@ -9,12 +9,19 @@ Para o deploy real (produção atrás do Pangolin), ver [`deploy.md`](./deploy.m
 > Não há mais dois binários (admin/portal): a segregação por ator é lógica
 > (`/v1/app`, `/v1/portal`, `/v1/admin`). Ver [`architecture.md`](./architecture.md).
 
+A stack **espelha a topologia de produção** (Opção A): dois serviços, e a única
+porta exposta ao host é a do **nginx de borda**, que só deixa passar o portal do
+paciente. As superfícies do terapeuta/operação (`/v1/app`, `/v1/admin`, `/_/`)
+**não** são alcançáveis pela porta pública — exatamente como em produção, onde
+elas ficam atrás do Pangolin.
+
 ## O que compõe
 
 | Arquivo | Papel |
 |---------|-------|
 | `Dockerfile` | Imagem única do binário `psicoman` (build estático `CGO_ENABLED=0`, SQLite via `modernc`). `ENTRYPOINT psicoman`, default `serve --http 0.0.0.0:8090 --dir /data`. |
-| `docker-compose.yml` | Um serviço `psicoman` (porta `8090`), volume `psicoman-local-data` (dados do PocketBase: SQLite, storage, logs). A **chave de cifra de teste** vem por env (`PSICOMAN_CIPHER_*`). |
+| `docker-compose.yml` | Dois serviços: `psicoman` (interno, **sem porta no host**) e `nginx-portal` (publica `8080`, única borda pública). Volume `psicoman-local-data`. A **chave de cifra de teste** vem por env (`PSICOMAN_CIPHER_*`). |
+| `deploy/nginx/portal.conf` | Config da borda: encaminha só `/v1/portal/*` + saúde; nega o resto; rate limit, limites de corpo/conexão, timeouts. |
 | `deploy/config.docker.yaml` | Config de exemplo OPCIONAL (monte em `/app/config.yaml` e aponte com `--config` para ligar Google/Gemini no teste). |
 
 ## Subir
@@ -23,24 +30,39 @@ Para o deploy real (produção atrás do Pangolin), ver [`deploy.md`](./deploy.m
 docker compose up --build
 ```
 
-Ao ficar saudável (`/v1/livez`), a stack fica disponível em:
+Ao ficar saudável, a borda pública fica em **http://localhost:8080** e serve
+SOMENTE o portal + saúde:
 
-- Admin UI nativa do PocketBase: <http://localhost:8090/_/>
-- Contrato `/v1`: <http://localhost:8090/v1/health>, `/v1/livez`, `/v1/readyz`
-- Swagger: <http://localhost:8090/v1/swagger> (e `/v1/swagger.json`)
-
-As rotas de ator exigem o header do Pangolin (não há Pangolin no teste local, então
-envie-o manualmente):
+- Portal do paciente: `POST http://localhost:8080/v1/portal/register`, `GET /v1/portal/me`, etc.
+- Saúde: <http://localhost:8080/v1/livez>, `/v1/readyz`, `/v1/health`
+- `/v1/app`, `/v1/admin`, `/api/`, `/_/` e `/v1/swagger` respondem **404 na borda** (bloqueados de propósito).
 
 ```bash
-# Terapeuta (ator app):
-curl -s http://localhost:8090/v1/app/patients -H 'X-Pangolin-User: terapeuta@local'
+# Portal (passa pela borda):
+curl -s -X POST http://localhost:8080/v1/portal/register \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Ana","phone":"11999990000","email":"ana@local","password":"senha-forte-123"}'
 
-# Cadastrar um paciente:
-curl -s -X POST http://localhost:8090/v1/app/patients \
-  -H 'X-Pangolin-User: terapeuta@local' -H 'Content-Type: application/json' \
-  -d '{"name":"Ana Teste","phone":"11999990000","email":"ana@local"}'
+# App bloqueado na borda (esperado 404):
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/v1/app/patients
 ```
+
+### Acessar o terapeuta/admin localmente
+
+Como a borda só expõe o portal, para exercitar `/v1/app`, `/v1/admin`, o Swagger
+ou a admin UI `/_/` no teste local, publique a porta do binário **temporariamente**
+(só em dev — nunca em produção):
+
+```bash
+# Sobe a stack e publica a porta interna do psicoman no host:
+docker compose run --rm --service-ports -d psicoman   # ou adicione `ports: ["8090:8090"]` ao serviço psicoman em dev
+# Então o app/admin/_/ ficam em http://localhost:8090 (com o header do Pangolin):
+curl -s http://localhost:8090/v1/app/patients -H 'X-Pangolin-User: terapeuta@local'
+# Admin UI nativa: http://localhost:8090/_/
+```
+
+Alternativa sem Docker: `make serve` (binário direto, todas as rotas em
+`127.0.0.1:8090`, sem a separação de borda — ver abaixo).
 
 > O `/v1/readyz` reporta `google: degraded` neste ambiente (sem OAuth autorizado) —
 > **esperado em teste**. Isso NÃO impede a prontidão: cifra + DB OK ⇒ `ready:true`.

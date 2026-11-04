@@ -228,3 +228,14 @@ Fecha o fluxo "paciente pede → terapeuta confirma", usando a coleção `appoin
 - **Rotas.** Portal (dentro do gate de aprovação; identidade da sessão, nunca do corpo): `POST/GET /v1/portal/appointment-requests`, com isolamento por paciente. Terapeuta: `GET /v1/app/appointment-requests` (fila), `POST .../{id}/confirm` (201 + sessão) e `POST .../{id}/refuse`.
 - **Defesa em profundidade (3 camadas).** Gate do portal (403 para não-aprovado) → regra no serviço (`Request` recusa não-aprovado) → hook de modelo em `appointment_request`. A nota livre do paciente é limitada a 500 caracteres.
 - **Testes.** Unit (aprovado/pendente/local inexistente/slot inválido; confirmar cria sessão `agendada` com `RequestID`; conflito mantém pendente; reconfirmar/recusar 409). E2E: pendente 403, sem sessão 401, validações 400/422, isolamento A×B, fila do terapeuta, confirmar→sessão visível só para A, recusar, 404/409 e app sem header 401.
+
+### 0.21 Segregação de exposição na borda (nginx + Pangolin) — Opção A
+
+Decisão do Rafael (pós-auditoria): separar a **exposição** das três superfícies sem reabrir o invariante "um processo, um listener, três prefixos". A separação é 100% na **borda**, o binário Go fica intocado.
+
+- **Duas bordas, um binário.** O `cmd/psicoman` segue escutando só em `127.0.0.1:8090` com os grupos `/v1/{app,portal,admin}`. Quem separa a exposição é a infra à frente:
+  - **nginx público** (`deploy/nginx/portal.conf`): única superfície na internet. Encaminha SOMENTE `/v1/portal/*` + `/v1/livez|readyz|health`; **nega com 404** `/v1/app`, `/v1/admin`, `/api/`, `/_/`, `/v1/swagger`. Endurecimento L7: rate limit por IP (30 r/min, burst 20 → 429), `client_max_body_size 2m`, timeouts curtos, `limit_conn`, limpeza do header `X-Pangolin-User` recebido de fora (anti-spoofing) e cabeçalhos de segurança. Não termina TLS no compose (o Pangolin/LB acima faz).
+  - **Pangolin**: `/v1/app/*` e `/v1/admin/*`, injetando o header de identidade. Nunca passa pelo nginx público.
+- **Compose espelha a produção.** `docker-compose.yml`: o serviço `psicoman` não publica porta no host (`expose: 8090`, interno); o `nginx-portal` (nginx:1.27-alpine) publica a 8080 e monta o `.conf`. `docker compose up` sobe a topologia real; a admin UI `/_/` e o app só são alcançáveis internamente (em dev, publica-se a 8090 do psicoman temporariamente — ver `stack-local.md`).
+- **Defesa em profundidade, não substituição.** O gate de aprovação, a cifra e as validações continuam no app; o nginx é a camada extra que segrega a exposição e absorve abuso de rede antes de chegar ao binário.
+- **Validação (manual, reproduzível):** com a stack no ar, portal/saúde → 200/401/422; app/admin/api/`_/`/swagger → 404 na borda; header de Pangolin forjado ignorado (404); 60 POSTs rápidos → mistura de 2xx/422 e 429 (rate limit ativo).

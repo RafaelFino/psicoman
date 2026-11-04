@@ -77,8 +77,8 @@ A configuração vem de um `config.yaml` (ver `config.example.yaml`): cifra, hea
 | [`docs/requirements.md`](./docs/requirements.md) | O quê/por quê — requisitos de produto |
 | [`docs/architecture.md`](./docs/architecture.md) | Como — estrutura, coleções, contratos, integrações |
 | [`docs/decisions.md`](./docs/decisions.md) | Registro de decisões (ADR leve) |
-| [`docs/deploy.md`](./docs/deploy.md) | Instalação e operação (binário único, systemd, OAuth Google) |
-| [`docs/stack-local.md`](./docs/stack-local.md) | Stack local em Docker para teste |
+| [`docs/deploy.md`](./docs/deploy.md) | Instalação e operação (binário único, borda nginx+Pangolin, systemd, OAuth Google) |
+| [`docs/stack-local.md`](./docs/stack-local.md) | Stack local em Docker (nginx de borda + binário) para teste |
 | [`docs/release-notes.md`](./docs/release-notes.md) | Notas de versão por onda |
 | [`.kiro/specs/pocketbase-finish/`](./.kiro/specs/pocketbase-finish/) | Spec da onda atual (requirements/design/tasks) |
 | [`.kiro/specs/pocketbase-core/`](./.kiro/specs/pocketbase-core/) | Spec da onda anterior (base técnica) |

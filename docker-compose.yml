@@ -1,8 +1,15 @@
-# Psicoman — stack LOCAL de teste (binário único) para navegabilidade.
+# Psicoman — stack LOCAL de teste espelhando a topologia de produção.
 #
-# Um único serviço (o binário único com o PocketBase embarcado). Em produção o
-# Psicoman roda SEMPRE atrás do Pangolin; aqui a porta é publicada direto no
-# host só para teste local. NÃO use isto em produção.
+# Dois serviços:
+#   - psicoman     : o binário único (PocketBase embarcado). NÃO publica porta no
+#                    host — só é alcançável na rede interna do compose.
+#   - nginx-portal : borda pública que encaminha SOMENTE o portal do paciente
+#                    (/v1/portal/*) + sondas de saúde, com rate limit e limites.
+#                    É o único serviço exposto ao host (porta 8080).
+#
+# Em produção: o nginx-portal fica voltado à internet (TLS terminado acima, no
+# Pangolin/LB); /v1/app e /v1/admin ficam atrás do Pangolin, nunca pelo nginx.
+# Ver docs/deploy.md §5 (borda) e docs/stack-local.md.
 #
 # A chave de cifra é FIXA de teste (fail-closed: sem ela o boot aborta). NUNCA
 # reutilize esta chave fora do ambiente local.
@@ -19,8 +26,10 @@ services:
       dockerfile: Dockerfile
     image: psicoman-local:dev
     command: ["serve", "--http", "0.0.0.0:8090", "--dir", "/data"]
-    ports:
-      - "8090:8090"
+    # Sem `ports`: o binário NÃO é exposto ao host. Só o nginx o alcança pela
+    # rede interna do compose (expose documenta a porta interna).
+    expose:
+      - "8090"
     environment:
       # Chave de cifra de TESTE (base64 de 32 bytes). Só para o ambiente local.
       PSICOMAN_CIPHER_KEY_ID: "k1"
@@ -29,6 +38,23 @@ services:
       - psicoman-data:/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8090/v1/livez"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+    restart: unless-stopped
+
+  nginx-portal:
+    image: nginx:1.27-alpine
+    depends_on:
+      psicoman:
+        condition: service_healthy
+    ports:
+      - "8080:8080" # única porta exposta ao host (borda pública do portal)
+    volumes:
+      - ./deploy/nginx/portal.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/v1/livez"]
       interval: 5s
       timeout: 3s
       retries: 12

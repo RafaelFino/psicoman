@@ -6,6 +6,19 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — Segregação de exposição na borda (Opção A) + CI headless
+
+**Contexto.** O Rafael vai expor o **portal** à internet e manter **app/admin** atrás do Pangolin, no mesmo servidor, preferindo endpoints separados. Queria também testes rodáveis em CI (sem browser). Três caminhos para separar: (A) separar na borda com um proxy, binário intocado; (B) dois listeners no mesmo processo; (C) voltar a dois binários.
+
+**Decisão (do Rafael).** **Opção A.** Não se reabre o invariante "um processo, um listener, três prefixos" (pocketbase-core). A segregação de exposição vive na infra: nginx público só para o portal (endurecido) + Pangolin para app/admin. B e C foram descartados (mais código/risco; C reabre o que a core desmontou).
+
+**Consequências.**
+- `deploy/nginx/portal.conf` (borda do portal) e `docker-compose.yml` reescrito (psicoman interno + nginx-portal público). Docs: `deploy.md §5` (duas bordas), `stack-local.md`, `architecture.md §0.21`.
+- **CI headless** (`.github/workflows/ci.yml`): `make check` + `go test -race` a cada push/PR, com a chave de cifra de teste por env (fail-closed). Nenhum teste abre browser nem toca rede externa — o Swagger UI é só documentação, não teste. Esclarece a dúvida do Rafael: a suíte sempre foi headless (HTTP real + mocks em processo).
+- **Achado operacional:** havia containers órfãos do compose antigo (dois binários) rodando há 13 dias e ocupando a 8080; removidos com `docker compose down --remove-orphans`.
+
+---
+
 ## 2026-10-24 — `pocketbase-finish` auditoria de prontidão para produção
 
 **Contexto.** Após fechar todas as fases, o Rafael pediu uma auditoria exaustiva e testes em tudo antes de publicar.
