@@ -18,6 +18,7 @@ crypto:
     k1: "D5XFpp6YiebdlbZ5Zi6madpJh38YnhPEUkGho9JHBjA="
 pangolin:
   identity_header: "X-Pangolin-User"
+  dev_identity: "dev@local"
 google:
   client_id: "cid"
   client_secret: "csecret"
@@ -72,12 +73,47 @@ func TestLoadDecodeTodosCampos(t *testing.T) {
 	if cfg.Pangolin.IdentityHeader != "X-Pangolin-User" {
 		t.Errorf("Pangolin.IdentityHeader: veio %q", cfg.Pangolin.IdentityHeader)
 	}
+	if cfg.Pangolin.DevIdentity != "dev@local" {
+		t.Errorf("Pangolin.DevIdentity: veio %q", cfg.Pangolin.DevIdentity)
+	}
 	if cfg.Google.ClientID != "cid" || cfg.Google.ClientSecret != "csecret" ||
 		cfg.Google.CalendarID != "cal@group" || cfg.Google.DriveFolder != "folder123" {
 		t.Errorf("Google: veio %+v", cfg.Google)
 	}
 	if cfg.Gemini.APIKey != "SEGREDO_GEMINI_DO_ARQUIVO" {
 		t.Errorf("Gemini.APIKey: veio %q", cfg.Gemini.APIKey)
+	}
+}
+
+// TestLoadDevIdentityOrigem: pangolin.dev_identity é lido do arquivo (origem
+// arquivo com fixture; default sem arquivo) e NUNCA do env (não há env var).
+func TestLoadDevIdentityOrigem(t *testing.T) {
+	p := writeFixture(t, yamlFixture)
+	cfg, origins, err := Load(Options{Path: p})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Pangolin.DevIdentity != "dev@local" {
+		t.Errorf("DevIdentity do arquivo: veio %q", cfg.Pangolin.DevIdentity)
+	}
+	if got := originOf(origins, "pangolin.dev_identity"); got != SourceFile {
+		t.Errorf("origem de pangolin.dev_identity com fixture: quero %q, veio %q", SourceFile, got)
+	}
+
+	// Sem arquivo, a origem é default (e nunca env — o campo não lê env).
+	missing := filepath.Join(t.TempDir(), "nao-existe.yaml")
+	cfg2, origins2, err := Load(Options{Path: missing})
+	if err != nil {
+		t.Fatalf("Load (sem arquivo): %v", err)
+	}
+	if cfg2.Pangolin.DevIdentity != "" {
+		t.Errorf("DevIdentity sem arquivo deveria ser vazio, veio %q", cfg2.Pangolin.DevIdentity)
+	}
+	if got := originOf(origins2, "pangolin.dev_identity"); got != SourceDefault {
+		t.Errorf("origem de pangolin.dev_identity sem arquivo: quero %q, veio %q", SourceDefault, got)
+	}
+	if got := originOf(origins2, "pangolin.dev_identity"); got == SourceEnv {
+		t.Error("pangolin.dev_identity nunca deve ter origem env")
 	}
 }
 

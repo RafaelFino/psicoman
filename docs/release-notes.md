@@ -4,6 +4,18 @@ O que muda a cada onda de trabalho, em linguagem para quem usa o sistema. Detalh
 
 ---
 
+## 2026-11-05 — Rodar a API localmente para testes e para conectar o Google (modo dev de identidade)
+
+Um ajuste para quem desenvolve e testa o Psicoman fora do ambiente de produção. Detalhe técnico em [`decisions.md`](./decisions.md).
+
+**Novidades**
+- **Modo dev para subir a API sem o gateway.** Uma configuração opcional permite rodar o sistema localmente e **concluir o consentimento do Google pelo navegador** (e exercitar os fluxos de app/admin) sem o Pangolin na frente — que, fora de produção, bloquearia o acesso. Fica num campo do arquivo de configuração e, quando ligado, o sistema **avisa em destaque no log** que o modo está ativo.
+
+**Notas de migração/operação**
+- O campo é **só para desenvolvimento**: em produção ele fica **vazio** e o comportamento é o de sempre (acesso exigido pelo Pangolin). Quando preenchido, uma identidade real vinda do gateway sempre tem prioridade. Veja `config.example.yaml` (`pangolin.dev_identity`). **Nunca preencher em produção.**
+
+---
+
 ## 2026-10-24 — Fechando as pontas: perfil, Google de verdade, planos e telas iniciais (onda `pocketbase-finish`)
 
 Completa o que a base nova ainda não entregava: agora dá para cadastrar planos, locais e o seu perfil pelo sistema, autorizar o Google com um clique e ver o seu dia e a história de cada paciente. Detalhe técnico em [`decisions.md`](./decisions.md).

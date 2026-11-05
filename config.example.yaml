@@ -33,6 +33,11 @@ crypto:
 # Env equivalente: PSICOMAN_PANGOLIN_IDENTITY_HEADER. Default: X-Pangolin-User.
 pangolin:
   identity_header: "X-Pangolin-User"
+  # DEV ONLY. Quando NÃO-VAZIO, relaxa o gate do Pangolin: requisições a
+  # /v1/app/* e /v1/admin/* SEM o header de identidade passam usando esta
+  # identidade como ator. O header real, quando presente, SEMPRE vence.
+  # Vazio = comportamento de produção (401 sem header). NUNCA preencher em prod.
+  dev_identity: ""
 
 # Credenciais OAuth do Google. Escopos MÍNIMOS por integração:
 #   calendar  → Calendar/Meet (síncrono, no caminho de request)

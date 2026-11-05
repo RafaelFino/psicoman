@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/RafaelFino/psicoman/internal/config"
 )
 
 // TestAppSemHeaderPangolin401 (5.1): /v1/app/* sem o header do Pangolin → 401
@@ -50,6 +52,29 @@ func TestAdminComHeaderPangolin2xx(t *testing.T) {
 	res := c.do(http.MethodPost, "/v1/admin/backup", "", appHeaders())
 	if res.status != http.StatusAccepted {
 		t.Fatalf("admin com header: quero 202, veio %d (%s)", res.status, res.body)
+	}
+}
+
+// TestAppDevIdentityBypassSemHeader2xx: com pangolin.dev_identity setada no
+// config, /v1/app/* SEM header do Pangolin passa (200) — modo dev de
+// identidade. Troca o configLoader (dev_identity), mantendo a cifra de teste
+// injetada por newTestApp (cipherConfigLoader separado). Prova o bypass
+// ponta a ponta no Register, sem degradar os testes de matriz (que usam o
+// configLoader default, sem dev_identity → 401 preservado).
+func TestAppDevIdentityBypassSemHeader2xx(t *testing.T) {
+	prev := configLoader
+	configLoader = func() (config.Config, []config.OriginEvent, error) {
+		return config.Config{
+			Pangolin: config.PangolinConfig{DevIdentity: "dev@local"},
+		}, nil, nil
+	}
+	t.Cleanup(func() { configLoader = prev })
+
+	app := newTestApp(t)
+	c := newClient(t, app)
+	res := c.do(http.MethodGet, "/v1/app/patients/pending", "", nil)
+	if res.status != http.StatusOK {
+		t.Fatalf("dev identity sem header: quero 200, veio %d (%s)", res.status, res.body)
 	}
 }
 

@@ -18,6 +18,8 @@
 package api
 
 import (
+	"strings"
+
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/RafaelFino/psicoman/internal/api/admin"
@@ -47,6 +49,20 @@ func Register(app core.App) {
 		// Nome do header de identidade do Pangolin, resolvido uma vez no boot.
 		pangolinHdr := httpx.PangolinHeaderName()
 
+		// Bypass de identidade de DEV (pangolin.dev_identity): relaxa o gate
+		// quando setado. Resolvido via configLoader (mesma fonte do resto do
+		// wiring). Erro ao ler config → devIdentity "" (fail-closed: não relaxa).
+		var devIdentity string
+		if c, _, cerr := configLoader(); cerr == nil {
+			devIdentity = strings.TrimSpace(c.Pangolin.DevIdentity)
+		}
+		if devIdentity != "" {
+			// WARN visível no boot; loga só o nome da chave, NUNCA o valor.
+			e.App.Logger().Warn(
+				"ATENÇÃO: modo dev de identidade ATIVO — gate do Pangolin relaxado, NÃO usar em produção",
+				"campo", "pangolin.dev_identity")
+		}
+
 		v1 := e.Router.Group("/v1")
 		v1.BindFunc(httpx.Recover, httpx.RequestID, httpx.Timing, httpx.Logging)
 
@@ -59,7 +75,7 @@ func Register(app core.App) {
 		swagger.Mount(v1)
 
 		appGrp := v1.Group("/app")
-		appGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr))
+		appGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr, devIdentity))
 		apiapp.Mount(appGrp, svc)
 
 		portalGrp := v1.Group("/portal")
@@ -67,7 +83,7 @@ func Register(app core.App) {
 		portal.Mount(portalGrp, svc)
 
 		adminGrp := v1.Group("/admin")
-		adminGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr))
+		adminGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr, devIdentity))
 		admin.Mount(adminGrp, svc)
 
 		return e.Next()

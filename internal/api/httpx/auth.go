@@ -40,9 +40,20 @@ func PangolinHeaderName() string {
 // exige a PRESENÇA do header. A política fina (admin mais restrito) é do
 // gateway na borda, não do app. A admin UI nativa /_/ e a REST /api/* NÃO
 // recebem este middleware (auth própria de superuser do Dashboard).
-func RequirePangolinIdentity(headerName string) func(*core.RequestEvent) error {
+//
+// devIdentity é o bypass de DEV (config pangolin.dev_identity), resolvido uma
+// vez no boot e passado por closure — mesmo padrão de headerName. Quando
+// devIdentity != "" e a requisição chega SEM o header real, a identidade dev é
+// usada como ator e a requisição passa. O header REAL, quando presente, SEMPRE
+// vence (não é sobrescrito). Quando devIdentity == "", o comportamento é
+// idêntico ao de produção (401 sem header). devIdentity já vem trimmed do
+// config; comparamos != "" direto, sem re-trim.
+func RequirePangolinIdentity(headerName, devIdentity string) func(*core.RequestEvent) error {
 	return func(e *core.RequestEvent) error {
 		id := strings.TrimSpace(e.Request.Header.Get(headerName))
+		if id == "" && devIdentity != "" {
+			id = devIdentity
+		}
 		if id == "" {
 			return RespondError(e, http.StatusUnauthorized, "nao_autenticado",
 				"Autenticação necessária.", nil)

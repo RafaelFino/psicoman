@@ -6,6 +6,20 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-05 — Modo dev de identidade (bypass do gate do Pangolin) reintroduzido
+
+**Contexto.** Rodando a API localmente (fora do Pangolin), o callback OAuth do Google pelo navegador (`GET /v1/admin/google/callback`) e qualquer rota `/v1/app/*` / `/v1/admin/*` batem no middleware `RequirePangolinIdentity` e recebem `401 nao_autenticado`, porque o navegador não injeta o header de identidade (`X-Pangolin-User`) que só existe atrás do gateway em produção. A arquitetura de dois binários tinha um `dev_mode` para isso, removido na migração para o binário único (ver entradas de 2026-10-24). Faltava uma forma de relaxar o gate só em dev para concluir o consentimento do Google e exercitar E2E de ponta a ponta.
+
+**Decisão.** Reintroduzir o modo dev adaptado ao binário único via um campo de config `pangolin.dev_identity` (só YAML, sem env — o CD empacota o config no container). Quando NÃO-VAZIO, o middleware passa a usar essa identidade como ator nas requisições a `/v1/app/*` e `/v1/admin/*` que chegarem SEM o header real; o header real, quando presente, SEMPRE vence. Vazio/ausente = comportamento de produção byte a byte (401 sem header), fail-closed por omissão (inclusive quando `configLoader()` erra). No boot, um WARN visível é logado quando o modo está ativo, sem vazar o valor da identidade.
+
+**Consequências.**
+- Relaxa a auth SÓ em dev, e só dentro do container onde o config dev é injetado; produção não muda (campo vazio).
+- Novo campo `PangolinConfig.DevIdentity` (`internal/config`), nova assinatura `httpx.RequirePangolinIdentity(headerName, devIdentity string)`, leitura do campo + WARN no `Register`/`OnServe` (`internal/api/api.go`).
+- Matriz de autorização (`authmatrix_test.go`, `auth_test.go`) inalterada e verde: o `configLoader` default não traz `dev_identity` → bypass desligado → 401 preservado.
+- Sem mudança de contrato de API → Swagger não muda. Documentado em `config.example.yaml`, `docs/architecture.md` e `docs/release-notes.md`. Spec/task: `.agents/tasks/dev-identity-bypass`.
+
+---
+
 ## 2026-10-24 — Segregação de exposição na borda (Opção A) + CI headless
 
 **Contexto.** O Rafael vai expor o **portal** à internet e manter **app/admin** atrás do Pangolin, no mesmo servidor, preferindo endpoints separados. Queria também testes rodáveis em CI (sem browser). Três caminhos para separar: (A) separar na borda com um proxy, binário intocado; (B) dois listeners no mesmo processo; (C) voltar a dois binários.

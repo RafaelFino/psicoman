@@ -48,6 +48,12 @@ type CryptoConfig struct {
 // PangolinConfig espelha o bloco `pangolin`.
 type PangolinConfig struct {
 	IdentityHeader string
+	// DevIdentity é o bypass de DEV (pangolin.dev_identity): quando NÃO-VAZIO,
+	// relaxa o gate do Pangolin nos grupos /v1/app/* e /v1/admin/*, usando este
+	// valor como ator quando a requisição chega sem o header de identidade. O
+	// header real sempre vence; vazio = comportamento de produção (401). Não é
+	// segredo (e-mail/handle de dev) e só vem de YAML — sem env.
+	DevIdentity string
 }
 
 // GoogleConfig espelha o bloco `google`.
@@ -113,6 +119,7 @@ type yamlDoc struct {
 	} `yaml:"crypto"`
 	Pangolin struct {
 		IdentityHeader string `yaml:"identity_header"`
+		DevIdentity    string `yaml:"dev_identity"`
 	} `yaml:"pangolin"`
 	Google struct {
 		ClientID     string `yaml:"client_id"`
@@ -184,6 +191,9 @@ func Load(opts Options) (Config, []OriginEvent, error) {
 		},
 		Pangolin: PangolinConfig{
 			IdentityHeader: resolve("pangolin.identity_header", EnvPangolinHeader, doc.Pangolin.IdentityHeader),
+			// Sem env (envName == ""): origem é sempre arquivo|default, nunca env.
+			// Espelha o padrão de google.* e já faz TrimSpace. Não é segredo.
+			DevIdentity: resolve("pangolin.dev_identity", "", doc.Pangolin.DevIdentity),
 		},
 		Google: GoogleConfig{
 			// google.* sem env por ora (decisão Fase 6): origem é sempre arquivo/default.

@@ -24,7 +24,7 @@ func TestPangolinHeaderNameEnvOverride(t *testing.T) {
 // TestRequirePangolinSemHeader401: header ausente/vazio → 401 nao_autenticado.
 func TestRequirePangolinSemHeader401(t *testing.T) {
 	e, rec := newEvent(t)
-	mw := RequirePangolinIdentity(DefaultPangolinIdentityHeader)
+	mw := RequirePangolinIdentity(DefaultPangolinIdentityHeader, "")
 	if err := mw(e); err != nil {
 		t.Fatalf("middleware: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestRequirePangolinSemHeader401(t *testing.T) {
 func TestRequirePangolinComHeaderPassaEExpoeIdentidade(t *testing.T) {
 	e, rec := newEvent(t)
 	e.Request.Header.Set(DefaultPangolinIdentityHeader, "  terapeuta@exemplo.com  ")
-	mw := RequirePangolinIdentity(DefaultPangolinIdentityHeader)
+	mw := RequirePangolinIdentity(DefaultPangolinIdentityHeader, "")
 	if err := mw(e); err != nil {
 		t.Fatalf("middleware: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestRequirePangolinComHeaderPassaEExpoeIdentidade(t *testing.T) {
 // TestRequirePangolinNomeConfiguravel: o middleware construído com um nome
 // custom aceita o header custom e NÃO o default.
 func TestRequirePangolinNomeConfiguravel(t *testing.T) {
-	mw := RequirePangolinIdentity("X-Custom-Id")
+	mw := RequirePangolinIdentity("X-Custom-Id", "")
 
 	// Só o header custom é aceito.
 	e1, rec1 := newEvent(t)
@@ -100,6 +100,55 @@ func TestPortalAuthRecordIDSemSessao(t *testing.T) {
 	e, _ := newEvent(t)
 	if got := PortalAuthRecordID(e); got != "" {
 		t.Errorf("sem sessão, esperava \"\", veio %q", got)
+	}
+}
+
+// TestRequirePangolinDevSemHeaderPassa: dev identity setada + requisição SEM
+// header → passa (200) e ActorIdentity == a identidade dev (bypass de DEV).
+func TestRequirePangolinDevSemHeaderPassa(t *testing.T) {
+	e, rec := newEvent(t)
+	mw := RequirePangolinIdentity(DefaultPangolinIdentityHeader, "dev@local")
+	if err := mw(e); err != nil {
+		t.Fatalf("middleware: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dev identity sem header deveria passar, veio %d (%s)", rec.Code, rec.Body.String())
+	}
+	if got := ActorIdentity(e); got != "dev@local" {
+		t.Errorf("ActorIdentity esperado dev@local, veio %q", got)
+	}
+}
+
+// TestRequirePangolinHeaderVenceDev: header real presente SEMPRE vence a dev
+// identity — passa e ActorIdentity == header real (dev ignorada).
+func TestRequirePangolinHeaderVenceDev(t *testing.T) {
+	e, rec := newEvent(t)
+	e.Request.Header.Set(DefaultPangolinIdentityHeader, "real@x")
+	mw := RequirePangolinIdentity(DefaultPangolinIdentityHeader, "dev@local")
+	if err := mw(e); err != nil {
+		t.Fatalf("middleware: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("header real deveria passar, veio %d (%s)", rec.Code, rec.Body.String())
+	}
+	if got := ActorIdentity(e); got != "real@x" {
+		t.Errorf("header real deveria vencer a dev identity, ActorIdentity veio %q", got)
+	}
+}
+
+// TestRequirePangolinDevVaziaSemHeader401: dev identity vazia + sem header →
+// 401 nao_autenticado (invariante "vazio = produção").
+func TestRequirePangolinDevVaziaSemHeader401(t *testing.T) {
+	e, rec := newEvent(t)
+	mw := RequirePangolinIdentity(DefaultPangolinIdentityHeader, "")
+	if err := mw(e); err != nil {
+		t.Fatalf("middleware: %v", err)
+	}
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("dev vazia sem header: quero 401, veio %d", rec.Code)
+	}
+	if body := rec.Body.String(); !contains(body, `"code":"nao_autenticado"`) {
+		t.Errorf("code esperado nao_autenticado: %s", body)
 	}
 }
 
