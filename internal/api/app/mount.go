@@ -37,7 +37,13 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	g.PUT("/patients/{id}/anamnesis", h.UpsertAnamnesis)
 	g.GET("/patients/{id}/debts", h.ListPatientDebts)
 
+	// Telas iniciais (R1.1-R1.3): feed do dia, história, métricas de sessão.
+	g.GET("/day-feed", h.DayFeed)
+	g.GET("/patients/{id}/history", h.PatientHistory)
+	g.GET("/patients/{id}/session-metrics", h.PatientSessionMetrics)
+
 	// Sessões.
+	g.GET("/sessions", h.ListSessions) // calendário (R1.4): ?patient_id=&from=&to=
 	g.POST("/sessions", h.CreateSession)
 	g.GET("/sessions/{id}", h.GetSession)
 	g.PATCH("/sessions/{id}", h.UpdateSession)
@@ -59,6 +65,49 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	// Relatórios.
 	g.GET("/reports/financial", h.ReportFinancial)
 	g.GET("/reports/roi", h.ReportROI)
+
+	// Perfil do terapeuta (R3) — singleton 1:1 + links de plataforma.
+	g.GET("/therapist", h.GetTherapist)
+	g.PUT("/therapist", h.UpsertTherapist)
+	g.POST("/therapist/platform-links", h.AddTherapistLink)
+	g.DELETE("/therapist/platform-links/{id}", h.DeleteTherapistLink)
+
+	// Locais + disponibilidades (R1.7). A rota estática de delete de
+	// disponibilidade vem antes de /locations/{id} por especificidade.
+	g.GET("/locations", h.ListLocations)
+	g.POST("/locations", h.CreateLocation)
+	g.DELETE("/locations/availability/{id}", h.DeleteAvailability)
+	g.GET("/locations/{id}", h.GetLocation)
+	g.PATCH("/locations/{id}", h.UpdateLocation)
+	g.DELETE("/locations/{id}", h.DeleteLocation)
+	g.GET("/locations/{id}/availability", h.ListAvailability)
+	g.POST("/locations/{id}/availability", h.AddAvailability)
+
+	// Pedidos de agendamento do portal (R1.8).
+	g.GET("/appointment-requests", h.ListAppointmentRequests)
+	g.POST("/appointment-requests/{id}/confirm", h.ConfirmAppointmentRequest)
+	g.POST("/appointment-requests/{id}/refuse", h.RefuseAppointmentRequest)
+
+	// Custos (R1.6) e relatório de sessões por local (R1.5).
+	g.GET("/cost-categories", h.ListCostCategories)
+	g.POST("/cost-categories", h.CreateCostCategory)
+	g.GET("/cost-items", h.ListCostItems)
+	g.POST("/cost-items", h.CreateCostItem)
+	g.DELETE("/cost-items/{id}", h.DeleteCostItem)
+	g.GET("/sessions/{id}/cost", h.GetSessionCost)
+	g.GET("/reports/costs", h.ReportCosts)
+	g.GET("/locations/{id}/session-report", h.LocationSessionReport)
+
+	// Origens / canais de aquisição (R1.7).
+	g.GET("/origins", h.ListOrigins)
+	g.POST("/origins", h.CreateOrigin)
+	g.PATCH("/origins/{id}", h.UpdateOrigin)
+	g.DELETE("/origins/{id}", h.DeleteOrigin)
+
+	// Planos por paciente (R1.9) — habilitam o débito por sessão via API.
+	g.GET("/patients/{id}/plans", h.ListPatientPlans)
+	g.POST("/patients/{id}/plans", h.CreatePatientPlan)
+	g.DELETE("/plans/{id}", h.DeletePatientPlan)
 }
 
 // reqCtx deriva um contexto com timeout a partir da requisição.

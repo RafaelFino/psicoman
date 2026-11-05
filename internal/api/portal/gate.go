@@ -67,6 +67,8 @@ func isPortalGateException(method, path string) bool {
 		return true
 	case method == http.MethodGet && path == "/v1/portal/me":
 		return true
+	case method == http.MethodGet && path == "/v1/portal/therapist":
+		return true
 	default:
 		return false
 	}

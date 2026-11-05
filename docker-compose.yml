@@ -1,46 +1,60 @@
-# Psicoman — stack LOCAL de teste (admin + portal) em MODO DEV.
+# Psicoman — stack LOCAL de teste espelhando a topologia de produção.
 #
-# Os dois serviços usam a MESMA imagem e compartilham o volume de dados, logo
-# operam sobre o mesmo banco SQLite. Autenticação desligada (dev_mode).
-# NÃO use isto em produção.
+# Dois serviços:
+#   - psicoman     : o binário único (PocketBase embarcado). NÃO publica porta no
+#                    host — só é alcançável na rede interna do compose.
+#   - nginx-portal : borda pública que encaminha SOMENTE o portal do paciente
+#                    (/v1/portal/*) + sondas de saúde, com rate limit e limites.
+#                    É o único serviço exposto ao host (porta 8080).
 #
-# Suba com:   ./scripts/stack-up.sh   (ou make stack-up)
-# Limpe com:  ./scripts/stack-down.sh (ou make stack-down)
+# Em produção: o nginx-portal fica voltado à internet (TLS terminado acima, no
+# Pangolin/LB); /v1/app e /v1/admin ficam atrás do Pangolin, nunca pelo nginx.
+# Ver docs/deploy.md §5 (borda) e docs/stack-local.md.
+#
+# A chave de cifra é FIXA de teste (fail-closed: sem ela o boot aborta). NUNCA
+# reutilize esta chave fora do ambiente local.
+#
+# Suba com:   docker compose up --build
+# Pare/limpe: docker compose down -v   (remove o volume de dados)
 
 name: psicoman-local
 
 services:
-  admin:
+  psicoman:
     build:
       context: .
       dockerfile: Dockerfile
     image: psicoman-local:dev
-    command: ["psicoman-admin", "-config", "/app/config.docker.yaml"]
-    ports:
-      - "8080:8080"
+    command: ["serve", "--http", "0.0.0.0:8090", "--dir", "/data"]
+    # Sem `ports`: o binário NÃO é exposto ao host. Só o nginx o alcança pela
+    # rede interna do compose (expose documenta a porta interna).
+    expose:
+      - "8090"
+    environment:
+      # Chave de cifra de TESTE (base64 de 32 bytes). Só para o ambiente local.
+      PSICOMAN_CIPHER_KEY_ID: "k1"
+      PSICOMAN_CIPHER_KEYS: "k1:wPb6Yex4abAI5VpFY6SIonnjtPOmtuGP2MJVnezqUKY="
     volumes:
       - psicoman-data:/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8080/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8090/v1/livez"]
       interval: 5s
       timeout: 3s
       retries: 12
       start_period: 3s
     restart: unless-stopped
 
-  portal:
-    # Reaproveita a imagem construída pelo serviço admin (mesmo Dockerfile).
-    image: psicoman-local:dev
-    command: ["psicoman-portal", "-config", "/app/config.docker.yaml"]
-    ports:
-      - "8081:8081"
-    volumes:
-      - psicoman-data:/data
+  nginx-portal:
+    image: nginx:1.27-alpine
     depends_on:
-      admin:
+      psicoman:
         condition: service_healthy
+    ports:
+      - "8080:8080" # única porta exposta ao host (borda pública do portal)
+    volumes:
+      - ./deploy/nginx/portal.conf:/etc/nginx/conf.d/default.conf:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:8081/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/v1/livez"]
       interval: 5s
       timeout: 3s
       retries: 12

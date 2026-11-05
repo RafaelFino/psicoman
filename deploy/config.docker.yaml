@@ -1,39 +1,35 @@
-# Psicoman — configuração para a STACK LOCAL em Docker (teste/navegabilidade).
-# MODO DEV: autenticação do admin e do portal DESLIGADA. NUNCA use em produção.
+# Psicoman — config de exemplo para a STACK LOCAL em Docker (binário único).
 #
-# Os dois serviços (admin e portal) compartilham o mesmo arquivo e o mesmo
-# volume de dados (/data), então operam sobre o mesmo banco SQLite.
-
-dev_mode: true
-
-admin:
-  host: "0.0.0.0"
-  port: 8080
-
-portal:
-  host: "0.0.0.0"
-  port: 8081
-
-paths:
-  sqlite: "/data/psicoman.db"
-  ged_root: "/data/ged"
-  log_dir: "/data/logs"
-
-# Em dev as credenciais do admin não são obrigatórias, mas o secret é usado
-# como chave HMAC do cookie de sessão do portal — precisa existir e ser igual
-# entre os dois serviços.
-admin_auth:
-  email: "dev@local"
-  secret: "psicoman-dev-secret-nao-use-em-producao"
-
-# Chave de cifragem AES-256-GCM (base64 de 32 bytes). Valor FIXO de teste.
-# NUNCA reutilize esta chave fora do ambiente local.
-crypto:
-  key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+# O docker-compose.yml provê a chave de cifra por ENV (PSICOMAN_CIPHER_*), que
+# é o mínimo para o boot (fail-closed). Este arquivo é OPCIONAL: monte-o em
+# /app/config.yaml e aponte com --config se quiser ligar Google/Gemini no teste
+# local. NUNCA versione segredos reais.
+#
+# Formato idêntico ao config.example.yaml (arquitetura pocketbase-core).
 
 log:
   level: "info"
 
-rate_limit:
-  requests_per_minute: 120
-  burst: 60
+# Cifra por campo (AES-256-GCM). Em dev, a mesma chave fixa do compose. Em
+# produção, gere com: openssl rand -base64 32 (e NUNCA versione).
+crypto:
+  key_id: "k1"
+  keys:
+    k1: "wPb6Yex4abAI5VpFY6SIonnjtPOmtuGP2MJVnezqUKY="
+
+# Identidade injetada pelo Pangolin (default X-Pangolin-User). Sem Pangolin no
+# teste local, as rotas /v1/app e /v1/admin exigem o header manualmente.
+pangolin:
+  identity_header: "X-Pangolin-User"
+
+# Google e Gemini ficam VAZIOS por padrão: Calendar/Drive degradam (no-op) e a
+# IA fica desligada (opt-in pela presença da api_key). Preencha para testar.
+google:
+  client_id: ""
+  client_secret: ""
+  calendar_id: ""
+  drive_folder: ""
+
+llm:
+  gemini:
+    api_key: ""

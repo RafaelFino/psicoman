@@ -10,6 +10,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/domain/costs"
 	"github.com/RafaelFino/psicoman/internal/domain/patient"
 	"github.com/RafaelFino/psicoman/internal/domain/scheduling"
+	"github.com/RafaelFino/psicoman/internal/domain/therapist"
 )
 
 // Portas de persistência por bounded context (decisão 5 do fase2-plan.md): as
@@ -200,6 +201,25 @@ type TagIndexRepository interface {
 	ListTags(ctx context.Context, patientID string, ano int) ([]*clinical.TagIndex, error)
 }
 
+// --- therapist ---
+
+// TherapistRepository persiste o perfil do terapeuta (singleton lógico 1:1 por
+// instância — R3.1) e seus links de plataforma. GetProfile devolve ErrNotFound
+// quando o perfil ainda não foi configurado; SaveProfile cria-ou-atualiza (o id
+// do agregado é a fonte de verdade).
+type TherapistRepository interface {
+	// GetProfile devolve o único perfil da instância (ErrNotFound se ausente).
+	GetProfile(ctx context.Context) (*therapist.TherapistProfile, error)
+	// SaveProfile grava o perfil (cria se o id não existir, senão atualiza).
+	SaveProfile(ctx context.Context, p *therapist.TherapistProfile) error
+	// ListLinks devolve os links de plataforma do perfil.
+	ListLinks(ctx context.Context, profileID string) ([]*therapist.TherapistPlatformLink, error)
+	// CreateLink persiste um novo link de plataforma.
+	CreateLink(ctx context.Context, l *therapist.TherapistPlatformLink) error
+	// DeleteLink remove um link de plataforma por id.
+	DeleteLink(ctx context.Context, id string) error
+}
+
 // --- transversais ---
 
 // GEDMetaRepository persiste os metadados dos arquivos do GED.
@@ -212,6 +232,19 @@ type GEDMetaRepository interface {
 	// ListByCreatedRange devolve os arquivos criados em [from, to) (todos os pacientes).
 	ListByCreatedRange(ctx context.Context, from, to time.Time) ([]*domain.GEDFile, error)
 	Delete(ctx context.Context, id string) error
+}
+
+// GoogleTokenRepository persiste o refresh token OAuth do Google (R2), cifrado
+// na borda (envelope no campo token; scopes/expiry em claro). Singleton lógico
+// por instância: Load devolve o único token (ErrNotFound se ainda não há
+// autorização); Save cria-ou-atualiza.
+type GoogleTokenRepository interface {
+	// Load devolve o token persistido (ErrNotFound se a instância ainda não foi
+	// autorizada). O refresh token vem decifrado em memória (SealedText).
+	Load(ctx context.Context) (*domain.GoogleToken, error)
+	// Save grava o token (cria se ausente, senão atualiza), cifrando o refresh
+	// token na borda.
+	Save(ctx context.Context, t *domain.GoogleToken) error
 }
 
 // AuditRepository persiste registros de auditoria.

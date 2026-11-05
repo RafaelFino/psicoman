@@ -4,6 +4,33 @@ O que muda a cada onda de trabalho, em linguagem para quem usa o sistema. Detalh
 
 ---
 
+## 2026-10-24 — Fechando as pontas: perfil, Google de verdade, planos e telas iniciais (onda `pocketbase-finish`)
+
+Completa o que a base nova ainda não entregava: agora dá para cadastrar planos, locais e o seu perfil pelo sistema, autorizar o Google com um clique e ver o seu dia e a história de cada paciente. Detalhe técnico em [`decisions.md`](./decisions.md).
+
+**Novidades**
+- **Seu perfil profissional.** Cadastre nome, CRP, contatos, bio e links de plataformas. O **PDF de cobrança volta a trazer o seu nome e CRP** no topo. O paciente vê no portal só o público (nome, foto e bio).
+- **Autorização do Google pelo próprio sistema.** Um fluxo único de autorização conecta Calendar e Drive à sua conta; o acesso fica guardado **cifrado** e é renovado sozinho. Se um dia precisar reautorizar, o painel de saúde avisa.
+- **Locais, origens e planos.** Cadastre locais com horários de atendimento, canais de origem e o **plano de cada paciente**. Com um plano por consulta ativo, **finalizar a sessão já gera o débito** com o valor do plano.
+- **Comprovante de pagamento.** Ao registrar um pagamento, você pode anexar o comprovante; ele fica guardado junto do paciente.
+- **Seu dia, a história e os números do paciente.** Feed do dia, **história completa** do paciente, **métricas de sessão** (comparecimento e cancelamento) e **calendário** por paciente ou por período — sem nunca mostrar o conteúdo clínico nessas telas.
+- **Verificação de saúde do sistema.** Endereços de "estou vivo" e "estou pronto" (cifra, banco e Google) para a operação monitorar.
+
+**Melhorias**
+- **Guia de instalação refeito** para o aplicativo único, e stack local em Docker de um serviço só.
+
+**Mais novidades (fechamento da onda)**
+- **Custos e retorno por canal.** Cadastre categorias e itens de custo, veja o custo de cada sessão, o **relatório de custos** do período e o **ROI** por canal de origem.
+- **Relatório de sessões por local.** Para repassar a clínicas parceiras: sessões por categoria e faturado das realizadas, com o mês corrente como padrão.
+- **Agendamento pelo paciente.** O paciente aprovado **pede um horário** pelo portal; você vê a fila de pedidos e **confirma** (cria a sessão, checando conflito de agenda) ou recusa.
+
+**Notas de migração/operação**
+- Configure o `config.yaml` com as credenciais do Google e autorize pela rota de administração (ver `docs/deploy.md`). O token antigo por variável de ambiente só vale como atalho de desenvolvimento.
+- **Conscientemente adiado:** verificação de email do portal (o gate de aprovação já cobre o risco) e endpoint de métricas (o tempo por rota já é registrado nos logs).
+- Os scripts antigos de instalação foram **removidos**; a instalação e a atualização seguem o guia atualizado (`docs/deploy.md`).
+
+---
+
 ## 2026-10-24 — Base técnica nova: um só aplicativo, prontuário cifrado e assistência por IA (onda `pocketbase-core`)
 
 Reconstrói a fundação do Psicoman sobre uma base mais sólida e segura, sem mudar o jeito de trabalhar no dia a dia: agora é **um único aplicativo**, o prontuário fica **cifrado**, a agenda checa conflito na hora, a cobrança vira PDF pronto para enviar, o backup ganha uma cópia de segurança na nuvem e surge uma **ajuda opcional de IA** para resumir sessões. Detalhe técnico em [`decisions.md`](./decisions.md) e [`architecture.md`](./architecture.md).

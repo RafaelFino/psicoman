@@ -77,9 +77,11 @@ A configuração vem de um `config.yaml` (ver `config.example.yaml`): cifra, hea
 | [`docs/requirements.md`](./docs/requirements.md) | O quê/por quê — requisitos de produto |
 | [`docs/architecture.md`](./docs/architecture.md) | Como — estrutura, coleções, contratos, integrações |
 | [`docs/decisions.md`](./docs/decisions.md) | Registro de decisões (ADR leve) |
-| [`docs/deploy.md`](./docs/deploy.md) | Instalação e operação |
+| [`docs/deploy.md`](./docs/deploy.md) | Instalação e operação (binário único, borda nginx+Pangolin, systemd, OAuth Google) |
+| [`docs/stack-local.md`](./docs/stack-local.md) | Stack local em Docker (nginx de borda + binário) para teste |
 | [`docs/release-notes.md`](./docs/release-notes.md) | Notas de versão por onda |
-| [`.kiro/specs/pocketbase-core/`](./.kiro/specs/pocketbase-core/) | Spec da onda atual (requirements/design/tasks) |
+| [`.kiro/specs/pocketbase-finish/`](./.kiro/specs/pocketbase-finish/) | Spec da onda atual (requirements/design/tasks) |
+| [`.kiro/specs/pocketbase-core/`](./.kiro/specs/pocketbase-core/) | Spec da onda anterior (base técnica) |
 
 ## Segurança e privacidade
 
@@ -89,4 +91,6 @@ A configuração vem de um `config.yaml` (ver `config.example.yaml`): cifra, hea
 
 ## Status
 
-Onda `pocketbase-core` implementada e verde: binário único com PocketBase embarcado, cifra por campo, contrato `/v1` por ator, Calendar síncrono, PDF de cobrança no GED, Drive como DR, Gemini opt-in com índice de tags e portal do paciente com auth própria. `make check` passa (fmt + vet + build + unit + e2e).
+Onda `pocketbase-core` implementada e verde: binário único com PocketBase embarcado, cifra por campo, contrato `/v1` por ator, Calendar síncrono, PDF de cobrança no GED, Drive como DR, Gemini opt-in com índice de tags e portal do paciente com auth própria.
+
+Onda `pocketbase-finish` (fechamento de gaps): perfil do terapeuta (com cabeçalho na cobrança), OAuth 3-legged real com token cifrado, `/v1/readyz` + `/v1/livez`, locais/origens/planos/comprovante, feed/história/métricas/calendário, custos/ROI completo + relatório por local, pedidos de agendamento pelo portal e docs de deploy do binário único. Auditada para produção (contrato Swagger↔rotas, matriz de autorização, fail-closed de cifra, `-race` limpo). **Adiado conscientemente:** verificação de email do portal (⟨R4⟩) e endpoint de métricas Prometheus (⟨R5⟩). `make check` passa (fmt + vet + build + unit + e2e).

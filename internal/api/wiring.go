@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 
@@ -90,10 +91,17 @@ func buildServices(a core.App) (*service.Services, error) {
 	}
 	cipher := crypto.New(kp)
 
+	// Serviço de autorização OAuth do Google (R2): fonte única do refresh token
+	// (repo cifrado com precedência sobre o env de dev) e do estado de
+	// reautorização exposto em /readyz. Construído cedo para alimentar o wiring
+	// de Calendar/Drive abaixo.
+	googleTokenRepo := pb.NewGoogleTokenRepository(a, cipher)
+	googleAuth := app.NewGoogleAuthService(googleTokenRepo)
+
 	// Hook de DR no ciclo de backup (Fase 7): espelha o snapshot cifrado no
 	// Drive (fallback/DR, fora do caminho de request). Degrada para no-op sem
 	// credenciais Google — o backup local segue.
-	driveSyncWirer(a, kp)
+	driveSyncWirer(a, kp, googleAuth)
 
 	// Repositórios (adapter platform/pb).
 	patientsRepo := pb.NewPatientRepository(a)
@@ -112,6 +120,7 @@ func buildServices(a core.App) (*service.Services, error) {
 	prontuarioRepo := pb.NewProntuarioRepository(a, cipher)
 	aiSummaryRepo := pb.NewAISummaryRepository(a, cipher)
 	tagIndexRepo := pb.NewTagIndexRepository(a)
+	therapistRepo := pb.NewTherapistRepository(a)
 
 	// Serviços.
 	audit := app.NewAuditService(auditRepo)
@@ -119,7 +128,7 @@ func buildServices(a core.App) (*service.Services, error) {
 
 	sessions := app.NewSessionService(sessionsRepo, patientsRepo)
 	sessions.SetAudit(audit)
-	calendarWirer(a, sessions)
+	calendarWirer(a, sessions, googleAuth)
 
 	billing := app.NewBillingService(debtsRepo, plansRepo, audit)
 	sessions.AddFinishedHook(billing)
@@ -128,37 +137,90 @@ func buildServices(a core.App) (*service.Services, error) {
 	sessions.AddFinishedHook(costSvc)
 
 	payments := app.NewPaymentService(paymentsRepo, debtsRepo, audit)
+	payments.SetGED(gedRepo, pb.NewGEDBlobStore(a)) // comprovante de pagamento (R1.9)
 	reports := app.NewReportService(reportsRepo, originsRepo, costsRepo)
 	metrics := app.NewSessionMetricsService(sessionsRepo, debtsRepo, locationsRepo)
 	dayfeed := app.NewDayFeedService(sessionsRepo, debtsRepo, paymentsRepo, gedRepo, appointmentsRepo, patientsRepo, audit)
 	history := app.NewHistoryService(patientsRepo, sessionsRepo, prontuarioRepo, debtsRepo, paymentsRepo, gedRepo, audit)
 	prontuario := app.NewProntuarioService(prontuarioRepo, nil)
 
+	// Perfil do terapeuta (R3): serviço singleton 1:1 + injeção do cabeçalho na
+	// cobrança (nome/CRP no PDF quando o perfil está configurado).
+	therapist := app.NewTherapistService(therapistRepo)
+
+	// Núcleo utilizável (R1.7/R1.9): locais+disponibilidades, origens e planos.
+	// Com um plano por sessão vigente, o débito passa a funcionar ponta a ponta
+	// via API (BillingService.OnSessionFinished já lê o plano vigente).
+	locations := app.NewLocationService(locationsRepo)
+	origins := app.NewOriginService(originsRepo)
+	plans := app.NewPlanService(plansRepo)
+	// Pedidos de agendamento (R1.8): confirmar cria a sessão agendada (conflito
+	// + evento de Calendar via SessionService).
+	appts := app.NewAppointmentService(appointmentsRepo, patientsRepo, locationsRepo, sessions)
+
 	// PDF de cobrança no GED (file storage do PocketBase, D9b): o blob store
-	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256).
+	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256). O perfil
+	// do terapeuta alimenta o cabeçalho do PDF (R3.3).
 	invoice := app.NewInvoiceService(debtsRepo, patientsRepo, gedRepo, pb.NewGEDBlobStore(a), audit)
+	invoice.SetTherapist(therapistRepo)
 
 	// IA Gemini (Fase 8): opt-in pela presença de llm.gemini.api_key. Sem chave,
 	// aiSummarizerBuilder devolve nil e o AIService fica desligado (Enabled()
 	// false). Resumo revisável + índice invertido de tags por paciente/ano.
 	ai := app.NewAIService(aiSummarizerBuilder(a), aiSummaryRepo, tagIndexRepo, sessionsRepo, audit)
 
+	// Credenciais do app Google para o fluxo de autorização OAuth (rotas admin).
+	// Origem é o internal/config (arquivo); vazio => fluxo indisponível (422).
+	var oauthCfg service.GoogleOAuthConfig
+	if c, _, cerr := configLoader(); cerr == nil {
+		oauthCfg = service.GoogleOAuthConfig{ClientID: c.Google.ClientID, ClientSecret: c.Google.ClientSecret}
+	}
+
 	return &service.Services{
-		Patients:   patients,
-		Sessions:   sessions,
-		Billing:    billing,
-		Payments:   payments,
-		Costs:      costSvc,
-		Reports:    reports,
-		Metrics:    metrics,
-		DayFeed:    dayfeed,
-		History:    history,
-		Audit:      audit,
-		Prontuario: prontuario,
-		Invoice:    invoice,
-		AI:         ai,
-		PortalAuth: portalAuth,
+		Patients:    patients,
+		Sessions:    sessions,
+		Billing:     billing,
+		Payments:    payments,
+		Costs:       costSvc,
+		Reports:     reports,
+		Metrics:     metrics,
+		DayFeed:     dayfeed,
+		History:     history,
+		Audit:       audit,
+		Prontuario:  prontuario,
+		Invoice:     invoice,
+		AI:          ai,
+		Therapist:   therapist,
+		GoogleAuth:  googleAuth,
+		Locations:   locations,
+		Origins:     origins,
+		Plans:       plans,
+		Appts:       appts,
+		PortalAuth:  portalAuth,
+		Cipher:      cipher,
+		GoogleOAuth: oauthCfg,
 	}, nil
+}
+
+// resolveGoogleRefreshToken resolve o refresh token do Google com PRECEDÊNCIA DO
+// REPO (⟨decisão R2⟩): o token persistido cifrado em google_token é o caminho
+// primário; o env PSICOMAN_GOOGLE_REFRESH_TOKEN é um fallback só de dev, usado
+// apenas quando o repo está vazio. A origem é logada SEM vazar o segredo (só a
+// origem). Devolve ("", false) quando nenhuma fonte tem token.
+func resolveGoogleRefreshToken(a core.App, googleAuth *app.GoogleAuthService) (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if tok, ok, err := googleAuth.RefreshToken(ctx); err != nil {
+		a.Logger().Warn("Google: falha ao ler o refresh token do repositório", "erro", err.Error())
+	} else if ok {
+		a.Logger().Info("Google: refresh token carregado", "origem", "repositorio (google_token)")
+		return tok, true
+	}
+	if env := strings.TrimSpace(os.Getenv(EnvGoogleRefreshToken)); env != "" {
+		a.Logger().Info("Google: refresh token carregado", "origem", "env (fallback de dev)")
+		return env, true
+	}
+	return "", false
 }
 
 // calendarWirer é o seam de injeção do Calendar no SessionService. Default liga
@@ -241,7 +303,7 @@ func buildAISummarizer(a core.App) app.AISummarizer {
 // Syncer com uploader nil — o hook roda como no-op observável (backup local
 // segue, sem 500, com aviso logado). O snapshot é cifrado com o BlobSealer
 // (mesmas chaves da cifra de campo) antes do upload (drive.file, D9).
-func wireDriveSync(a core.App, kp *crypto.MapKeyProvider) {
+func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.GoogleAuthService) {
 	sealer := crypto.NewBlobSealer(kp)
 	cfg, _, err := configLoader()
 	if err != nil {
@@ -257,9 +319,11 @@ func wireDriveSync(a core.App, kp *crypto.MapKeyProvider) {
 		drivesync.New(nil, sealer).Register(a)
 		return
 	}
-	refresh := strings.TrimSpace(os.Getenv(EnvGoogleRefreshToken))
+	// Refresh token com precedência do repo (⟨R2⟩); env é fallback de dev.
+	refresh, ok := resolveGoogleRefreshToken(a, googleAuth)
 	creds := google.OAuthCredentials{ClientID: g.ClientID, ClientSecret: g.ClientSecret, RefreshToken: refresh}
-	if !creds.Valid() {
+	if !ok || !creds.Valid() {
+		googleAuth.FlagReauthorization("Sem refresh token OAuth do Google (reautorização necessária).")
 		a.Logger().Warn("Drive DR desativado: sem refresh token OAuth (reautorização necessária) — backup não espelhado")
 		drivesync.New(nil, sealer).Register(a)
 		return
@@ -276,7 +340,7 @@ func wireDriveSync(a core.App, kp *crypto.MapKeyProvider) {
 // contrário, NÃO injeta nada: a sessão agenda sem evento (no-op, sem panic),
 // com AVISO logado no boot — sem vazar segredo (psicoman-google-api.md D8,
 // psicoman-seguranca-lgpd.md). É o único Google no caminho de request.
-func wireCalendar(a core.App, sessions *app.SessionService) {
+func wireCalendar(a core.App, sessions *app.SessionService, googleAuth *app.GoogleAuthService) {
 	cfg, _, err := configLoader()
 	if err != nil {
 		a.Logger().Warn("Google Calendar desativado: falha ao ler config", "erro", err.Error())
@@ -289,13 +353,15 @@ func wireCalendar(a core.App, sessions *app.SessionService) {
 		a.Logger().Warn("Google Calendar desativado: credenciais ausentes (client_id/client_secret/calendar_id) — sessões agendam sem evento")
 		return
 	}
-	refresh := strings.TrimSpace(os.Getenv(EnvGoogleRefreshToken))
+	// Refresh token com precedência do repo (⟨R2⟩); env é fallback de dev.
+	refresh, ok := resolveGoogleRefreshToken(a, googleAuth)
 	creds := google.OAuthCredentials{
 		ClientID:     g.ClientID,
 		ClientSecret: g.ClientSecret,
 		RefreshToken: refresh,
 	}
-	if !creds.Valid() {
+	if !ok || !creds.Valid() {
+		googleAuth.FlagReauthorization("Sem refresh token OAuth do Google (reautorização necessária).")
 		a.Logger().Warn("Google Calendar desativado: sem refresh token OAuth (reautorização necessária) — sessões agendam sem evento")
 		return
 	}

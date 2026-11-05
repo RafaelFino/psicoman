@@ -26,6 +26,10 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	g.GET("/me", h.Me)
 	g.GET("/sessions", h.Sessions)
 	g.POST("/register", h.Register)
+	g.GET("/therapist", h.Therapist) // dados públicos do terapeuta (fora do gate)
+	// Pedidos de agendamento (R1.8): dentro do gate de aprovação.
+	g.POST("/appointment-requests", h.CreateAppointment)
+	g.GET("/appointment-requests", h.ListAppointments)
 }
 
 // Me GET /v1/portal/me — fora do gate de aprovação (o paciente vê o próprio

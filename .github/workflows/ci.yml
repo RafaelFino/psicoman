@@ -1,0 +1,49 @@
+name: CI
+
+# Gate de qualidade headless (sem browser, sem rede externa): o mesmo
+# `make check` do desenvolvimento, mais o race detector. Google/OAuth/Gemini
+# são mockados nos testes (servidores fake em processo) — nada toca a internet.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Chave de cifra FIXA de teste (base64 de 32 bytes), igual à usada no
+  # test/e2e. Não é segredo: o boot é fail-closed e exige a cifra, então o CI a
+  # fornece por env. NUNCA use esta chave em produção.
+  PSICOMAN_CIPHER_KEY_ID: k1
+  PSICOMAN_CIPHER_KEYS: "k1:wPb6Yex4abAI5VpFY6SIonnjtPOmtuGP2MJVnezqUKY="
+
+jobs:
+  check:
+    name: make check (fmt + vet + build + unit + e2e)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+      - name: make check
+        run: make check
+
+  race:
+    name: go test -race
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+      - name: race detector (unit + adapters)
+        run: go test -race ./internal/...

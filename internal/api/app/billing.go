@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/base64"
 	"net/http"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -10,8 +11,10 @@ import (
 )
 
 type payBody struct {
-	AmountCents int64  `json:"amount_cents"`
-	Method      string `json:"method"`
+	AmountCents   int64  `json:"amount_cents"`
+	Method        string `json:"method"`
+	ReceiptBase64 string `json:"receipt_base64,omitempty"` // comprovante opcional (R1.9)
+	ReceiptMIME   string `json:"receipt_mime,omitempty"`
 }
 
 // GetDebt GET /v1/app/debts/{id}.
@@ -34,11 +37,21 @@ func (h *Handlers) PayDebt(e *core.RequestEvent) error {
 	if err := e.BindBody(&body); err != nil {
 		return httpx.FailBadRequest(e, err)
 	}
+	var receipt []byte
+	if body.ReceiptBase64 != "" {
+		decoded, derr := base64.StdEncoding.DecodeString(body.ReceiptBase64)
+		if derr != nil {
+			return httpx.FailBadRequest(e, derr)
+		}
+		receipt = decoded
+	}
 	ctx, cancel := reqCtx(e)
 	defer cancel()
 	debt, payment, err := h.svc.Payments.Pay(ctx, id, app.PayInput{
-		Amount: body.AmountCents,
-		Method: body.Method,
+		Amount:  body.AmountCents,
+		Method:  body.Method,
+		Receipt: receipt,
+		MIME:    body.ReceiptMIME,
 	})
 	if err != nil {
 		return httpx.Fail(e, err)

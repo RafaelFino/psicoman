@@ -9,6 +9,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/domain"
 	"github.com/RafaelFino/psicoman/internal/domain/billing"
 	"github.com/RafaelFino/psicoman/internal/domain/patient"
+	"github.com/RafaelFino/psicoman/internal/domain/therapist"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
 	"github.com/RafaelFino/psicoman/internal/platform/pdf"
 	"github.com/RafaelFino/psicoman/internal/platform/ulid"
@@ -21,12 +22,13 @@ import (
 // (descartando SendCharge/Gmail e o cabeçalho de perfil do terapeuta, ainda não
 // portado para o domínio rico).
 type InvoiceService struct {
-	debts    DebtRepository
-	patients PatientRepository
-	meta     GEDMetaRepository
-	blobs    GEDBlobStore
-	audit    *AuditService
-	clock    clock.Clock
+	debts     DebtRepository
+	patients  PatientRepository
+	meta      GEDMetaRepository
+	blobs     GEDBlobStore
+	audit     *AuditService
+	therapist TherapistRepository // opcional: cabeçalho do terapeuta no PDF (R3.3)
+	clock     clock.Clock
 }
 
 // NewInvoiceService cria o serviço de cobrança em PDF. audit é opcional (pode
@@ -42,6 +44,12 @@ func NewInvoiceService(debts DebtRepository, patients PatientRepository, meta GE
 	}
 }
 
+// SetTherapist injeta a porta do perfil do terapeuta para que o PDF de cobrança
+// imprima o cabeçalho (nome/CRP) quando o perfil estiver configurado (R3.3).
+// Opcional: sem perfil, ou sem a porta injetada, o PDF sai sem cabeçalho (como
+// antes). Mantém a assinatura do construtor estável (o wiring chama este setter).
+func (s *InvoiceService) SetTherapist(repo TherapistRepository) { s.therapist = repo }
+
 // GeneratePDF gera (ou reaproveita) o PDF de cobrança do débito, armazena no GED
 // (escopo do paciente, dedup por SHA-256) e vincula ao débito. Devolve o
 // metadado do arquivo no GED. Idempotente por conteúdo: o mesmo débito gera o
@@ -56,7 +64,12 @@ func (s *InvoiceService) GeneratePDF(ctx context.Context, debtID string) (*domai
 		return nil, err
 	}
 
-	pdfBytes := s.compose(debt, pat).Render()
+	// Cabeçalho do terapeuta (nome/CRP), quando o perfil está configurado (R3.3).
+	// Best-effort: ausência do perfil (ErrNotFound) ou da porta não falha a
+	// cobrança — o PDF sai sem cabeçalho.
+	prof := s.therapistProfile(ctx)
+
+	pdfBytes := s.compose(debt, pat, prof).Render()
 	sum := sha256.Sum256(pdfBytes)
 	sha := hex.EncodeToString(sum[:])
 
@@ -135,11 +148,32 @@ func gedRelPath(patientID, sha string) string {
 	return fmt.Sprintf("ged/%s/%s.pdf", scope, sha)
 }
 
+// therapistProfile carrega o perfil do terapeuta para o cabeçalho do PDF. É
+// best-effort: sem a porta injetada ou sem perfil configurado devolve nil, e o
+// PDF é composto sem cabeçalho (não falha a cobrança).
+func (s *InvoiceService) therapistProfile(ctx context.Context) *therapist.TherapistProfile {
+	if s.therapist == nil {
+		return nil
+	}
+	prof, err := s.therapist.GetProfile(ctx)
+	if err != nil {
+		return nil
+	}
+	return prof
+}
+
 // compose monta o documento PDF da cobrança a partir do débito e do paciente.
-// O cabeçalho de perfil do terapeuta (nome/CRP) fica de fora: o domínio rico
-// ainda não porta o TherapistProfile (entra numa fase posterior).
-func (s *InvoiceService) compose(debt *billing.Debt, pat *patient.Patient) *pdf.Document {
+// Quando há perfil do terapeuta configurado, imprime o cabeçalho (nome/CRP)
+// antes dos dados do paciente (R3.3).
+func (s *InvoiceService) compose(debt *billing.Debt, pat *patient.Patient, prof *therapist.TherapistProfile) *pdf.Document {
 	doc := pdf.New("Cobrança de Atendimento")
+	if prof != nil && prof.Name != "" {
+		doc.AddLine(prof.Name)
+		if prof.CRP != "" {
+			doc.AddLine("CRP: " + prof.CRP)
+		}
+		doc.AddLine("")
+	}
 	doc.AddLine("Paciente: " + pat.Name)
 	if pat.CPF != "" {
 		doc.AddLine("CPF: " + pat.CPF)

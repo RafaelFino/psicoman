@@ -50,8 +50,10 @@ func Register(app core.App) {
 		v1 := e.Router.Group("/v1")
 		v1.BindFunc(httpx.Recover, httpx.RequestID, httpx.Timing, httpx.Logging)
 
-		// Health no envelope (mantém 200 para o smoke de boot; fora da auth).
+		// Health/observabilidade no envelope, fora da auth (probes de operação).
 		v1.GET("/health", apiapp.Health)
+		v1.GET("/livez", livez)
+		v1.GET("/readyz", readyz(svc))
 
 		// Swagger (um documento /v1 com os três atores por tags).
 		swagger.Mount(v1)

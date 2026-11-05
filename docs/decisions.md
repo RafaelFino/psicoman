@@ -6,6 +6,133 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-10-24 — Segregação de exposição na borda (Opção A) + CI headless
+
+**Contexto.** O Rafael vai expor o **portal** à internet e manter **app/admin** atrás do Pangolin, no mesmo servidor, preferindo endpoints separados. Queria também testes rodáveis em CI (sem browser). Três caminhos para separar: (A) separar na borda com um proxy, binário intocado; (B) dois listeners no mesmo processo; (C) voltar a dois binários.
+
+**Decisão (do Rafael).** **Opção A.** Não se reabre o invariante "um processo, um listener, três prefixos" (pocketbase-core). A segregação de exposição vive na infra: nginx público só para o portal (endurecido) + Pangolin para app/admin. B e C foram descartados (mais código/risco; C reabre o que a core desmontou).
+
+**Consequências.**
+- `deploy/nginx/portal.conf` (borda do portal) e `docker-compose.yml` reescrito (psicoman interno + nginx-portal público). Docs: `deploy.md §5` (duas bordas), `stack-local.md`, `architecture.md §0.21`.
+- **CI headless** (`.github/workflows/ci.yml`): `make check` + `go test -race` a cada push/PR, com a chave de cifra de teste por env (fail-closed). Nenhum teste abre browser nem toca rede externa — o Swagger UI é só documentação, não teste. Esclarece a dúvida do Rafael: a suíte sempre foi headless (HTTP real + mocks em processo).
+- **Achado operacional:** havia containers órfãos do compose antigo (dois binários) rodando há 13 dias e ocupando a 8080; removidos com `docker compose down --remove-orphans`.
+
+---
+
+## 2026-10-24 — `pocketbase-finish` auditoria de prontidão para produção
+
+**Contexto.** Após fechar todas as fases, o Rafael pediu uma auditoria exaustiva e testes em tudo antes de publicar.
+
+**Decisão / achados.**
+1. **Segurança (corrigido).** `GET /v1/portal/therapist` não exigia sessão (expunha o perfil a anônimos). Passou a exigir sessão de paciente (401 sem auth).
+2. **Contrato.** Teste de contrato Swagger↔rotas (`api/swagger/contract_test.go`): drift passa a quebrar o build. Matriz de autorização (`api/authmatrix_test.go`): toda rota protegida → 401 sem credencial; credenciais não se cruzam (Pangolin não abre portal; token de paciente não abre app/admin).
+3. **Fail-closed.** E2E (`test/e2e/boot_cipher_test.go`) prova que sem cifra o binário não serve `/v1`.
+4. **Concorrência.** `go test -race ./internal/...` limpo.
+5. **Cobertura.** `platform/clock` 0→92.9%; reforços em `httpx` e `drivesync`. `app`/`platform/pb`/`drivesync`/`api/{app,portal,admin}` têm cobertura efetiva alta via E2E/pacote agregador, não refletida no número unitário.
+6. **Scripts legados removidos** (`deploy.sh`, `update-server.sh`, `stack-up.sh`, `stack-down.sh`, `seed.sh`): modelo antigo de dois binários, órfãos; evita operador rodar tooling quebrada.
+
+**Consequências.** Relatório completo no fechamento da onda. `make check` e race verdes. Fora de escopo mantido: verificação de email (⟨R4⟩) e endpoint de métricas (⟨R5⟩). Push/PR aguardam OK do Rafael.
+
+---
+
+## 2026-10-24 — `pocketbase-finish` Fase 7: pedidos de agendamento pelo portal reincluídos na onda (R1 sub-fase 4)
+
+**Contexto.** Adiada por recorte, reincluída por instrução do Rafael (concluir tudo antes da auditoria para produção). A coleção, o repositório e o hook de aprovação já existiam; faltavam serviço e rotas.
+
+**Decisão.** `AppointmentService` + rotas no portal (criar/listar os próprios) e no app (fila/confirmar/recusar). Confirmar cria a sessão `agendada` pelo `SessionService` (conflito → 409, pedido segue pendente), em vez de duplicar a lógica de agenda. A regra "agendar exige aprovado" é aplicada também no serviço, além do gate e do hook.
+
+**Consequências.** Novos `app/appointment_service.go`, `api/app/appointments.go`, `api/portal/appointments.go`; Swagger; E2E com isolamento entre pacientes. Fases 6 e 7 deixam de ser "onda seguinte"; permanecem adiados apenas a verificação de email (⟨R4⟩) e o endpoint de métricas (⟨R5⟩).
+
+---
+
+## 2026-10-24 — `pocketbase-finish` Fase 6: custos, ROI e relatório por local reincluídos na onda (R1 sub-fase 3)
+
+**Contexto.** A sub-fase 3 havia sido adiada por recorte (⟨R1⟩). Após o fechamento parcial, o Rafael pediu para concluir tudo que ficou pendente antes da auditoria para produção; a decisão de adiar foi revogada para as Fases 6 e 7.
+
+**Decisão.** Expor CRUD de categorias/itens de custo, custo de sessão, relatório de custos e relatório de sessões por local (default mês corrente), reutilizando os serviços existentes. Sem regra nova.
+
+**Consequências.** Novo `api/app/costs.go` + 8 rotas e Swagger; E2E de jornada com negativos. Os docs que diziam "sem rota" (requirements §3.5, release-notes, README) são atualizados no fechamento final.
+
+---
+
+## 2026-10-24 — `pocketbase-finish` Fase 8: docs operacionais + infra do binário único (R6)
+
+**Contexto.** `docs/deploy.md` e `docs/stack-local.md` descreviam o modelo antigo (dois binários, `dev_mode`, Gmail) e estavam com nota de "desatualizado". Ao reescrevê-los, descobriu-se que `Dockerfile`/`docker-compose.yml`/`deploy/config.docker.yaml` também referenciavam `cmd/admin`/`cmd/portal` (inexistentes) — a stack estava quebrada contra o código atual.
+
+**Decisão.** Reescrever os dois docs para o binário único E consertar a infra de container (Dockerfile/compose/config.docker) para a coerência exigida pela DoD ("docs com comandos reais"). A autorização Google documentada é a real da Fase 2 (`/v1/admin/google/authorize` → callback). Os scripts shell legados (`deploy.sh`/`update-server.sh`/`stack-*.sh`/`seed.sh`) ficam fora de escopo desta onda: os docs usam os passos manuais/`docker compose` atuais em vez de referenciá-los.
+
+**Consequências.**
+- `Dockerfile` (compila `./cmd/psicoman`, Go 1.27, `ENTRYPOINT psicoman`), `docker-compose.yml` (um serviço, cifra por env), `deploy/config.docker.yaml` (formato atual) reescritos. Imagem validada: build OK + `/v1/livez`/`/v1/readyz` 200 no container.
+- `docs/deploy.md` (systemd de um serviço, OAuth real, Pangolin por prefixo, atualização manual) e `docs/stack-local.md` (`docker compose` / `make serve`) reescritos; notas de "desatualizado" removidas.
+- Limpeza/reescrita dos scripts shell legados registrada como dívida para onda futura.
+
+---
+
+## 2026-10-24 — `pocketbase-finish` Fase 5: telas iniciais (feed, história, métricas, calendário) (R1 sub-fase 2)
+
+**Contexto.** `DayFeedService`/`HistoryService`/`SessionMetricsService` estavam no container, testados em unit, mas sem rota `/v1`. Features de produto das ondas `patient-timeline`/`prontuario-ux` inacessíveis pela API nova.
+
+**Decisão.** Expor handlers finos para feed do dia, história do paciente, métricas de sessão e calendário. Os view-models do domínio (`clinical.DayFeed`/`HistoryItem`/`PatientMetrics`) já são leak-safe (tags JSON, sem `SealedText`) e são serializados direto no envelope — não se duplica DTO para eles; o calendário usa o `SessionDTO`. O calendário sem `patient_id` exige `from`+`to` (guarda contra varredura).
+
+**Consequências.**
+- Novos: handler `api/app/screens.go` (DayFeed, PatientHistory, PatientSessionMetrics, ListSessions) + helper `parseOptionalRange`; rotas `GET /v1/app/day-feed`, `/patients/{id}/history`, `/patients/{id}/session-metrics`, `GET /v1/app/sessions`; Swagger.
+- A história e o feed mantêm a auditoria de leitura (`AuditActionRead`) e a regra de não revelar clínico (os itens são rótulos, não `Reveal()`).
+- Testes: E2E de contrato + não-vazamento (nota com conteúdo secreto não aparece em feed/história/calendário; `taxa_comparecimento` nas métricas; 422 do calendário sem filtro).
+
+---
+
+## 2026-10-24 — `pocketbase-finish` Fase 4: núcleo utilizável (locais, origens, planos) + comprovante de pagamento (R1 sub-fase 1)
+
+**Contexto.** `LocationRepository`, `OriginRepository`, `PlanRepository` existiam sem superfície HTTP; o débito por sessão dependia de um plano vigente não cadastrável pela API (só via seed de superuser). Recorte ⟨R1⟩ já decidido: sub-fase 1 (locais+planos) entra nesta onda.
+
+**Decisão.** Expor `LocationService`/`OriginService`/`PlanService` (CRUD) no `/v1/app`, fechando o fluxo de débito por sessão ponta a ponta via API. Comprovante de pagamento entra como anexo opcional (base64) no `POST /debts/{id}/pay`, gravado no GED vinculado ao pagamento (mesma disciplina do PDF de cobrança). Validação no domínio (modalidade/periodicidade/horário/tipo de plano/valor fixo) → 422.
+
+**Consequências.**
+- Novos: `app.LocationService`/`OriginService`/`PlanService`; handlers `api/app/locations.go`/`origins.go`/`plans.go`; DTOs e mappers; `service.Services` +Locations/Origins/Plans; rotas e Swagger. `PaymentService.SetGED` + `storeReceipt` (comprovante).
+- Rota estática `/locations/availability/{id}` registrada antes de `/locations/{id}` (precedência do `http.ServeMux`).
+- Testes: unit dos serviços + comprovante; E2E de contrato (locais/origens) e a jornada headline (plano→sessão→finish→débito automático→cobrança→pagamento com comprovante→pago).
+
+---
+
+## 2026-10-24 — `pocketbase-finish` Fase 3: readiness/liveness (`/readyz`+`/livez`); métricas adiadas (R5)
+
+**Contexto.** Havia só `/v1/health`. Faltavam readiness/liveness, e o estado "reautorização Google necessária" (Fase 2) precisava de um `/readyz` que o refletisse. Decisão ⟨R5⟩ já tomada: só `/readyz`+`/livez` nesta onda; métricas adiadas.
+
+**Decisão.** `/v1/livez` = liveness (200 fixo). `/v1/readyz` = readiness com três checks (cifra montada via round-trip, DB acessível via lookup de coleção, estado do OAuth Google). Cifra/DB com erro → 503; Google degradado **não** bloqueia a prontidão (só reporta no corpo) — a app opera sem Google. Ambas fora da auth (probes). Métricas (endpoint Prometheus) **adiadas conscientemente** para onda futura: o timing por rota já é logado (`httpx`), cobrindo o mínimo (R5.2).
+
+**Consequências.**
+- Novos: `internal/api/health.go` (`livez`, `readyz(svc)`, `checkCipher`), rotas em `api.go`, `service.Services.Cipher` (exposta só para o readiness), Swagger (`/v1/livez`, `/v1/readyz`).
+- `/readyz` acopla a observabilidade ao estado de autorização do Google (Fase 2): `google=ok` após autorizar, `degraded` sem token — sem derrubar a prontidão.
+- Testes: E2E (livez, readyz degraded sem Google) + in-process (readyz `google=ok` após callback com OAuth fake; não-vazamento do token).
+
+---
+
+## 2026-10-24 — `pocketbase-finish` Fase 2: OAuth 3-legged real + refresh token cifrado, env como fallback só-dev (R2)
+
+**Contexto.** O refresh token do Google vinha de um env (`PSICOMAN_GOOGLE_REFRESH_TOKEN`, seam); a coleção `google_token` existia sem adapter; não havia fluxo para o terapeuta autorizar a instância. Como persistir o token e onde deixar o env.
+
+**Decisão.** Fluxo OAuth 3-legged real nas rotas admin (`/v1/admin/google/authorize` → consentimento com `access_type=offline`+`prompt=consent`; `/v1/admin/google/callback` troca o code pelo refresh token). Token persistido **cifrado** em `google_token` (envelope, como o prontuário). No boot, **precedência do repo** sobre o env (⟨R2⟩): o env fica como fallback só de dev, com a origem logada sem vazar o segredo. Falha de token → estado "reautorização necessária" (`GoogleAuthService.Status` → degraded), sem panic. Disciplina de dependência mantida: o `app` não importa `integration/google`; a troca code→token vive no handler admin via `google.AuthFlow`.
+
+**Consequências.**
+- Novos: `domain.GoogleToken` (refresh token `SealedText`), porta `app.GoogleTokenRepository`, adapter `pb.NewGoogleTokenRepository` (cifra na borda), `app.GoogleAuthService` (persistência + estado de reautorização), `google.AuthFlow` + seam de endpoint para teste, handlers admin (authorize/callback/status), `service.Services.GoogleAuth` + `GoogleOAuth` (client creds), rotas e Swagger.
+- `wireCalendar`/`wireDriveSync` passam a receber o `GoogleAuthService` e resolvem o token via `resolveGoogleRefreshToken` (repo→env).
+- Testes: unit do serviço, adapter round-trip + não-vazamento, E2E em processo do callback com servidor OAuth fake (nenhum toca o Google real). O estado de reautorização alimenta o `/readyz` na Fase 3.
+
+---
+
+## 2026-10-24 — `pocketbase-finish` Fase 1: perfil do terapeuta como singleton 1:1 + cabeçalho na cobrança (R3)
+
+**Contexto.** O agregado `domain/therapist` (`TherapistProfile`, `TherapistPlatformLink`) e a coleção `therapist_profile` existiam desde a `pocketbase-core`, mas sem porta/serviço/rota — e o PDF de cobrança (`InvoiceService.compose`) omitia o cabeçalho do terapeuta por não ter de onde lê-lo. Como modelar o perfil: há exatamente um por instância (single-tenant).
+
+**Decisão.** Perfil como **singleton lógico 1:1**: o `TherapistService.Upsert` reusa o id do perfil existente (preservando `created_at`), de modo que gravar duas vezes atualiza o mesmo registro em vez de criar um segundo. Rotas `/v1/app/therapist` (CRUD completo + links) para o terapeuta; `/v1/portal/therapist` devolve **só** `PublicView()` (nome/foto/bio) e fica **fora do gate** de aprovação (o paciente vê quem o atende antes de ser aprovado). O cabeçalho da cobrança volta via `InvoiceService.SetTherapist` — **best-effort**: sem perfil, o PDF sai sem cabeçalho e a cobrança não falha.
+
+**Consequências.**
+- Novos: porta `app.TherapistRepository`, adapter `pb.NewTherapistRepository` (nenhum campo cifrado — dado operacional), `app.TherapistService`, handlers `api/app/therapist.go` e `api/portal/therapist.go`, DTOs e mappers, 4 rotas no app + 1 no portal, Swagger atualizado.
+- `portal.RequireApproved` ganha a exceção de path exato `GET /v1/portal/therapist`.
+- Testes: unit do serviço (upsert idempotente 1:1, links, validação), adapter round-trip (JSON map/slice, upsert, links), E2E (contrato app, 422 de validação, cabeçalho no PDF, portal só-público com não-vazamento de CRP/email/telefone).
+
+---
+
 ## 2026-10-24 — Nova onda "pocketbase-finish": consolidação de pendências e gaps da `pocketbase-core`
 
 **Contexto.** A onda [`pocketbase-core`](../.kiro/specs/pocketbase-core/) reconstruiu a base técnica (binário único, domínio rico, cifra por campo, contrato `/v1`, Calendar/Drive/Gemini, portal com auth) e portou as regras de negócio das ondas anteriores para o domínio rico. Ao fechar, uma varredura do código e docs encontrou pendências e gaps que não cabiam no escopo daquela onda. Criada a spec [`../.kiro/specs/pocketbase-finish/`](../.kiro/specs/pocketbase-finish/) para consolidá-los.
@@ -18,9 +145,15 @@ Ordem: mais recente no topo.
 5. **Observabilidade** (R5): só `/v1/health`; faltam `/readyz`/`/livez` e, possivelmente, métricas.
 6. **Docs operacionais** (R6): `docs/deploy.md` e `docs/stack-local.md` descrevem o modelo antigo (dois binários/Gmail/dev_mode) e estão com nota de "desatualizado".
 
-**Decisão.** A spec está **redigida (requirements/design/tasks) e aguardando 4 decisões do Rafael** antes de qualquer implementação: (⟨R1⟩) recorte/fatiamento das sub-fases de R1; (⟨R2⟩) env como fallback de dev após o OAuth real; (⟨R4⟩) ligar ou não a verificação de email (recomendado manter desligada — o gate de aprovação cobre); (⟨R5⟩) endpoint de métricas nesta onda ou adiar. Ordem sugerida: perfil (R3) e OAuth (R2) primeiro, depois `/readyz` (R5), o núcleo de R1 (locais+planos, que destrava o débito por sessão via API), telas iniciais, e por fim docs de deploy (R6).
+**Decisão (do Rafael, 2026-10-24).** As 4 decisões pendentes foram resolvidas:
+1. **⟨R1⟩ Recorte — fatiar.** Sub-fases 1 (locais+planos) e 2 (feed+história+métricas+calendário) entram nesta onda (Fases 4 e 5); sub-fases 3 (custos/ROI completo + relatório por local) e 4 (agendamento pelo portal) vão para uma **onda seguinte** (Fases 6 e 7 fora de escopo). Entrega o "produto utilizável ponta a ponta" num escopo coeso e revisável.
+2. **⟨R2⟩ Env fallback — manter só em dev, com precedência do repo.** O `google_token` cifrado é o caminho primário; o env `PSICOMAN_GOOGLE_REFRESH_TOKEN` só entra quando o repo está vazio, e o boot loga a origem. Sem atrito no loop de dev, sem enfraquecer produção.
+3. **⟨R4⟩ Verificação de email — manter desligada (Opção A).** O gate de aprovação humana já é o controle de acesso efetivo; ligar SMTP não fecha buraco de segurança e adiciona dependência de infra. Fase 9 fora de escopo (reversível numa onda futura se virar política).
+4. **⟨R5⟩ Métricas — só `/readyz`+`/livez` nesta onda; endpoint de métricas adiado.** O timing por rota já é logado (`httpx.Timing`/`Logging`), então não há cegueira operacional imediata. Satisfaz R5.2 ("ou a decisão explícita de adiá-las").
 
-**Consequências.** Nenhuma mudança de código nesta entrada — só o planejamento. A implementação começa após as decisões, em branch `pocketbase-finish`, seguindo a Definição de Pronto de `psicoman-processo-entrega`.
+**Diretriz transversal (do Rafael).** Testes em TODA a plataforma — unit, E2E de jornada, mocks de tudo que é externo (Google/OAuth). Dado o volume de mudanças de arquitetura da `pocketbase-core`, validar que tudo funciona é prioridade; gate de testes obrigatório por fase.
+
+**Consequências.** Escopo da onda: Fases 1, 2, 3, 4, 5, 8, 10. Fora de escopo: 6, 7, 9. Ordem: perfil (R3) e OAuth (R2) primeiro, depois `/readyz`+`/livez` (R5), o núcleo de R1 (locais+planos), telas iniciais (feed/história/métricas/calendário), docs de deploy (R6) e fechamento. Implementação em branch `pocketbase-finish`, commit por fase com `make check` verde; push/PR só no fim com OK do Rafael.
 
 ---
 

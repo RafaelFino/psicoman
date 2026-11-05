@@ -148,3 +148,94 @@ O portal usa a **identidade real** da sessão do PocketBase (substitui o SEAM `X
 - **Login nativo do PocketBase.** O paciente obtém o token em `POST /api/collections/patient_user/auth-with-password` (endpoint nativo, liberado independentemente das rules nulas da coleção) e o envia aos `/v1/portal/*`. Não há reimplementação de auth.
 - **Cadastro cria patient + credencial.** `POST /v1/portal/register` agora exige `password` (mín. 8); cria o `patient` (pendente) via `RegisterFromPortal` e, em seguida, a credencial `patient_user` vinculada (`PortalAuth.CreateLogin`, email verificado — a verificação por email está fora de escopo; o controle de acesso é o gate de aprovação).
 - **Gate inalterado em semântica.** Pendente/rejeitado → 403 em recurso protegido; `register` e `me` ficam fora do gate (o paciente vê o próprio estado mesmo pendente); sem sessão → 401. Agora tudo sobre a identidade real. E2E cobre o caminho negado (pendente → 403) e o permitido (aprovado → 2xx) **pela mesma sessão**.
+
+### 0.13 Perfil do terapeuta no domínio rico (onda `pocketbase-finish`, R3)
+
+Fecha o gap da `pocketbase-core`: o agregado `domain/therapist` existia sem porta/serviço/rotas, e o PDF de cobrança omitia o cabeçalho do terapeuta por isso. Agora o perfil é um **singleton lógico 1:1 por instância**, acessível pelo contrato `/v1`.
+
+- **Porta + adapter + serviço.** `app.TherapistRepository` (`GetProfile`/`SaveProfile`/`ListLinks`/`CreateLink`/`DeleteLink`) implementada pelo adapter `platform/pb` sobre `therapist_profile`/`therapist_platform_link` (migração 0030). Campos JSON (`contacts` map, `location_ids` slice) via `rec.Set`/`rec.UnmarshalJSONField`; **nenhum campo é cifrado** — o perfil do terapeuta é dado operacional, não clínico de paciente. `app.TherapistService` orquestra o singleton: `Upsert` reusa o id do perfil existente e preserva `created_at` (idempotente 1:1 — gravar duas vezes atualiza, nunca duplica).
+- **Rotas (ator app).** `GET /v1/app/therapist` (perfil + links), `PUT /v1/app/therapist` (cria/atualiza), `POST /v1/app/therapist/platform-links` e `DELETE /v1/app/therapist/platform-links/{id}`. Perfil sem nome → 422; link sem rótulo/URL → 422; adicionar link sem perfil → 404.
+- **Portal só público (R3.4).** `GET /v1/portal/therapist` devolve **apenas** `TherapistProfile.PublicView()` (nome/foto/bio) — nunca CRP, email ou contatos. Fica **fora do gate** de aprovação (exceção de path exato em `portal.RequireApproved`): o paciente vê quem o atende antes mesmo de ser aprovado. E2E de não-vazamento confirma que CRP/email/telefone não aparecem no corpo.
+- **Cabeçalho na cobrança (R3.3).** `InvoiceService.SetTherapist(repo)` (injetado no wiring) faz o `compose` imprimir **nome e CRP** no topo do PDF quando o perfil está configurado. É **best-effort**: sem perfil (`ErrNotFound`) ou sem a porta, o PDF sai sem cabeçalho, sem falhar a cobrança. E2E baixa o PDF e confere que os bytes contêm o nome/CRP.
+
+### 0.14 OAuth 3-legged real do Google + token cifrado (onda `pocketbase-finish`, R2)
+
+Substitui o seam de env (`PSICOMAN_GOOGLE_REFRESH_TOKEN`) pelo fluxo real de autorização, persistindo o refresh token cifrado em `google_token`. O env fica como **fallback só de dev** (⟨decisão R2⟩).
+
+- **Domínio + porta + adapter.** `domain.GoogleToken` (refresh token como `SealedText`; scopes/expiry em claro). Porta `app.GoogleTokenRepository` (`Load`/`Save`, singleton lógico). Adapter `pb.NewGoogleTokenRepository` cifra o token na borda (`domain.SealFor`/`OpenInto`, como o prontuário) — o banco guarda só o envelope `v1.aes-256-gcm.…`, nunca o refresh token em claro (teste de não-vazamento confirma).
+- **Serviço `GoogleAuthService`.** Orquestra a persistência (cifra pelo adapter), carrega o token no boot e mantém o **estado de reautorização** em memória. `SaveToken` reusa o id do singleton; rejeita refresh token vazio (o Google só o devolve com `access_type=offline` + `prompt=consent`). `Status(ctx)` → `ok|degraded` para a observabilidade (`/readyz`, Fase 3) e `/v1/admin/google/status`. Disciplina de dependência: o `app` NÃO importa `integration/google` — a troca code→token (que usa o SDK `oauth2`) fica no handler admin.
+- **Fluxo de autorização (admin).** `google.AuthFlow` (em `integration/google`, único a tocar o `oauth2`): `GET /v1/admin/google/authorize` monta a URL de consentimento (`access_type=offline`, `prompt=consent`, escopos `calendar`+`drive.file`) e redireciona (302); `GET /v1/admin/google/callback` troca o `code` pelo refresh token e o persiste cifrado. Redirect URI derivado do request (`X-Forwarded-Proto/Host` atrás do Pangolin). Erro do Google → 422; troca falha → 502; sem credenciais do app → 422.
+- **Boot: precedência do repo.** `resolveGoogleRefreshToken` prefere o token do `google_token` (cifrado) ao env `PSICOMAN_GOOGLE_REFRESH_TOKEN` (fallback de dev), logando a **origem** sem vazar o segredo. `wireCalendar`/`wireDriveSync` recebem o `GoogleAuthService`; sem token utilizável, sinalizam reautorização necessária (`FlagReauthorization`) e degradam sem panic (o Calendar agenda sem evento; o Drive DR não espelha), como antes.
+- **Testes.** Unit do `GoogleAuthService` (save/status/reauth/precedência); adapter round-trip + não-vazamento do refresh token; E2E em processo do fluxo de callback com **servidor OAuth fake** (seam `google.SetAuthEndpointForTest`) — nenhum teste toca o Google real; status degraded→ok e não-vazamento do token nas respostas.
+
+### 0.15 Observabilidade: readiness/liveness (onda `pocketbase-finish`, R5)
+
+Fecha o gap de observabilidade: só havia `/v1/health`. Agora há `/v1/livez` (liveness) e `/v1/readyz` (readiness), fora da auth (probes de orquestrador), no envelope padrão.
+
+- **`/v1/livez`** — o processo está vivo: 200 fixo, sem checar dependências. É o sinal de "reiniciar se não responder".
+- **`/v1/readyz`** — pronto para receber tráfego, com três checks no corpo (`checks.cipher`, `checks.db`, `checks.google`): **(1) cifra montada** — round-trip `Seal→Open` de um texto fixo (`readyz-probe`), nunca dado real; **(2) DB acessível** — lookup de uma coleção conhecida (`patient`) exercita o SQLite; **(3) estado do OAuth do Google** — `GoogleAuthService.Status` (`ok|degraded`, da Fase 2). Cifra ou DB com erro → **503 `nao_pronto`**. O Google **degradado NÃO torna a instância não-pronta** (a app opera sem Google, só degrada Calendar/Drive) — é reportado no corpo para a operação agir (reautorizar).
+- **Cifra exposta ao check.** `service.Services.Cipher` carrega a cifra montada no boot só para o round-trip do readiness; nenhum dado real é cifrado ali.
+- **Métricas: adiadas (⟨decisão R5⟩).** O timing por rota já é logado (`httpx.Timing`/`Logging`), cobrindo a observabilidade mínima; um endpoint de métricas (Prometheus) é desejável mas foi conscientemente adiado para uma onda futura (R5.2 admite a decisão explícita de adiar).
+- **Testes.** E2E (`/livez` 200; `/readyz` pronto com `google=degraded` sem credenciais) + in-process (livez; readyz degraded; readyz `google=ok` após o callback OAuth com servidor fake — prova que o `/readyz` reflete o estado real do OAuth; não-vazamento do refresh token no corpo).
+
+### 0.16 Núcleo utilizável: locais, origens e planos (onda `pocketbase-finish`, R1 sub-fase 1)
+
+Expõe no `/v1/app` os recursos que tinham repositório/porta mas nenhuma superfície HTTP, destravando o **débito por sessão ponta a ponta via API** (R1.7/R1.9). Mesma estratégia das demais fases: handler fino → serviço enxuto → DTO explícito.
+
+- **Locais + disponibilidades (R1.7).** `LocationService` (CRUD `scheduling.Location` + janelas `Availability`). Rotas `GET/POST /v1/app/locations`, `GET/PATCH/DELETE /v1/app/locations/{id}`, `GET/POST /v1/app/locations/{id}/availability`, `DELETE /v1/app/locations/availability/{id}` (rota estática registrada antes de `/locations/{id}` por especificidade do `http.ServeMux`). Validação de modalidade/periodicidade/horário no agregado → 422.
+- **Origens (R1.7).** `OriginService` (CRUD `patient.Origin`) — base do ROI por canal. `GET/POST /v1/app/origins`, `PATCH/DELETE /v1/app/origins/{id}`.
+- **Planos por paciente (R1.9).** `PlanService` (CRUD `billing.Plan`). `GET/POST /v1/app/patients/{id}/plans`, `DELETE /v1/app/plans/{id}`. **Um plano por sessão vigente é o que habilita o débito automático**: o `BillingService.OnSessionFinished` (hook de finalização) já lê `GetActiveByPatient` e gera o débito com o valor do plano. Com a rota de plano, o fluxo fecha só pela API (sem seed via superuser).
+- **Comprovante de pagamento (R1.9).** `PaymentService.Pay` aceita um comprovante opcional (`receipt_base64`+`receipt_mime` no corpo de `POST /v1/app/debts/{id}/pay`), gravado no GED (dedup por SHA-256 no escopo do paciente) vinculado ao pagamento e ao débito — mesma disciplina do PDF de cobrança. Sem o GED injetado, um comprovante é rejeitado com validação.
+- **Jornada ponta a ponta (E2E headline).** Cadastrar paciente → criar plano por consulta → criar sessão → finalizar → **débito gerado automaticamente com o valor do plano** → cobrança em PDF → pagar com comprovante → débito `pago`. Prova que o débito por sessão funciona só pela API.
+- **Testes.** Unit dos 3 serviços (create/validação; disponibilidade; plano fechado sem valor → 422) + comprovante (grava no GED vinculado; sem GED → validação); E2E (contrato locais/origens; jornada completa; 422 de plano inválido).
+
+### 0.17 Telas iniciais: feed, história, métricas, calendário (onda `pocketbase-finish`, R1 sub-fase 2)
+
+Expõe no `/v1/app` as features de produto cujos serviços já existiam no container (`DayFeedService`, `HistoryService`, `SessionMetricsService`) mas estavam sem rota. Puro trabalho de superfície HTTP (handler fino + contrato), sem regra nova.
+
+- **Feed do dia (R1.1).** `GET /v1/app/day-feed?window=hoje|7d|recentes`. Resposta = `clinical.DayFeed` (resumo + eventos ordenados, transversal a pacientes). Nunca traz conteúdo clínico; a leitura é auditada (`AuditActionRead`) pelo serviço.
+- **História do paciente (R1.2).** `GET /v1/app/patients/{id}/history`. Resposta = `[]clinical.HistoryItem`, composta no servidor (cadastro, sessões, remarcações do audit, notas, anamnese, débitos, pagamentos, arquivos). Os itens carregam só **rótulos legíveis** (`Titulo`/`Resumo`), nunca o `SealedText` das notas/anamnese — leak-safe por construção do domínio. Leitura auditada.
+- **Métricas de sessão (R1.3).** `GET /v1/app/patients/{id}/session-metrics?de=&ate=`. Resposta = `clinical.PatientMetrics` (comparecimento, cancelamento, quebra por categoria, faturado). Recorte opcional por período.
+- **Calendário (R1.4).** `GET /v1/app/sessions?patient_id=&from=&to=`. Com `patient_id`, lista as sessões do paciente (recorte opcional por `[from,to)`); sem ele, exige `from`+`to` e lista por intervalo (`SessionService.ListByRange`) — sem `patient_id` nem intervalo → 422 (guarda contra varredura total).
+- **Serialização direta do view-model.** Os tipos `clinical.DayFeed`/`HistoryItem`/`PatientMetrics` já têm tags JSON e são leak-safe (sem `SealedText`); são serializados direto no envelope (view-model do domínio), enquanto o calendário usa o `SessionDTO` do ator app.
+- **Testes.** Os serviços já tinham unit; a Fase adiciona E2E de contrato + **não-vazamento clínico**: cria uma nota com conteúdo secreto e confirma que ele não aparece no feed, na história nem no calendário; valida `taxa_comparecimento` nas métricas e o 422 do calendário sem filtro.
+
+### 0.18 Docs operacionais + infra do binário único (onda `pocketbase-finish`, R6)
+
+Reescreve a documentação e a infra de container para a arquitetura vigente (processo único), removendo o modelo antigo de dois binários (`cmd/admin`/`cmd/portal`, `dev_mode`, portas 8080/8081, Gmail).
+
+- **`docs/deploy.md`** reescrito: compilar `bin/psicoman`; `config.yaml` (cifra fail-closed, env sobrescreve); Google OAuth com os escopos mínimos `calendar`+`drive.file` (sem Gmail) e a autorização real via `GET /v1/admin/google/authorize` → callback (Fase 2); Pangolin na borda com upstream `127.0.0.1:8090` e identidade por prefixo; **um** systemd unit (`serve --http --dir --config`, migrations no boot, admin UI em `/_/`); atualização manual com backup + rebuild + validação de `/readyz`. A nota de "desatualizado" foi removida.
+- **`docs/stack-local.md`** reescrito para `docker compose up --build` de **um** serviço; probe por `/v1/livez`; `/v1/readyz` reporta `google: degraded` em teste (esperado, não bloqueia prontidão); alternativa `make serve` sem Docker.
+- **Infra consertada** (coerência com os docs): `Dockerfile` agora compila `./cmd/psicoman` (Go 1.27, estático) com `ENTRYPOINT psicoman` e `serve --http 0.0.0.0:8090 --dir /data`; `docker-compose.yml` vira um único serviço com a chave de cifra de teste por env (`PSICOMAN_CIPHER_*`); `deploy/config.docker.yaml` reescrito no formato atual. A imagem foi validada: build OK, container sobe, `/v1/livez` e `/v1/readyz` respondem 200.
+- **Scripts legados removidos** (auditoria): `scripts/deploy.sh`, `update-server.sh`, `stack-up.sh`, `stack-down.sh`, `seed.sh` eram do modelo de dois binários e estavam órfãos (o Makefile não tinha mais alvos `stack-*`). Foram apagados para não induzir um operador a rodar tooling quebrada; a operação segue os passos manuais/`docker compose` dos docs.
+
+### 0.19 Custos, ROI e relatório por local (onda `pocketbase-finish`, R1 sub-fase 3)
+
+Expõe o que `CostService`, `ReportService` e `SessionMetricsService` já faziam. Handlers finos em `api/app/costs.go`; dinheiro sempre em centavos (`*_cents`).
+
+- **CRUD de custos.** `GET/POST /v1/app/cost-categories` (kind `local|crp|infra|plataforma`), `GET/POST /v1/app/cost-items`, `DELETE /v1/app/cost-items/{id}`. Um item com `origin_id` (custo de plataforma) alimenta o ROI por canal.
+- **Custo de sessão.** `GET /v1/app/sessions/{id}/cost` devolve o custo atribuído ao finalizar com `consider_cost` (direto para `por_sessao`, rateio nos demais); 404 se não houver.
+- **Relatório de custos.** `GET /v1/app/reports/costs?de=&ate=` → `by_kind_cents` e `by_patient_cents` (período inválido 400; invertido 422). O ROI (`/reports/roi`) já existia.
+- **Relatório de sessões por local (R1.5).** `GET /v1/app/locations/{id}/session-report?de=&ate=`; sem período, usa o **mês corrente** (America/Sao_Paulo). Agrega por categoria e soma o faturado das realizadas.
+- **Testes.** E2E de jornada: categoria → item ligado à origem → local por sessão → sessão finalizada com custo → custo da sessão (5000, direto), relatório de custos, ROI contendo a origem, session-report (1 realizada, faturado 18000), e os caminhos negativos (422/400/404).
+
+### 0.20 Pedidos de agendamento pelo portal (onda `pocketbase-finish`, R1 sub-fase 4)
+
+Fecha o fluxo "paciente pede → terapeuta confirma", usando a coleção `appointment_request` e o hook de aprovação que já existiam.
+
+- **Serviço.** `AppointmentService`: `Request` (exige paciente **aprovado** e, se informado, local existente; nasce `pendente`), `ListPending`, `ListByPatient`, `Confirm` e `Refuse`. Só pedidos `pendente` mudam de estado (senão 409).
+- **Confirmar = criar a sessão.** `Confirm` chama `SessionService.Create` com status `agendada` e `RequestID`: reaproveita a checagem de conflito (freebusy) e a criação do evento de Calendar. Conflito → 409 e o pedido **segue pendente** (nenhuma sessão criada). A modalidade vem do local (ou `online` sem local).
+- **Rotas.** Portal (dentro do gate de aprovação; identidade da sessão, nunca do corpo): `POST/GET /v1/portal/appointment-requests`, com isolamento por paciente. Terapeuta: `GET /v1/app/appointment-requests` (fila), `POST .../{id}/confirm` (201 + sessão) e `POST .../{id}/refuse`.
+- **Defesa em profundidade (3 camadas).** Gate do portal (403 para não-aprovado) → regra no serviço (`Request` recusa não-aprovado) → hook de modelo em `appointment_request`. A nota livre do paciente é limitada a 500 caracteres.
+- **Testes.** Unit (aprovado/pendente/local inexistente/slot inválido; confirmar cria sessão `agendada` com `RequestID`; conflito mantém pendente; reconfirmar/recusar 409). E2E: pendente 403, sem sessão 401, validações 400/422, isolamento A×B, fila do terapeuta, confirmar→sessão visível só para A, recusar, 404/409 e app sem header 401.
+
+### 0.21 Segregação de exposição na borda (nginx + Pangolin) — Opção A
+
+Decisão do Rafael (pós-auditoria): separar a **exposição** das três superfícies sem reabrir o invariante "um processo, um listener, três prefixos". A separação é 100% na **borda**, o binário Go fica intocado.
+
+- **Duas bordas, um binário.** O `cmd/psicoman` segue escutando só em `127.0.0.1:8090` com os grupos `/v1/{app,portal,admin}`. Quem separa a exposição é a infra à frente:
+  - **nginx público** (`deploy/nginx/portal.conf`): única superfície na internet. Encaminha SOMENTE `/v1/portal/*` + `/v1/livez|readyz|health`; **nega com 404** `/v1/app`, `/v1/admin`, `/api/`, `/_/`, `/v1/swagger`. Endurecimento L7: rate limit por IP (30 r/min, burst 20 → 429), `client_max_body_size 2m`, timeouts curtos, `limit_conn`, limpeza do header `X-Pangolin-User` recebido de fora (anti-spoofing) e cabeçalhos de segurança. Não termina TLS no compose (o Pangolin/LB acima faz).
+  - **Pangolin**: `/v1/app/*` e `/v1/admin/*`, injetando o header de identidade. Nunca passa pelo nginx público.
+- **Compose espelha a produção.** `docker-compose.yml`: o serviço `psicoman` não publica porta no host (`expose: 8090`, interno); o `nginx-portal` (nginx:1.27-alpine) publica a 8080 e monta o `.conf`. `docker compose up` sobe a topologia real; a admin UI `/_/` e o app só são alcançáveis internamente (em dev, publica-se a 8090 do psicoman temporariamente — ver `stack-local.md`).
+- **Defesa em profundidade, não substituição.** O gate de aprovação, a cifra e as validações continuam no app; o nginx é a camada extra que segrega a exposição e absorve abuso de rede antes de chegar ao binário.
+- **Validação (manual, reproduzível):** com a stack no ar, portal/saúde → 200/401/422; app/admin/api/`_/`/swagger → 404 na borda; header de Pangolin forjado ignorado (404); 60 POSTs rápidos → mistura de 2xx/422 e 429 (rate limit ativo).

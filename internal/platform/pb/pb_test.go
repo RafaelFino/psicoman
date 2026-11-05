@@ -16,6 +16,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/domain/costs"
 	"github.com/RafaelFino/psicoman/internal/domain/patient"
 	"github.com/RafaelFino/psicoman/internal/domain/scheduling"
+	"github.com/RafaelFino/psicoman/internal/domain/therapist"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
 	"github.com/RafaelFino/psicoman/internal/platform/crypto"
 	"github.com/RafaelFino/psicoman/internal/platform/ulid"
@@ -383,5 +384,176 @@ func TestGetInexistenteNotFound(t *testing.T) {
 	repo := NewPatientRepository(a)
 	if _, err := repo.Get(ctx(), ulid.New()); !errors.Is(err, app.ErrNotFound) {
 		t.Errorf("Get de id inexistente deveria ser ErrNotFound, veio: %v", err)
+	}
+}
+
+// --- therapist (perfil singleton + links) ---
+
+func TestTherapistProfileRoundTripEUpsert(t *testing.T) {
+	a := newTestApp(t)
+	repo := NewTherapistRepository(a)
+
+	// Sem perfil: ErrNotFound.
+	if _, err := repo.GetProfile(ctx()); !errors.Is(err, app.ErrNotFound) {
+		t.Fatalf("GetProfile sem perfil deveria ser ErrNotFound, veio: %v", err)
+	}
+
+	now := clock.Now()
+	p := &therapist.TherapistProfile{
+		ID:          ulid.New(),
+		Name:        "Dra. Ana",
+		CRP:         "06/12345",
+		Email:       "ana@exemplo.com",
+		Bio:         "Atende adultos.",
+		Contacts:    map[string]string{"telefone": "5511999990000"},
+		PhotoFileID: "ged123",
+		LocationIDs: []string{"loc1", "loc2"},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := repo.SaveProfile(ctx(), p); err != nil {
+		t.Fatalf("SaveProfile (create): %v", err)
+	}
+
+	got, err := repo.GetProfile(ctx())
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if got.ID != p.ID || got.Name != "Dra. Ana" || got.CRP != "06/12345" || got.Email != "ana@exemplo.com" {
+		t.Errorf("campos escalares não preservados: %+v", got)
+	}
+	if got.Contacts["telefone"] != "5511999990000" {
+		t.Errorf("contacts (JSON map) não round-trip: %+v", got.Contacts)
+	}
+	if len(got.LocationIDs) != 2 || got.LocationIDs[0] != "loc1" || got.LocationIDs[1] != "loc2" {
+		t.Errorf("location_ids (JSON slice) não round-trip: %+v", got.LocationIDs)
+	}
+
+	// Upsert pelo mesmo id atualiza (não duplica): muda o nome, grava, relê.
+	got.Name = "Dra. Ana Paula"
+	if err := repo.SaveProfile(ctx(), got); err != nil {
+		t.Fatalf("SaveProfile (update): %v", err)
+	}
+	reread, err := repo.GetProfile(ctx())
+	if err != nil {
+		t.Fatalf("GetProfile após update: %v", err)
+	}
+	if reread.ID != p.ID {
+		t.Errorf("update criou novo registro: id %s != %s", reread.ID, p.ID)
+	}
+	if reread.Name != "Dra. Ana Paula" {
+		t.Errorf("update não persistiu: %q", reread.Name)
+	}
+}
+
+func TestTherapistPlatformLinkRoundTrip(t *testing.T) {
+	a := newTestApp(t)
+	repo := NewTherapistRepository(a)
+
+	// Precisa de um perfil-pai (relation profile_id obrigatória).
+	now := clock.Now()
+	profileID := ulid.New()
+	if err := repo.SaveProfile(ctx(), &therapist.TherapistProfile{
+		ID: profileID, Name: "Dra. Ana", CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("SaveProfile: %v", err)
+	}
+
+	l := &therapist.TherapistPlatformLink{
+		ID:        ulid.New(),
+		ProfileID: profileID,
+		Label:     "Doctoralia",
+		URL:       "https://doctoralia/ana",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := repo.CreateLink(ctx(), l); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+
+	links, err := repo.ListLinks(ctx(), profileID)
+	if err != nil || len(links) != 1 {
+		t.Fatalf("ListLinks: %d (%v)", len(links), err)
+	}
+	if links[0].Label != "Doctoralia" || links[0].URL != "https://doctoralia/ana" {
+		t.Errorf("campos do link não preservados: %+v", links[0])
+	}
+
+	if err := repo.DeleteLink(ctx(), l.ID); err != nil {
+		t.Fatalf("DeleteLink: %v", err)
+	}
+	links, _ = repo.ListLinks(ctx(), profileID)
+	if len(links) != 0 {
+		t.Errorf("link não removido: %d restantes", len(links))
+	}
+}
+
+// --- google_token (refresh token cifrado na borda) ---
+
+func TestGoogleTokenCifraRoundTripENaoVazamento(t *testing.T) {
+	a := newTestApp(t)
+	cipher := testCipher(t)
+	repo := NewGoogleTokenRepository(a, cipher)
+
+	// Sem token: ErrNotFound.
+	if _, err := repo.Load(ctx()); !errors.Is(err, app.ErrNotFound) {
+		t.Fatalf("Load sem token deveria ser ErrNotFound, veio: %v", err)
+	}
+
+	const segredo = "1//refresh-token-super-secreto-abc123"
+	now := clock.Now()
+	tok := &domain.GoogleToken{
+		ID:           ulid.New(),
+		RefreshToken: domain.NewSealedText(segredo),
+		Scopes:       []string{"https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/drive.file"},
+		Expiry:       now.Add(time.Hour),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := repo.Save(ctx(), tok); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Releitura decifra o refresh token.
+	got, err := repo.Load(ctx())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.RefreshToken.Reveal() != segredo {
+		t.Errorf("refresh token não round-trip: %q", got.RefreshToken.Reveal())
+	}
+	if len(got.Scopes) != 2 || got.Scopes[0] != "https://www.googleapis.com/auth/calendar" {
+		t.Errorf("scopes (JSON) não round-trip: %+v", got.Scopes)
+	}
+
+	// NÃO-VAZAMENTO: a coluna crua guarda só o envelope, nunca o refresh token.
+	raw, err := a.FindFirstRecordByFilter("google_token", "id = {:id}", dbxParams("id", got.ID))
+	if err != nil {
+		t.Fatalf("leitura crua: %v", err)
+	}
+	env := raw.GetString("token")
+	if strings.Contains(env, segredo) {
+		t.Errorf("VAZAMENTO: a coluna token contém o refresh token em claro: %q", env)
+	}
+	if !strings.HasPrefix(env, "v1.aes-256-gcm.") {
+		t.Errorf("prefixo de envelope inesperado: %q", env)
+	}
+
+	// Save novamente (singleton): atualiza o mesmo registro, não duplica.
+	got.RefreshToken = domain.NewSealedText("1//novo-token-xyz")
+	got.UpdatedAt = clock.Now()
+	if err := repo.Save(ctx(), got); err != nil {
+		t.Fatalf("Save (update): %v", err)
+	}
+	all, err := a.FindRecordsByFilter("google_token", "", "created_at", 0, 0)
+	if err != nil {
+		t.Fatalf("contar registros: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("Save duplicou o singleton: %d registros", len(all))
+	}
+	reread, _ := repo.Load(ctx())
+	if reread.RefreshToken.Reveal() != "1//novo-token-xyz" {
+		t.Errorf("update não persistiu: %q", reread.RefreshToken.Reveal())
 	}
 }

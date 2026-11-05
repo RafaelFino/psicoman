@@ -25,7 +25,7 @@ func (conflictingChecker) HasConflict(context.Context, time.Time, time.Time) (bo
 func withConflictingCalendar(t *testing.T) {
 	t.Helper()
 	prev := calendarWirer
-	calendarWirer = func(_ core.App, s *app.SessionService) {
+	calendarWirer = func(_ core.App, s *app.SessionService, _ *app.GoogleAuthService) {
 		s.SetConflictChecker(conflictingChecker{})
 	}
 	t.Cleanup(func() { calendarWirer = prev })

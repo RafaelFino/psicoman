@@ -155,6 +155,33 @@
           "timestamp": { "type": "string" },
           "meta": { "type": "object", "additionalProperties": true }
         }
+      },
+      "TherapistProfileDTO": {
+        "type": "object",
+        "description": "Perfil do terapeuta (singleton 1:1 por instância). Exposto completo no ator app; o portal recebe só a visão pública.",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "crp": { "type": "string" },
+          "email": { "type": "string" },
+          "bio": { "type": "string" },
+          "contacts": { "type": "object", "additionalProperties": { "type": "string" } },
+          "photo_file_id": { "type": "string" },
+          "location_ids": { "type": "array", "items": { "type": "string" } },
+          "links": { "type": "array", "items": { "$ref": "#/components/schemas/TherapistPlatformLinkDTO" } },
+          "created_at": { "type": "string" },
+          "updated_at": { "type": "string" }
+        }
+      },
+      "TherapistPlatformLinkDTO": {
+        "type": "object",
+        "description": "Link de plataforma do terapeuta (Doctoralia etc.), opcionalmente vinculado a uma origem.",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "url": { "type": "string" },
+          "origin_id": { "type": "string" }
+        }
       }
     }
   },
@@ -164,6 +191,23 @@
         "tags": ["admin"],
         "summary": "Health check (envelope, status 200).",
         "responses": { "200": { "description": "No ar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } } } } }
+      }
+    },
+    "/v1/livez": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Liveness: o processo está vivo (200 fixo, sem checar dependências).",
+        "responses": { "200": { "description": "Vivo" } }
+      }
+    },
+    "/v1/readyz": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Readiness: cifra montada + DB acessível + estado do OAuth Google. 200 pronto (Google degradado não bloqueia); 503 se cifra ou DB falham.",
+        "responses": {
+          "200": { "description": "Pronto (checks no corpo: cipher/db/google)" },
+          "503": { "description": "Não pronto (cifra ou DB indisponível)" }
+        }
       }
     },
     "/v1/app/patients": {
@@ -226,7 +270,41 @@
     "/v1/app/patients/{id}/debts": {
       "get": { "tags": ["app"], "summary": "Débitos do paciente.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
     },
+    "/v1/app/day-feed": {
+      "get": {
+        "tags": ["app"], "summary": "Feed do dia do terapeuta (R1.1). Sem conteúdo clínico; leitura auditada.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "window", "in": "query", "required": false, "schema": { "type": "string", "enum": ["hoje", "7d", "recentes"] } }],
+        "responses": { "200": { "description": "OK (resumo + eventos)" } }
+      }
+    },
+    "/v1/app/patients/{id}/history": {
+      "get": {
+        "tags": ["app"], "summary": "História cronológica do paciente (R1.2). Itens com rótulos legíveis, NUNCA conteúdo clínico. Leitura auditada.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Paciente não encontrado" } }
+      }
+    },
+    "/v1/app/patients/{id}/session-metrics": {
+      "get": {
+        "tags": ["app"], "summary": "Métricas de sessão do paciente (R1.3): comparecimento, cancelamento, quebra por categoria. Recorte opcional ?de=&ate= (AAAA-MM-DD).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "de", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "ate", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
     "/v1/app/sessions": {
+      "get": {
+        "tags": ["app"], "summary": "Lista sessões para o calendário: ?patient_id= (do paciente) ou ?from=&to= (intervalo, AAAA-MM-DD). Sem patient_id exige from+to.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "patient_id", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "from", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "422": { "description": "Sem patient_id e sem intervalo" } }
+      },
       "post": {
         "tags": ["app"], "summary": "Cria sessão.", "security": [{ "pangolinHeader": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["patient_id", "modality", "starts_at", "ends_at"], "properties": { "patient_id": { "type": "string" }, "location_id": { "type": "string" }, "modality": { "type": "string" }, "starts_at": { "type": "string", "format": "date-time" }, "ends_at": { "type": "string", "format": "date-time" }, "status": { "type": "string" } } } } } },
@@ -264,11 +342,103 @@
     },
     "/v1/app/debts/{id}/pay": {
       "post": {
-        "tags": ["app"], "summary": "Registra pagamento (paid_at definido pelo servidor).", "security": [{ "pangolinHeader": [] }],
+        "tags": ["app"], "summary": "Registra pagamento (paid_at definido pelo servidor). receipt_base64 opcional anexa o comprovante ao GED.", "security": [{ "pangolinHeader": [] }],
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["amount_cents"], "properties": { "amount_cents": { "type": "integer", "format": "int64" }, "method": { "type": "string" } } } } } },
-        "responses": { "200": { "description": "OK" }, "422": { "description": "Valor inválido" } }
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["amount_cents"], "properties": { "amount_cents": { "type": "integer", "format": "int64" }, "method": { "type": "string" }, "receipt_base64": { "type": "string", "description": "Comprovante opcional (base64)." }, "receipt_mime": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "OK" }, "400": { "description": "Comprovante base64 inválido" }, "422": { "description": "Valor inválido" } }
       }
+    },
+    "/v1/app/locations": {
+      "get": { "tags": ["app"], "summary": "Lista locais de atendimento.", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria local (modalidade presencial|online; custo em centavos; periodicidade).", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "modality", "cost_period"], "properties": { "name": { "type": "string" }, "address": { "type": "string" }, "modality": { "type": "string", "enum": ["presencial", "online"] }, "cost_cents": { "type": "integer", "format": "int64" }, "cost_period": { "type": "string", "enum": ["por_sessao", "diario", "mensal", "anual"] } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/locations/{id}": {
+      "get": { "tags": ["app"], "summary": "Local por id.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" } } },
+      "patch": { "tags": ["app"], "summary": "Atualiza local.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } },
+      "delete": { "tags": ["app"], "summary": "Remove local (soft-delete).", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/locations/{id}/availability": {
+      "get": { "tags": ["app"], "summary": "Disponibilidades do local.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Adiciona janela de disponibilidade (weekday 0-6, HH:MM).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["weekday", "start_time", "end_time", "capacity"], "properties": { "weekday": { "type": "integer", "minimum": 0, "maximum": 6 }, "start_time": { "type": "string" }, "end_time": { "type": "string" }, "capacity": { "type": "integer", "minimum": 1 } } } } } },
+        "responses": { "201": { "description": "Criado" }, "404": { "description": "Local não encontrado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/locations/availability/{id}": {
+      "delete": { "tags": ["app"], "summary": "Remove uma janela de disponibilidade.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/cost-categories": {
+      "get": { "tags": ["app"], "summary": "Lista categorias de custo.", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria categoria de custo (kind: local|crp|infra|plataforma).", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["kind", "name"], "properties": { "kind": { "type": "string", "enum": ["local", "crp", "infra", "plataforma"] }, "name": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/cost-items": {
+      "get": { "tags": ["app"], "summary": "Lista itens de custo.", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria item de custo (centavos + periodicidade); origin_id liga custo de plataforma ao ROI.", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "period"], "properties": { "category_id": { "type": "string" }, "name": { "type": "string" }, "amount_cents": { "type": "integer", "format": "int64" }, "period": { "type": "string", "enum": ["por_sessao", "diario", "mensal", "anual"] }, "origin_id": { "type": "string" }, "location_id": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/cost-items/{id}": {
+      "delete": { "tags": ["app"], "summary": "Remove item de custo (soft-delete).", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/sessions/{id}/cost": {
+      "get": { "tags": ["app"], "summary": "Custo atribuído à sessão (direto ou rateio), em centavos.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" }, "404": { "description": "Sem custo atribuído" } } }
+    },
+    "/v1/app/reports/costs": {
+      "get": {
+        "tags": ["app"], "summary": "Relatório de custos do período por categoria e por paciente (centavos).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "de", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } },
+          { "name": "ate", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "400": { "description": "Período inválido" }, "422": { "description": "de posterior a ate" } }
+      }
+    },
+    "/v1/app/locations/{id}/session-report": {
+      "get": {
+        "tags": ["app"], "summary": "Sessões do local por categoria + faturado das realizadas. Default: mês corrente.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "de", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "ate", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Local não encontrado" } }
+      }
+    },
+    "/v1/app/origins": {
+      "get": { "tags": ["app"], "summary": "Lista canais de aquisição (origens).", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria origem.", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Nome obrigatório" } }
+      }
+    },
+    "/v1/app/origins/{id}": {
+      "patch": { "tags": ["app"], "summary": "Atualiza origem.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } },
+      "delete": { "tags": ["app"], "summary": "Remove origem (soft-delete).", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/patients/{id}/plans": {
+      "get": { "tags": ["app"], "summary": "Planos de cobrança do paciente.", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "tags": ["app"], "summary": "Cria plano do paciente (um plano por sessão vigente habilita o débito por sessão).", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["type", "starts_at"], "properties": { "type": { "type": "string", "enum": ["pagamento_por_consulta", "pagamento_por_mes", "plano_fechado_mensal", "plano_fechado_trimestral", "atendimento_social"] }, "amount_cents": { "type": "integer", "format": "int64" }, "due_day": { "type": "integer", "minimum": 0, "maximum": 28 }, "starts_at": { "type": "string", "format": "date-time" }, "ends_at": { "type": "string", "format": "date-time" } } } } } },
+        "responses": { "201": { "description": "Criado" }, "422": { "description": "Validação" } }
+      }
+    },
+    "/v1/app/plans/{id}": {
+      "delete": { "tags": ["app"], "summary": "Remove plano (soft-delete).", "security": [{ "pangolinHeader": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
     },
     "/v1/app/debts/{id}/invoice": {
       "post": {
@@ -331,6 +501,59 @@
         "responses": { "200": { "description": "OK" }, "400": { "description": "Período inválido" } }
       }
     },
+    "/v1/app/therapist": {
+      "get": {
+        "tags": ["app"], "summary": "Perfil do terapeuta + links de plataforma.", "security": [{ "pangolinHeader": [] }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TherapistProfileDTO" } } } }, "404": { "description": "Perfil ainda não configurado" } }
+      },
+      "put": {
+        "tags": ["app"], "summary": "Cria ou atualiza o perfil do terapeuta (singleton 1:1).", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "crp": { "type": "string" }, "email": { "type": "string" }, "bio": { "type": "string" }, "contacts": { "type": "object", "additionalProperties": { "type": "string" } }, "photo_file_id": { "type": "string" }, "location_ids": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "OK" }, "422": { "description": "Nome obrigatório" } }
+      }
+    },
+    "/v1/app/therapist/platform-links": {
+      "post": {
+        "tags": ["app"], "summary": "Adiciona um link de plataforma ao perfil.", "security": [{ "pangolinHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["label", "url"], "properties": { "label": { "type": "string" }, "url": { "type": "string" }, "origin_id": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Link criado" }, "404": { "description": "Perfil ainda não configurado" }, "422": { "description": "Rótulo/URL obrigatórios" } }
+      }
+    },
+    "/v1/app/therapist/platform-links/{id}": {
+      "delete": {
+        "tags": ["app"], "summary": "Remove um link de plataforma.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK (data null)" } }
+      }
+    },
+    "/v1/portal/therapist": {
+      "get": { "tags": ["portal"], "summary": "Dados PÚBLICOS do terapeuta (nome/foto/bio). Nunca CRP/contatos/email.", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "404": { "description": "Perfil ainda não configurado" } } }
+    },
+    "/v1/app/appointment-requests": {
+      "get": { "tags": ["app"], "summary": "Fila de pedidos de agendamento pendentes (feitos pelos pacientes no portal).", "security": [{ "pangolinHeader": [] }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/v1/app/appointment-requests/{id}/confirm": {
+      "post": {
+        "tags": ["app"], "summary": "Confirma o pedido: cria a sessão agendada (checa conflito no Google e cria o evento). Conflito → 409 e o pedido segue pendente.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "201": { "description": "Sessão agendada" }, "404": { "description": "Pedido não encontrado" }, "409": { "description": "Conflito de agenda ou pedido já respondido" } }
+      }
+    },
+    "/v1/app/appointment-requests/{id}/refuse": {
+      "post": {
+        "tags": ["app"], "summary": "Recusa um pedido pendente.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Não encontrado" }, "409": { "description": "Pedido já respondido" } }
+      }
+    },
+    "/v1/portal/appointment-requests": {
+      "get": { "tags": ["portal"], "summary": "Pedidos de agendamento do próprio paciente.", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Autenticação necessária" }, "403": { "description": "Cadastro não aprovado" } } },
+      "post": {
+        "tags": ["portal"], "summary": "Pede um horário (paciente APROVADO). A identidade vem da sessão.", "security": [{ "portalSession": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["slot_start", "slot_end"], "properties": { "location_id": { "type": "string" }, "slot_start": { "type": "string", "format": "date-time" }, "slot_end": { "type": "string", "format": "date-time" }, "note": { "type": "string", "maxLength": 500 } } } } } },
+        "responses": { "201": { "description": "Pedido enviado" }, "401": { "description": "Autenticação necessária" }, "403": { "description": "Cadastro não aprovado" }, "422": { "description": "Validação" } }
+      }
+    },
     "/v1/portal/me": {
       "get": { "tags": ["portal"], "summary": "Dados do próprio paciente (sem clínico).", "security": [{ "portalSession": [] }], "responses": { "200": { "description": "OK" }, "401": { "description": "Autenticação necessária" } } }
     },
@@ -352,6 +575,29 @@
         "tags": ["admin"], "summary": "Registros de auditoria.", "security": [{ "pangolinHeader": [] }],
         "parameters": [{ "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 } }],
         "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/v1/admin/google/authorize": {
+      "get": {
+        "tags": ["admin"], "summary": "Inicia a autorização OAuth 3-legged do Google (redireciona ao consentimento; access_type=offline, prompt=consent, escopos calendar+drive.file).", "security": [{ "pangolinHeader": [] }],
+        "responses": { "302": { "description": "Redireciona ao consentimento do Google" }, "422": { "description": "Credenciais do app não configuradas" } }
+      }
+    },
+    "/v1/admin/google/callback": {
+      "get": {
+        "tags": ["admin"], "summary": "Callback do OAuth: troca o code pelo refresh token e o persiste cifrado. Não expõe o token.", "security": [{ "pangolinHeader": [] }],
+        "parameters": [
+          { "name": "code", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "error", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Autorização concluída" }, "400": { "description": "Callback sem código" }, "422": { "description": "Autorização negada ou app não configurado" }, "502": { "description": "Falha ao trocar o código com o Google" } }
+      }
+    },
+    "/v1/admin/google/status": {
+      "get": {
+        "tags": ["admin"], "summary": "Estado da autorização do Google (ok|degraded), sem expor o token.", "security": [{ "pangolinHeader": [] }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "state": { "type": "string", "enum": ["ok", "degraded"] }, "reason": { "type": "string" } } } } } } }
       }
     }
   }
