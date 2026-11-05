@@ -51,5 +51,8 @@ config.local.yaml
 config.dev.yaml
 data-dev/
 
+# Credenciais OAuth do Google (download do Cloud Console) — nunca versionar
+client_secret*.json
+
 # Data dir do PocketBase (binário único) — local de dev; nunca versionar
 pb_data/
