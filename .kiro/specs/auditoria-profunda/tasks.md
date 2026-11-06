@@ -1,0 +1,488 @@
+# auditoria-profunda — Plano de Implementação (Tasks)
+
+Corrige os achados da auditoria profunda de 2026-11-05 sobre o Psicoman: auditoria LGPD no prontuário, snapshot inteiro do Drive com retenção, criação automática da pasta de DR, golangci-lint reativado, rate limit e `state` do OAuth, ator real no `audit_log`, métricas Prometheus ricas e coerência de docs e steering. Refs: [`requirements.md`](./requirements.md) (R1–R10), [`design.md`](./design.md) (§1–§13). Formato herdado de [`../pocketbase-finish/tasks.md`](../pocketbase-finish/tasks.md).
+
+Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada task fecha com **build verde** (`make check`), **docs no mesmo ciclo** e **testes cobrindo** (unit/E2E; segurança → permitido+negado; cripto → round-trip+não-vazamento). Mensagens ao usuário em PT-BR; centavos; `America/Sao_Paulo`. Regra de dependência inalterada: `domain`/`app`/`config` não importam o PocketBase **nem** a lib de métricas. Arquivos marcados **(novo)** não existem hoje; os demais foram conferidos no repositório.
+
+**Git:** branch da onda `auditoria-profunda`, criada a partir da `main` na task 0.1 (nunca trabalhar direto na `main`). Commit em PT-BR, no imperativo, ao fim de cada fase, com `make check` verde. **Sem push antes do fim da onda inteira e só com OK do Rafael** (task 10.4).
+
+**Escopo:** esta spec é só o plano. Nada aqui foi executado; a edição de steering, `docs/` e código acontece nas tasks abaixo, em outra sessão.
+
+---
+
+## Ordem de execução e por quê
+
+O `requirements.md` agrupa em sub-ondas A/B/C **por prioridade**. A execução abaixo segue a **dependência técnica** do `design.md` (§11.1), que diverge dessa prioridade em quatro pontos:
+
+1. **R4 (lint) vem primeiro** (Fases 1 e 2), embora seja prioridade média: o código novo de todas as fases seguintes já nasce sob o gate real. A Fase 2 isola a triagem dos achados, em commits separados do trabalho funcional.
+2. **R7.4 (ator no contexto) antecede R1** (Fase 3): R1 grava `audit_log` com o ator vindo do `context`, e R5 testa as duas coisas juntas. Por isso o R7.4, de prioridade baixa, entra antes do R1, que é alta.
+3. **R3 antecede as métricas de backup de R8.6** e **R2 (retenção) antecede a métrica de snapshots mantidos**: Fases 4 e 5 vêm antes da Fase 8. O `drivesync.Observer` nasce na Fase 5 com `NopObserver`, e a Fase 8 só liga a implementação Prometheus.
+4. **R1 antecede as métricas de auditoria de R8.7** (Fase 3 antes da Fase 8). **R8 base** (Fase 7) antecede as **famílias** (Fase 8), e o limitador de R7.1 (Fase 6) expõe um `OnReject` opcional que a Fase 8 liga ao recorder.
+
+Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer task que dependa delas: lint (1.1), `drive.file` (4.1), `Request.Pattern`/`countingWriter`/`go mod tidy` (7.1 a 7.3). Se um spike falhar, a fase para e o Rafael decide. Nunca se reintroduz skip silencioso do linter.
+
+---
+
+## 📊 Status ao vivo da onda
+
+> `✅ concluída` · `🔄 em progresso` · `⬜ pendente` · `🚫 fora de escopo`.
+
+| Fase | Estado | Commit | Observação |
+|------|--------|--------|------------|
+| 0 — Preparação (branch, baseline, specs) | ⬜ pendente | — | branch `auditoria-profunda` a partir da `main` |
+| 1 — R4: golangci-lint v2 reativado | ⬜ pendente | — | spike do linter primeiro; Makefile, YAML e CI |
+| 2 — R4: triagem dos achados do linter | ⬜ pendente | — | commits separados do trabalho funcional |
+| 3 — R7.4 + R1 + R5: ator real e auditoria clínica | ⬜ pendente | — | `domain.WithActor`, `ProntuarioService.SetAudit`, E2E da trilha |
+| 4 — R3: pasta de DR criada automaticamente | ⬜ pendente | — | spike `drive.file`; migration `0050`; `FolderResolver` |
+| 5 — R2: snapshot inteiro, retenção e degradação observável | ⬜ pendente | — | ADR, steering do Drive, `Syncer` novo, `/readyz` |
+| 6 — R7.1 + R7.2: rate limit e `state` do OAuth | ⬜ pendente | — | limitador em memória; store + cookie |
+| 7 — R8 base: dependência, registry, middleware e listener | ⬜ pendente | — | spikes; ADR do listener (R8.12) |
+| 8 — R8 famílias: negócio, integrações, auditoria, backup | ⬜ pendente | — | depende das Fases 3, 4, 5 e 6 |
+| 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ⬜ pendente | — | Gmail fora do steering; checklist de segredos |
+| 10 — Fechamento (release notes + checklist + push) | ⬜ pendente | — | push só com OK do Rafael |
+
+**Agora:** nenhuma fase iniciada. Próxima ação: task 0.1.
+
+---
+
+## ✅ Decisões do Rafael (2026-11-05) — a respeitar
+
+1. **R2:** snapshot inteiro, sem backup incremental; steering atualizado. R2.1 e R2.2 descartados.
+2. **R3:** criação automática da pasta; `google.drive_folder` passa a ser opcional. R3.2 descartado.
+3. **R7.1:** rate limit por e-mail no `register` e por paciente da sessão em `appointment-requests`, mais o limite por IP do nginx (mantido).
+4. **R7.2:** validar o `state` do OAuth no callback.
+5. **R8:** `client_golang`; listener separado em porta interna, sem exposição à internet, fail-closed.
+6. **Rotação de segredos (R7.3):** operacional, fica com o Rafael (task 9.5 e 10.3).
+
+**Padrões do design que valem se não houver objeção** (`design.md`, "Pontos que ainda dependem de decisão"): retenção N=14 por lixeira; listener só quando `metrics.addr` está configurado (`127.0.0.1:9091` no host, `0.0.0.0:9091` no container); audit best-effort com log e métrica; limites de 5 cadastros/h por e-mail e 10 pedidos/h por paciente; baseline do linter se passar de ~100 achados.
+
+---
+
+## Fase 0 — Preparação
+
+- [ ] **0.1 Criar a branch da onda a partir da `main`** (dep: —) **(PRIMEIRA TASK)**
+  - `git switch main`, confirmar a `main` atualizada com `git status`, `git switch -c auditoria-profunda`. Não trabalhar na `main` em nenhum momento.
+  - **Pronto quando:** `git branch --show-current` imprime `auditoria-profunda`.
+  - **Refs:** `psicoman-processo-entrega.md` (Fluxo de Git).
+- [ ] **0.2 Baseline do gate e inclusão das specs na branch** (dep: 0.1)
+  - Rodar `make check > /tmp/check-baseline.log 2>&1; echo "exit=$?"` e registrar o resultado na observação da Fase 0. Com `git status`, listar o que está modificado/novo: `.kiro/specs/auditoria-profunda/requirements.md` (modificado), `design.md` e este `tasks.md` (novos). O diff do `requirements.md` vem das decisões do Rafael e das correções factuais já aplicadas; os três arquivos de spec entram juntos no primeiro commit da branch. Nenhum arquivo de `.agents/` entra no commit (diretório git-ignored).
+  - Arquivos: `.kiro/specs/auditoria-profunda/requirements.md`, `.kiro/specs/auditoria-profunda/design.md`, `.kiro/specs/auditoria-profunda/tasks.md` (novo).
+  - **Pronto quando:** baseline `exit=0` anotado; `git status` não mostra nada fora dos arquivos de spec esperados.
+- [ ] **0.3 Registrar a spec em `docs/decisions.md`** (dep: 0.2)
+  - Entrada curta no topo do arquivo: contexto (auditoria de 2026-11-05), decisão (onda `auditoria-profunda` com as decisões do Rafael acima), consequência (ponteiro para `.kiro/specs/auditoria-profunda/`). Atende à regra "toda spec nascida de auditoria tem entrada correspondente".
+  - Arquivo: `docs/decisions.md`.
+  - **Pronto quando:** a entrada existe, com data, contexto, decisão e consequências, apontando para a spec.
+- [ ] **Fechamento Fase 0:** `make check` verde; commit `auditoria-profunda Fase 0: adiciona a spec da onda e o registro da decisão`.
+
+---
+
+## Fase 1 — R4: golangci-lint v2 reativado
+
+> Dep. de fase: Fase 0. Faz o gate real valer antes de qualquer código novo. Se o spike 1.1 falhar, **a fase para** e o Rafael decide (esperar release, ou rodar o linter com outro toolchain, perdendo análise de código do Go 1.27).
+
+- [ ] **1.1 SPIKE: golangci-lint v2.15.0 compilado com o toolchain local** (dep: —)
+  - `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`, depois `golangci-lint run ./... > /tmp/lint-spike.log 2>&1; echo "exit=$?"`. Contar achados por linter (`grep -c`) e anotar o total na observação da fase. Sem alterar arquivo do repositório nesta task.
+  - **Pronto quando:** o linter decodifica o export data do Go 1.27 (sem a mensagem "não decodifica o export data") e o total de achados está registrado. Falha → parar e reportar ao Rafael.
+  - **Refs:** R4.1 · design §4 e §11.5 item 1.
+- [ ] **1.2 Migrar `.golangci.yml` para o formato v2** (dep: 1.1)
+  - Rodar `golangci-lint migrate`, revisar à mão contra o rascunho do design §4 (`version: "2"`, `linters.default: none`, `enable: [errcheck, govet, ineffassign, staticcheck, unused, misspell, revive]`, `formatters.enable: [gofmt]`, exclusão de `errcheck` em `_test.go` em `linters.exclusions.rules`).
+  - Arquivo: `.golangci.yml`.
+  - **Pronto quando:** `golangci-lint config verify` sai com 0 e `golangci-lint run ./...` executa de fato.
+  - **Refs:** R4.1 · design §4.
+- [ ] **1.3 Reescrever o alvo `lint` do Makefile e adicionar `tools`** (dep: 1.2)
+  - `GOLANGCI_LINT_VERSION ?= v2.15.0`; alvo `tools` com `go install ...@$(GOLANGCI_LINT_VERSION)`; `lint: fmt-check vet` seguido de: linter ausente → `exit 1` com "rode `make tools`"; versão diferente da fixada → `exit 1`; senão `golangci-lint run ./...` **sem** `|| echo`, **sem** `@true`, **sem** probe e **sem** `timeout` externo. Escape explícito `make check SKIP_LINT=1` que imprime `!! LINT PULADO POR PEDIDO EXPLÍCITO` e sai 0. Atualizar o comentário do cabeçalho do Makefile ("lint advisory"). Checar que `check:` (linha 75) continua encadeando `lint`.
+  - Arquivo: `Makefile`.
+  - **Pronto quando (validação manual, anotada na observação da fase):** `make lint` com linter ausente (via `PATH` sem o binário) falha; com versão errada falha; com `SKIP_LINT=1` avisa e passa; com tudo certo roda de verdade. Prova de que o gate quebra: inserir um `ineffassign` temporário em um arquivo, ver `make lint` falhar, remover e ver passar.
+  - **Refs:** R4.2 · design §4.
+- [ ] **1.4 Instalar o linter no CI** (dep: 1.3)
+  - No job `check` de `.github/workflows/ci.yml`, antes de `make check`: passo `make tools` e `$(go env GOPATH)/bin` no `PATH`. Não usar action em modo binário (binário pré-compilado repete o erro de export data).
+  - Arquivo: `.github/workflows/ci.yml`.
+  - **Pronto quando:** `yq`/leitura do YAML mostra o passo antes de `make check`; sintaxe do workflow válida (conferir com `actionlint` se existir; senão, revisão manual anotada).
+  - **Refs:** R4.2 · design §4.
+- [ ] **1.5 Baseline condicional e docs de R4** (dep: 1.3)
+  - Se o spike contou mais de ~100 achados: `issues.new-from-rev` no YAML apontando para o commit anterior à fase (o gate cobra só código novo) e abrir a task de dívida na Fase 2. Caso contrário, nenhum baseline. Atualizar `README.md` e `docs/deploy.md` (instalar com `make tools`) e criar o ADR curto em `docs/decisions.md` ("linter v2, fim do modo advisory", escolha do baseline).
+  - Arquivos: `.golangci.yml`, `README.md`, `docs/deploy.md`, `docs/decisions.md`.
+  - **Pronto quando:** `make lint` roda o linter e sai 0 (com baseline, se aplicável); ADR e docs citam `make tools`.
+  - **Refs:** R4.1, R4.2 · design §4.
+- [ ] **Fechamento Fase 1:** `make check` verde (já com o linter real, ou com baseline registrada); docs/ADR atualizados; commit `auditoria-profunda Fase 1: reativa o golangci-lint v2 no gate e no CI`.
+
+---
+
+## Fase 2 — R4: triagem dos achados do linter
+
+> Dep. de fase: Fase 1. Commits **separados** do trabalho funcional das demais fases, para o diff funcional não ser contaminado (design §4).
+
+- [ ] **2.1 Classificar os achados e corrigir os bugs reais** (dep: 1.5)
+  - Rodar `golangci-lint run ./... > /tmp/lint-triagem.log 2>&1`, separar por linter. Corrigir o que for bug real (errcheck, ineffassign, staticcheck SA). Arquivos: os que o relatório apontar (lista fechada na observação da fase). Sem mudança de comportamento além da correção.
+  - **Pronto quando:** `golangci-lint run ./...` sem achados de classe bug e `make test-unit e2e` verdes.
+  - **Refs:** R4 · design §4 (regras 1 e 4).
+- [ ] **2.2 Tratar o estilo de baixo valor** (dep: 2.1)
+  - `revive` ruidoso ou similar: desligar regra no `.golangci.yml` **com comentário justificando**; supressão pontual só com `//nolint:<linter> // <justificativa>`. Se o volume pedir, ativar `new-from-rev` e registrar a dívida remanescente no ADR de R4 (task 1.5).
+  - Arquivos: `.golangci.yml` e os arquivos com `//nolint` justificado.
+  - **Pronto quando:** `make lint` sai 0 sem `SKIP_LINT`; cada `//nolint` tem justificativa na mesma linha.
+  - **Refs:** R4 · design §4 (regras 2 e 3).
+- [ ] **Fechamento Fase 2:** `make check` verde; ADR de R4 atualizado com o desfecho da triagem; commits em PT-BR separados por natureza (ex.: `auditoria-profunda Fase 2: corrige achados de errcheck e ineffassign`, `auditoria-profunda Fase 2: ajusta regras de estilo do revive`).
+
+---
+
+## Fase 3 — R7.4 + R1 + R5: ator real e auditoria clínica
+
+> Dep. de fase: Fase 1 (lint no gate). Ordem interna: ator (3.1 a 3.3) → R1 (3.4 a 3.5) → testes (3.6 a 3.7).
+
+- [ ] **3.1 `domain.WithActor`/`ActorFrom` e `ActorSystem`** (dep: —)
+  - Arquivos: `internal/domain/actor.go` (novo), `internal/domain/actor_test.go` (novo). Só stdlib; `domain` continua sem PocketBase.
+  - **Pronto quando:** `go test ./internal/domain/...` passa cobrindo ctx sem ator (`""`), com ator e sobrescrita.
+  - **Refs:** R7.4 · design §6.
+- [ ] **3.2 `AuditService.Record` resolve o ator; logger e métrica injetáveis** (dep: 3.1)
+  - `Record` troca `actor` `""` ou `domain.ActorSystem` por `domain.ActorFrom(ctx)`, e por `ActorSystem` se ainda vazio. `AuditService` ganha `log *slog.Logger` (default `slog.Default()`) e `metrics Metrics` com `SetLogger`/`SetMetrics`. **Como `app.Metrics` só nasce na Fase 7**, nesta task o campo `metrics` fica de fora e a falha de `repo.Insert` é apenas logada com `slog.Error("falha ao gravar audit_log", "acao", ..., "entidade", ...)`, sem `meta` nem ids; a Fase 8 (task 8.4) acrescenta `SetMetrics`. As 11 chamadas existentes com `"sistema"` (ai, payment, billing x3, invoice, history, session x3, dayfeed) **não** são editadas.
+  - Arquivos: `internal/app/audit_service.go`, `internal/app/core_services_test.go` ou novo `internal/app/audit_service_test.go` (novo; usar `fakeAuditRepo` de `internal/app/fakes_test.go`).
+  - **Pronto quando:** `go test ./internal/app/...` cobre: ctx com ator grava o ator; sem ator grava `"sistema"`; `"sistema"` explícito com ctx com ator troca pelo ator; erro do repo é logado e não propagado.
+  - **Refs:** R7.4, R1 (falha observável) · design §1 e §6.
+- [ ] **3.3 Middleware `httpx.PropagateActor` e ligação nos grupos `/v1/app` e `/v1/admin`** (dep: 3.1)
+  - `PropagateActor` lê `ActorIdentity(e)` e faz `e.Request = e.Request.WithContext(domain.WithActor(...))`, ligado **depois** de `RequirePangolinIdentity`. Remover o `// TODO Fase 5` de `internal/api/app/sessions.go` (~l.127) e trocar por comentário explicando que `scheduling.CancelByTherapist` está correto em single-tenant. Confirmar em `internal/api/api.go` onde os grupos `app` e `admin` são montados.
+  - Arquivos: `internal/api/httpx/auth.go` (ou novo `internal/api/httpx/actor.go`), `internal/api/httpx/auth_test.go` (padrão), `internal/api/api.go`, `internal/api/app/sessions.go`.
+  - **Pronto quando:** unit do `PropagateActor` coloca o ator no ctx; `go test ./internal/api/...` verde; o TODO sumiu (`go build ./...` ok).
+  - **Refs:** R7.4 · design §6.
+- [ ] **3.4 `ProntuarioService.SetAudit` e pontos de auditoria** (dep: 3.2)
+  - Campo `audit *AuditService`, `SetAudit(a *AuditService)`. Auditar **só após sucesso**, best-effort: `GetChart` → `AuditActionRead` em `prontuario`/`patientID` com `{patient_id, notas, anamnese}`; `AddNote` → `AuditActionCreate` em `note` com `{patient_id, session_id}`; `UpsertAnamnesis` → `Create` (ramo `ErrNotFound`) ou `Update` em `anamnesis` com `{patient_id}`. Nunca texto clínico no `meta`.
+  - Arquivos: `internal/app/prontuario_service.go`, `internal/api/wiring.go` (após `app.NewProntuarioService(prontuarioRepo, nil)`: `prontuario.SetAudit(audit)`).
+  - **Pronto quando:** `go build ./...` ok; os testes da 3.6 passam.
+  - **Refs:** R1.1, R1.2, R1.3, R1.4 · design §1.
+- [ ] **3.5 Ligar logger do audit no wiring** (dep: 3.2)
+  - `audit.SetLogger(a.Logger())` em `buildServices`.
+  - Arquivo: `internal/api/wiring.go`.
+  - **Pronto quando:** `go build ./...` ok e uma falha forçada de `Insert` aparece no log do PocketBase em teste da 3.2.
+  - **Refs:** R1 · design §1.
+- [ ] **3.6 Testes unit de R1 (R5.1)** (dep: 3.4)
+  - Novo arquivo com fake de `AuditRepository` reaproveitando `fakeAuditRepo` de `internal/app/fakes_test.go` (o design cita `feed_service_test.go`; o fake está em `fakes_test.go`, confirmar o repositório de prontuário fake em `core_services_test.go` ou `fakes_test.go`). Casos: `GetChart`, `AddNote`, `UpsertAnamnesis` (criar e atualizar) gravam a ação certa; `meta` não contém o texto enviado (varrer valores `string`); falha da operação não grava nada; `audit == nil` não panica.
+  - Arquivo: `internal/app/prontuario_service_test.go` (novo).
+  - **Pronto quando:** `go test ./internal/app/ -run Prontuario` passa.
+  - **Refs:** R5.1, R1.4 · design §1 e §5.
+- [ ] **3.7 E2E da trilha de auditoria (R5.2)** (dep: 3.3, 3.4)
+  - `test/e2e/audit_prontuario_test.go` (novo), usando o helper de subida do binário já usado em `test/e2e/core_test.go`. Fluxo: cria paciente, `POST /patients/{id}/notes`, `PUT /patients/{id}/anamnesis`, `GET /patients/{id}`, todos com `X-Pangolin-User`; lê `GET /v1/admin/audit-log`; confere ações/entidades, `actor == X-Pangolin-User` e ausência do texto clínico no JSON inteiro. **Negado:** `GET /patients/{id}` sem header → `401` e nenhuma entrada de auditoria nova. Adicionar um `POST .../sessions/{id}/cancel` conferindo o ator no `audit_log` (`session.cancel`).
+  - **Pronto quando:** `go test ./test/e2e/ -run AuditProntuario` passa; sem `t.Skip`.
+  - **Refs:** R5.2, R7.4, R1 · design §1, §5 e §6.
+- [ ] **3.8 Docs e ADR da fase** (dep: 3.7)
+  - ADR "Auditoria no caminho clínico" (best-effort com log e métrica, alternativa fail-closed descartada; ator por contexto; portal fora do escopo de R7.4) em `docs/decisions.md`; lista de operações auditadas e ator propagado em `docs/architecture.md`; aviso em `docs/deploy.md` de que o ator em modo dev não é identidade verificada.
+  - Arquivos: `docs/decisions.md`, `docs/architecture.md`, `docs/deploy.md`.
+  - **Pronto quando:** os três documentos citam as operações auditadas e o ator em modo dev.
+  - **Refs:** R1, R7.4, R10 · design §1 e §6.
+- [ ] **Fechamento Fase 3:** `make check` verde; docs/ADR atualizados; commit `auditoria-profunda Fase 3: audita o prontuário e propaga o ator real no audit_log`.
+
+---
+
+## Fase 4 — R3: pasta de DR criada automaticamente
+
+> Dep. de fase: Fase 1. Ordem interna: spike manual (4.1) → cliente Drive (4.2) → persistência (4.3) → resolver (4.4) → wiring e config (4.5) → testes e docs (4.6).
+
+- [ ] **4.1 SPIKE manual: escopo `drive.file` e pasta na lixeira** (dep: —)
+  - Com credencial de dev (fora da suíte automatizada, sem copiar segredos): confirmar que `drive.file` permite `files.list`, `files.get` e `files.update` (lixeira) sobre arquivos criados pelo app; criar uma pasta, mandá-la para a lixeira e fazer upload com ela como pai, anotando o status devolvido. Registrar o resultado no ADR de R3 (task 4.6). Sem credencial disponível, registrar "não verificado" e seguir: a revalidação `trashed` do resolver vale nos dois desfechos, mas a retenção (Fase 5) fica condicionada (fallback no design §2).
+  - **Pronto quando:** o resultado (permitido/negado, status do upload na lixeira) está anotado na observação da fase.
+  - **Refs:** R3.1, R2.4 · design §2, §3 e §11.5 item 2.
+- [ ] **4.2 `DriveClient`: `CreateFolder`, `FindFolder`, `GetFolder`, `List`, `Trash`, `AppProps`, `ErrDriveNotFound`** (dep: —)
+  - `DriveFile`, `DriveListInput`, novos métodos na interface `DriveClient`; `DriveUploadInput.AppProps` gravado como `appProperties` no multipart; `ErrDriveNotFound` (código novo: hoje não existe sentinela nem tratamento de 404) mapeado a partir de 404 no `Upload` e no `GetFolder`; vars de pacote `driveFilesURL` análogas a `driveUploadURL`; paginação de `List` por `pageToken` com teto de 10 páginas de 100. `FakeDriveClient` ganha `Files`, `ListErr`, `TrashErr`, `Trashed`, contadores de `CreateFolder`/`FindFolder`/`GetFolder`.
+  - Arquivos: `internal/integration/google/drive.go`, `internal/integration/google/fake.go`, `internal/integration/google/drive_test.go` (servidor `httptest`).
+  - **Pronto quando:** `go test ./internal/integration/google/...` cobre `CreateFolder`, `FindFolder`, `GetFolder` (inclui 404 → `ErrDriveNotFound`), `List`, `Trash` e o `appProperties` no multipart.
+  - **Refs:** R3.1 · design §2 e §3.
+- [ ] **4.3 Migration `0050_drive_dr`, porta e adapter `DriveFolderRepository`** (dep: —)
+  - Coleção base `drive_dr` (`folder_id` obrigatório, `folder_name`, timestamps; regras nulas) com `down` = `dropCollections`. Porta `DriveFolderRepository` (`Load`, `Save` singleton) em `internal/app/ports.go`; adapter no estilo de `google_token_repo.go`. O id da pasta fica em claro (não é segredo).
+  - Arquivos: `internal/platform/pb/migrations/0050_drive_dr.go` (novo), `internal/platform/pb/migrations/migrations_test.go`, `internal/app/ports.go`, `internal/platform/pb/drive_folder_repo.go` (novo), `internal/platform/pb/drive_folder_repo_test.go` (novo; padrão `tests.NewTestApp` de `pb_test.go`).
+  - **Pronto quando:** `go test ./internal/platform/pb/...` cobre round-trip de `Save`/`Load`, `Save` sobrescrevendo o singleton e `Load` vazio → `app.ErrNotFound`.
+  - **Refs:** R3.1, R3.4 · design §3.
+- [ ] **4.4 `FolderResolver` no `drivesync`** (dep: 4.2)
+  - Interfaces `FolderClient` e `FolderStore`, sentinelas locais `ErrFolderNotFound` e `ErrNoStoredFolder`, `FolderResolver` com ordem config > persistido (revalidado uma vez por processo via `GetFolder`) > busca por `appProperties` > criação, `Invalidate`, mutex. O pacote **não** importa `integration/google` nem `app`.
+  - Arquivos: `internal/drivesync/folder.go` (novo), `internal/drivesync/folder_test.go` (novo).
+  - **Pronto quando:** `go test ./internal/drivesync/ -run Folder` cobre: config vence sem chamar o client; persistido reusado e validado uma vez; persistido na lixeira ou 404 → busca/criação e novo id salvo; `Invalidate` seguido de `ID` não relê o persistido; busca acha e persiste; criação persiste; dois `ID` seguidos = 1 `CreateFolder`; falha de `CreateFolder` não persiste; `Invalidate` com id do config não recria.
+  - **Refs:** R3.1, R3.4 · design §3 e §3.2.
+- [ ] **4.5 Config opcional, adapter e `wireDriveSync` sem exigir `drive_folder`** (dep: 4.3, 4.4)
+  - `driveUploaderAdapter` troca `folderID string` por `resolver *FolderResolver`; no `Upload`, resolve a pasta, traduz `google.ErrDriveNotFound` em `drivesync.ErrFolderNotFound` (com `%w`), e com id **persistido** invalida e refaz **uma única vez** (com id do config, o 404 vira erro observável, sem criar pasta). Adapter de `FolderStore` converte `app.ErrNotFound` em `drivesync.ErrNoStoredFolder`. `wireDriveSync` deixa de exigir `DriveFolder`; assinatura do seam `driveSyncWirer` ganha `folders app.DriveFolderRepository` (hoje nenhum teste usa o seam, confirmado por grep). Mensagem de desativação cita só `client_id/client_secret` e refresh token. `buildServices` cria `pb.NewDriveFolderRepository(a)` e o passa. Atualizar `config.example.yaml` e `deploy/config.docker.yaml` (comentar `drive_folder` como opcional).
+  - Arquivos: `internal/api/wiring.go`, `internal/config/config.go` (comentários/validação, sem mudar o tipo), `config.example.yaml`, `deploy/config.docker.yaml`.
+  - **Pronto quando:** `go build ./...` ok; `go test ./internal/api/...` verde; mensagem de desativação sem `drive_folder`.
+  - **Refs:** R3.4 · design §3.
+- [ ] **4.6 Testes de integração do fluxo e docs** (dep: 4.5)
+  - Teste em processo em `internal/api` reatribuindo o seam `driveSyncWirer` com `FakeDriveClient`, disparando `POST /v1/admin/backup`: 1 `CreateFolder`, 1 `Upload` com o `FolderID` da pasta criada, registro em `drive_dr`, segundo backup sem nova criação. Pasta obsoleta (`ErrFolderNotFound`) recria uma vez e repete o upload; segunda falha não faz laço (em `internal/drivesync/drivesync_test.go` ao entrar a Fase 5, aqui no nível do adapter). O E2E `TestBackupSemGoogleNao500` em `test/e2e/backup_test.go` permanece verde. ADR da pasta de DR (persistência em `drive_dr`, ordem de resolução, resultado do spike 4.1) em `docs/decisions.md`; `docs/deploy.md` e `docs/architecture.md §0.10` na task 5.7.
+  - Arquivos: `internal/api/drive_dr_test.go` (novo), `docs/decisions.md`.
+  - **Pronto quando:** `go test ./internal/api/ -run DriveDR` e `go test ./test/e2e/ -run Backup` passam.
+  - **Refs:** R3.1, R3.4 · design §3.2.
+- [ ] **Fechamento Fase 4:** `make check` verde; ADR atualizado; commit `auditoria-profunda Fase 4: cria e reutiliza a pasta de DR do Drive automaticamente`.
+
+---
+
+## Fase 5 — R2: snapshot inteiro, retenção e degradação observável
+
+> Dep. de fase: Fase 4 (cliente Drive, resolver e wiring). Entrega a decisão R2.3 (ADR + steering), a retenção R2.4, o `Syncer` novo, a degradação R3.3 e o `/readyz`.
+
+- [ ] **5.1 ADR do snapshot inteiro e da política de retenção (R2.3, R2.4)** (dep: —)
+  - Duas entradas (ou uma com duas decisões) em `docs/decisions.md`: backup é snapshot inteiro cifrado (consequências: crescimento linear, banda proporcional, restauração em um arquivo) e retenção N=14 por lixeira (`google.drive_retention`, `0` = manual), com o fallback "retenção manual" se o spike 4.1 negou `list`/`update`.
+  - Arquivo: `docs/decisions.md`.
+  - **Pronto quando:** as decisões estão registradas no formato data/contexto/decisão/consequências e citam o spike.
+  - **Refs:** R2.3, R2.4 · design §2.
+- [ ] **5.2 Atualizar o steering `psicoman-google-api.md`: Drive em snapshot inteiro (R2.3)** (dep: 5.1)
+  - Trocar "Backup incremental por hash (manifesto no Drive)..." por "Snapshot inteiro por execução, cifrado (AES-256-GCM) antes do upload; o zip do PocketBase já é compactado; retenção por contagem feita pelo `drivesync`"; acrescentar a criação automática da pasta. Sem incremental e sem manifesto. **A remoção do Gmail neste arquivo fica na task 9.1** (mesmo arquivo, mudança de motivo diferente).
+  - Arquivo: `.kiro/steering/psicoman-google-api.md`.
+  - **Pronto quando:** `grep -in "incremental\|manifesto" .kiro/steering/psicoman-google-api.md` não encontra a exigência antiga e a seção Drive descreve snapshot inteiro e retenção.
+  - **Refs:** R2.3 · design §2 e §9.
+- [ ] **5.3 Config `google.drive_retention`** (dep: —)
+  - `yamlDoc.Google.DriveRetention *int` (ponteiro distingue ausente de `0`), `GoogleConfig.DriveRetention int` default 14, origem registrada (`arquivo|default`), sem env. Valor negativo → erro de config claro (`google.drive_retention deve ser >= 0`), boot aborta.
+  - Arquivos: `internal/config/config.go`, `internal/config/config_test.go`.
+  - **Pronto quando:** `go test ./internal/config/...` cobre ausente (14), `0`, positivo e negativo (erro). `internal/archtest` continua verde (`config` sem PocketBase).
+  - **Refs:** R2.4 · design §2.
+- [ ] **5.4 `drivesync`: `SnapshotStore`, `Observer`, `Status`, `selectToTrash` e `New` novo** (dep: 4.4, 5.3)
+  - `internal/drivesync/store.go` com `File`, `SnapshotStore`, `Observer`, `NopObserver`, `Status` (`SetConfigured`, `Set`, `State`, tabela do design §3.1; valor zero = `desativado`); `internal/drivesync/retention.go` com `selectToTrash(files, keep, justUploadedID)` aplicando `strings.HasSuffix(Name, ".enc")` e garantindo o recém-enviado; `New(store, sealer, retention, obs, st)` chama `st.SetConfigured(store != nil)`. O hook mede o backup local (`destino="local"`, tamanho via atributos do filesystem de backups do PocketBase, **suposição não verificada do design**: confirmar o nome do método ou contar os bytes lidos pelo `mirror`), o espelhamento (`destino="drive"`, tamanho do blob cifrado), roda a retenção só após upload ok e `retention > 0`, e nunca propaga falha de `List`/`Trash`. Atualizar o `doc.go` do pacote se descrever o contrato antigo.
+  - Arquivos: `internal/drivesync/drivesync.go`, `internal/drivesync/store.go` (novo), `internal/drivesync/retention.go` (novo), `internal/drivesync/drivesync_test.go`, `internal/drivesync/retention_test.go` (novo), `internal/drivesync/doc.go`.
+  - **Pronto quando:** `go test ./internal/drivesync/...` cobre: tabela de `selectToTrash` (menos que N, exatamente N, mais que N, recém-enviado fora da listagem, arquivos sem prop/sem `.enc`); upload ok + retenção apaga os excedentes; `Trash` com erro não falha o backup; `retention=0` não lista; tabela de `State()` (zero value, configurado sem tentativa, `erro`, `ok`, `ok` depois de `erro`); `recordingObserver` recebe `Backup`, `Mirror`, `Retention`, `RetentionFailure` nos caminhos certos; pasta obsoleta recria uma vez e segunda falha não faz laço.
+  - **Refs:** R2.4, R3.3 · design §2 e §3.1.
+- [ ] **5.5 Adapter do wiring satisfaz `SnapshotStore`; `Status` único em `Services`; `/readyz` com `checks.drive_dr`** (dep: 5.4)
+  - `driveUploaderAdapter` passa a implementar `SnapshotStore` e `FolderClient` (`List` com `FolderID` resolvido e `AppProps{"psicoman_kind":"snapshot"}`, converte `google.DriveFile` em `drivesync.File`; `Trash` delega; `Upload` grava `AppProps`). `buildServices` cria um único `*drivesync.Status`, passa a `wireDriveSync` e a `Services.DriveStatus`. `readyz` ganha `checks.drive_dr` (`desativado|ok|degradado`) **sem** alterar `ready`; com `DriveStatus == nil` omite a chave sem panicar. Log `Error` com `backup`, `etapa` (`resolver_pasta`, `upload`, `retencao`) e `erro` sem segredo.
+  - Arquivos: `internal/api/wiring.go`, `internal/api/service/service.go`, `internal/api/health.go`, `internal/api/health_test.go`.
+  - **Pronto quando:** `go test ./internal/api/...` verde, com `checks.drive_dr` nos três estados e ausência quando `DriveStatus == nil`; `go test ./test/e2e/ -run Health` verde.
+  - **Refs:** R3.3, R2.4 · design §3 e §3.1.
+- [ ] **5.6 Teste em processo da retenção e do `/readyz` do DR** (dep: 5.5)
+  - Em `internal/api/drive_dr_test.go` (criado na 4.6): vários backups seguidos com `FakeDriveClient`, `google.drive_retention` pequeno, conferindo `Trashed` e o `checks.drive_dr` (`ok`, depois `degradado` com `UploadErr`/falha forçada).
+  - **Pronto quando:** `go test ./internal/api/ -run DriveDR` passa.
+  - **Refs:** R2.4, R3.3 · design §3.2.
+- [ ] **5.7 Docs do Drive DR (R6.2) e `config.example.yaml`** (dep: 5.5)
+  - `docs/architecture.md §0.10` (snapshot inteiro, ordem de resolução da pasta, `drive_dr`, retenção N=14 por lixeira, degradação observável) e a nota da §0.21; `docs/deploy.md`: `google.drive_folder` opcional, `google.drive_retention`, criação automática, nome "Psicoman DR" (renomear/mover é seguro, apagar recria), restauração (baixar `.enc`, decifrar com o `BlobSealer`/chave, descompactar), snapshots anteriores sem `appProperties` fora da retenção. `config.example.yaml` e `deploy/config.docker.yaml` com `drive_retention`. Swagger: `checks.drive_dr` no `/readyz` em `internal/api/swagger/swagger.go`, conferindo `contract_test.go`.
+  - Arquivos: `docs/architecture.md`, `docs/deploy.md`, `config.example.yaml`, `deploy/config.docker.yaml`, `internal/api/swagger/swagger.go`.
+  - **Pronto quando:** `go test ./internal/api/swagger/...` verde; os docs descrevem o comportamento real (snapshot inteiro, pasta automática, retenção).
+  - **Refs:** R6.2, R2.3, R3.3 · design §2, §3 e §9.
+- [ ] **Fechamento Fase 5:** `make check` verde; ADRs, steering e docs atualizados; commit `auditoria-profunda Fase 5: oficializa o snapshot inteiro com retenção e degradação observável`.
+
+---
+
+## Fase 6 — R7.1 + R7.2: rate limit e `state` do OAuth
+
+> Dep. de fase: Fase 3 (padrão de testes e ator). As duas partes são independentes entre si.
+
+- [ ] **6.1 `httpx.Limiter` (janela fixa, em memória) e `EmailKey`** (dep: —)
+  - `LimiterOptions{Limit, Window, MaxKeys, Scope, Log, OnReject, Clock}`, `ScopeCadastro`/`ScopeAgendamento`, `Allow` (recusa por estouro **e** por saturação, chamando `OnReject(scope)`; `ok` nunca chama), limpeza sem goroutine, `Warn` de saturação no máximo 1/min com a contagem de chaves, `EmailKey(scope, email)` = sha256 em hex do e-mail normalizado. `OnReject` nulo é no-op (a ligação ao recorder é feita na Fase 8, task 8.6).
+  - Arquivos: `internal/api/httpx/ratelimit.go` (novo), `internal/api/httpx/ratelimit_test.go` (novo).
+  - **Pronto quando:** `go test ./internal/api/httpx/ -run Limiter` cobre: dentro do limite, estouro, expiração da janela, limpeza, saturação com `maxKeys` pequeno (chave nova → recusada; chave existente dentro do limite → atendida; expirada a janela, a nova volta a ser aceita), `Warn` uma vez por minuto (logger fake), `OnReject` exatamente uma vez por 429 com o `Scope` certo e nenhuma vez em `ok`.
+  - **Refs:** R7.1 · design §7.
+- [ ] **6.2 Aplicar o limite em `register` e em `appointment-requests`** (dep: 6.1)
+  - `portal.Mount` cria um limitador por escopo (`maxLimiterKeys = 10000`, `registerLimitPerHour = 5`, `appointmentLimitPerHour = 10` como constantes nomeadas). `POST /v1/portal/register`: logo após `BindBody` e **antes** da validação de senha, chave `EmailKey(ScopeCadastro, body.Email)`; e-mail vazio segue para a validação normal (422); o 429 é decidido antes de qualquer consulta ao banco. `POST /v1/portal/appointment-requests`: após `resolvePatient`, chave `EmailKey(ScopeAgendamento, patientID)`. Resposta `httpx.RespondError(e, 429, "limite_excedido", "Muitas tentativas. Tente novamente mais tarde.", nil)` com `Retry-After`. Nunca guardar nem logar o e-mail (só hash truncado de 8 hex no `Warn` de bloqueio).
+  - Arquivos: `internal/api/portal/me.go`, `internal/api/portal/appointments.go`, `internal/api/swagger/swagger.go` (declarar `429` nas duas rotas, conferindo se `contract_test.go` compara respostas: suposição do design).
+  - **Pronto quando:** `go build ./...` ok; `go test ./internal/api/swagger/...` verde.
+  - **Refs:** R7.1 · design §7.
+- [ ] **6.3 Testes E2E do rate limit (permitido e negado)** (dep: 6.2)
+  - Em `test/e2e/portal_test.go`: 5 cadastros com o mesmo e-mail (variando caixa e espaços), o 6º recebe `429` com envelope e `Retry-After`; outro e-mail segue normal (2xx/4xx); o corpo do 429 não contém o e-mail. Agendamento: teste em processo com paciente aprovado em `internal/api/portal_gate_test.go` (ou novo arquivo na mesma pasta), conferindo 429 após o limite e que outro paciente não é afetado.
+  - **Pronto quando:** `go test ./test/e2e/ -run Portal` e `go test ./internal/api/ -run Portal` passam.
+  - **Refs:** R7.1 · design §7.
+- [ ] **6.4 `OAuthStateStore` em memória** (dep: —)
+  - `Issue()` (16 bytes de `crypto/rand` em base64url), `Consume(state)` uso único com TTL de 10 min, `maxPending = 100` (descarta expirados; se cheio, remove o mais antigo), mutex, relógio injetável. Campo `OAuthState app.OAuthStateStore` em `Services`, criado em `buildServices`.
+  - Arquivos: `internal/app/oauth_state.go` (novo), `internal/app/oauth_state_test.go` (novo), `internal/api/service/service.go`, `internal/api/wiring.go`.
+  - **Pronto quando:** `go test ./internal/app/ -run OAuthState` cobre emite/consome uma vez, expira, cheio, reuso falha.
+  - **Refs:** R7.2 · design §8.
+- [ ] **6.5 `GoogleAuthorize`/`GoogleCallback` com cookie e validação** (dep: 6.4)
+  - `GoogleAuthorize` emite o `state` e grava o cookie `psicoman_oauth_state` (`HttpOnly`, `SameSite=Lax`, `Path=/v1/admin/google`, `MaxAge=600`, `Secure` quando `X-Forwarded-Proto=https` ou TLS). `GoogleCallback`, nesta ordem: `error` do Google (422, limpa o cookie) → `state` da query vs cookie (`subtle.ConstantTimeCompare`; ausente ou diferente → `400 state_invalido`) → `Consume` falso → `400 state_invalido` (mesma mensagem) → `code`, `Configured()` e troca. Cookie expirado (`MaxAge=-1`) em todos os caminhos. Mensagem: "Estado da autorização inválido ou expirado. Inicie a autorização novamente." Documentar `400 state_invalido` no Swagger.
+  - Arquivos: `internal/api/admin/google_oauth.go`, `internal/api/swagger/swagger.go`.
+  - **Pronto quando:** `go build ./...` ok; testes da 6.6 passam.
+  - **Refs:** R7.2 · design §8.
+- [ ] **6.6 Atualizar e ampliar os testes do callback** (dep: 6.5)
+  - Os testes existentes `internal/api/google_oauth_test.go` (~l.80, `state=abc`) e `internal/api/health_test.go` (~l.60, `state=s`) chamam o callback sem passar pelo authorize e **quebram**: ajustá-los para o fluxo authorize → `Set-Cookie` e `state` da `Location` → callback com `Cookie`. Novos casos: sem cookie, state diferente, state reusado (2º callback → 400), state expirado (relógio do store). E2E real em `test/e2e/` (ex.: novo `test/e2e/oauth_state_test.go`): authorize (302 + cookie), callback sem state → `400` (falha antes da troca; o Google real não é tocado).
+  - **Pronto quando:** `go test ./internal/api/... ./test/e2e/...` passam; sem `t.Skip`.
+  - **Refs:** R7.2 · design §8.
+- [ ] **6.7 Docs e ADR da fase** (dep: 6.3, 6.6)
+  - ADR "state do OAuth validado" e ADR do rate limit em duas camadas (nginx por IP, app por e-mail/paciente; saturação por botnet como risco aceito; enumeração por `409` e login nativo sem limite como achados de backlog) em `docs/decisions.md`. `docs/deploy.md`: duas camadas, callback no mesmo navegador do authorize, o proxy/Pangolin deve repassar `X-Forwarded-Proto`. `docs/architecture.md`. Steering `psicoman-seguranca-lgpd.md` **não muda** (já pede as duas camadas).
+  - Arquivos: `docs/decisions.md`, `docs/deploy.md`, `docs/architecture.md`.
+  - **Pronto quando:** os três documentos descrevem as duas camadas e o fluxo do `state`.
+  - **Refs:** R7.1, R7.2 · design §7 e §8.
+- [ ] **Fechamento Fase 6:** `make check` verde; Swagger e docs atualizados; commit `auditoria-profunda Fase 6: limita tentativas por e-mail e valida o state do OAuth`.
+
+---
+
+## Fase 7 — R8 base: dependência, registry, middleware HTTP e listener
+
+> Dep. de fase: Fase 1. Spikes (7.1 a 7.3) antes de qualquer código que dependa deles. Entrega o que o E2E de isolamento, HTTP, 401/403 e vazamento exige.
+
+- [ ] **7.1 SPIKE: `Request.Pattern` e `countingWriter` no mux do PocketBase** (dep: —)
+  - Teste descartável (ou definitivo) em `internal/api/httpx/` que monta o router do PB v0.40.6, registra um middleware raiz e confirma: `GET /v1/app/patients/<ulid>` chega com `Pattern == "GET /v1/app/patients/{id}"`; rota inexistente chega com `Pattern == "/"`; um `countingWriter` que embute o `ResponseWriter` e expõe `Unwrap()` mantém `Status()`/`Written()`/flush reconhecidos (`StatusTracker`, SSE de `/api/realtime`). Anotar o resultado; se o `countingWriter` falhar, adotar o **plano B** do design §10.4 (sem contar bytes; usar `Content-Length` quando presente).
+  - **Pronto quando:** as três hipóteses estão confirmadas ou o plano B está decidido e anotado na observação da fase.
+  - **Refs:** R8.2, R8.9.2 · design §10.4 e §11.5 item 3.
+- [ ] **7.2 SPIKE: `client_golang@v1.25.0` e `go mod tidy`** (dep: —)
+  - `go get github.com/prometheus/client_golang@v1.25.0 && go mod tidy`, depois `go build ./...`, `go test ./... > /tmp/test-spike.log 2>&1`, e conferir o diff do `go.sum`. Se o `tidy` rebaixar versões que o PocketBase v0.40.6 fixa, **parar e reportar**. Rodar `govulncheck` se disponível; registrar a ausência.
+  - Arquivos: `go.mod`, `go.sum`.
+  - **Pronto quando:** `go build ./...` e `go test ./...` verdes com a dependência fixada (versão exata) e o diff de versões sem rebaixar o PocketBase.
+  - **Refs:** R8.11 · design §10.7 e §11.5 item 4.
+- [ ] **7.3 Teste de arquitetura: `domain`/`app`/`config` sem Prometheus** (dep: 7.2)
+  - `TestDomainAppConfigNaoImportamPrometheus`, no padrão dos três testes existentes, proibindo `github.com/prometheus/` nesses pacotes.
+  - Arquivo: `internal/archtest/arch_test.go`.
+  - **Pronto quando:** `go test ./internal/archtest/...` passa.
+  - **Refs:** R8.11 · design §10.1.
+- [ ] **7.4 Porta `app.Metrics`, `NopMetrics` e `QueueStats`** (dep: 7.3)
+  - Tipos fechados (`PatientEvent`, `SessionEvent`, `ApptEvent`, `Result`, `CalendarOp`, `CipherOp`) e a interface do design §10.2/§10.9, sem importar PocketBase nem Prometheus. O campo de `Services` se chama `Obs` (já existe `Metrics *app.SessionMetricsService`, em `internal/app/metrics_service.go`; o arquivo novo é `metrics.go`, sem colisão).
+  - Arquivos: `internal/app/metrics.go` (novo), `internal/app/metrics_test.go` (novo; `NopMetrics` não panica).
+  - **Pronto quando:** `go test ./internal/app/... ./internal/archtest/...` verdes.
+  - **Refs:** R8.4, R8.11 · design §10.2 e §10.9.
+- [ ] **7.5 `platform/metrics`: registry próprio, coletores e famílias HTTP/segurança/runtime** (dep: 7.4)
+  - `New(Config)`, `Handler()`, `App()`, `HTTP()`, `Drive()` (stub com `NopObserver` até a Fase 8); registry próprio com `NewGoCollector`, `NewProcessCollector`, `build_info`, `uptime_segundos`, `identidade_dev_ativa`; famílias `http_*`, `seguranca_negados_total`, `rate_limit_rejeicoes_total` com buckets do design §10.3. Rótulos só de enums fechados.
+  - Arquivos: `internal/platform/metrics/metrics.go` (novo), `internal/platform/metrics/http.go` (novo), `internal/platform/metrics/metrics_test.go` (novo).
+  - **Pronto quando:** `go test ./internal/platform/metrics/...` cobre cada família com o rótulo esperado e `NopMetrics` sem panic.
+  - **Refs:** R8.2, R8.3, R8.8 · design §10.1 e §10.3.
+- [ ] **7.6 `httpx`: `HTTPRecorder`, `RouteLabels`, `Instrument`, `SetDenyReason`/`DenyReason`** (dep: 7.1, 7.5)
+  - Middleware raiz registrado com `e.Router.Bind(&hook.Handler[*core.RequestEvent]{Func: httpx.Instrument(rec), Priority: -5000})` em `internal/api/api.go`, antes de montar `/v1`. `RouteLabels` (ator por prefixo; `/` → `nao_encontrada`; vazio → `desconhecida`, nunca o `URL.Path`); status via `err` quando `Next()` devolve erro (`router.ToApiError`); `http_em_andamento` por prefixo fixo; `recover` pós-`Next()` que nunca altera o `err` (R8.10). `SetDenyReason` chamado em `RequirePangolinIdentity` (`sem_identidade`), `portal.RequireApproved` em `internal/api/portal/gate.go` (`sem_sessao`/`nao_aprovado`) e em `resolvePatient`. Aplicar o plano B do spike 7.1 se for o caso.
+  - Arquivos: `internal/api/httpx/metrics.go` (novo), `internal/api/httpx/metrics_test.go` (novo), `internal/api/httpx/auth.go`, `internal/api/portal/gate.go`, `internal/api/portal/me.go`, `internal/api/api.go`.
+  - **Pronto quando:** `go test ./internal/api/httpx/...` cobre: `RouteLabels` em tabela (padrões de cada ator, `/`, vazio, nunca ULID); contagem; status via `err` (404); `denyReason`; recorder que panica não altera a resposta.
+  - **Refs:** R8.2, R8.3, R8.9.2, R8.10 · design §10.4 e §10.9.
+- [ ] **7.7 Config `metrics.addr` e `StartMetricsServer` (fail-closed)** (dep: 7.5)
+  - `MetricsConfig{Addr}`, `yamlDoc.Metrics.Addr`, `EnvMetricsAddr = "PSICOMAN_METRICS_ADDR"`, precedência env > arquivo com origem logada; validação (`net.SplitHostPort`, porta 1..65535) com erro de config no boot. `StartMetricsServer` com `listen` injetável (`var listen = net.Listen`), `http.Server` com timeouts, mux próprio com **só** `GET /metrics` → `promhttp.HandlerFor(reg, ContinueOnError, Timeout 10s, MaxRequestsInFlight 4)`, `net.Listen` síncrono (falha de bind aborta o boot), `Shutdown` em `OnTerminate`, `Warn` para bind em `0.0.0.0`/`::`/vazio. `addr == ""` retorna sem chamar `listen`. `buildServices` cria `Services.Obs` **sempre**; `Obs.App()` fica disponível para `SetMetrics`. O listener não é instrumentado por si mesmo.
+  - Arquivos: `internal/config/config.go`, `internal/config/config_test.go`, `internal/api/metricsserver.go` (novo), `internal/api/metricsserver_test.go` (novo), `internal/api/service/service.go`, `internal/api/wiring.go`, `internal/api/api.go`.
+  - **Pronto quando:** `go test ./internal/config/... ./internal/api/...` cobrem: config válida/vazia/inválida/env sobrescreve arquivo; com `Addr == ""` nenhum `listen` é chamado; com `Addr` válido o `GET /metrics` responde em formato Prometheus e o resto 404.
+  - **Refs:** R8.1, R8.9.3 · design §10.5 e §10.9.
+- [ ] **7.8 E2E de isolamento, HTTP, 401/403 e vazamento** (dep: 7.6, 7.7)
+  - `test/e2e/metrics_test.go` (novo) com helper `startServerWithMetrics` (porta extra via `freePort` e `PSICOMAN_METRICS_ADDR`). Casos do design §10.8: (1) `GET <metricsBase>/metrics` 200, texto Prometheus, contém `go_goroutines` e `psicoman_build_info`; (2) tráfego real (livez 200, `/v1/app/patients` sem header 401, `/v1/portal/sessions` sem sessão 401, `/v1/nao-existe` 404, `/v1/app/patients/<ulid>` com header 404) conferindo `http_requisicoes_total` com `rota="/v1/app/patients/{id}"`, `seguranca_negados_total{motivo="sem_identidade"}` e `rota="nao_encontrada"`; (3) 403 do portal: paciente **não aprovado** com sessão real em `GET /v1/portal/appointment-requests` → `motivo="nao_aprovado"` (permitido e negado juntos); (4) **vazamento:** sentinelas de e-mail/CPF/nome/telefone/nota clínica, o ULID real, o valor de `X-Pangolin-User` e fragmento da chave de cifra **não** aparecem em `/metrics`; valores de rótulos `ator`, `metodo`, `status` restritos aos enums; (5) **isolamento:** `<base>/metrics` e `<base>/v1/metrics` → 404 na API; `<metricsBase>/v1/livez` → 404; (6) **fail-closed:** reserva e fecha uma porta, sobe sem `PSICOMAN_METRICS_ADDR`, `net.Dial` recusado (limitação do flake comentada no teste); (7) `POST /v1/admin/backup` e `backup_total{destino="local",resultado="ok"}` + timestamp > 0 (depende do `Observer` da Fase 5; se a ligação só ocorrer na Fase 8, este item migra para a task 8.5).
+  - **Pronto quando:** `go test ./test/e2e/ -run Metrics` passa (itens 1 a 6); sem `t.Skip`.
+  - **Refs:** R8.1, R8.2, R8.3, R8.9.1 a R8.9.4 · design §10.8.
+- [ ] **7.9 ADR do listener (R8.12) e docs da base** (dep: 7.7)
+  - ADR novo em `docs/decisions.md` que (a) encerra o adiamento de métricas de 2026-10-24, (b) referencia e reconcilia o ADR "Segregação de exposição na borda, Opção A" (o listener de métricas não segrega atores nem serve a API), (c) registra `client_golang` v1.25.0, listener dedicado fail-closed, rótulos proibidos e a política de rede (mTLS como evolução futura, fora de escopo). `docs/architecture.md`: nova seção de observabilidade e ajuste de §0.21 (o `cmd/psicoman` segue em `127.0.0.1:8090`; o listener de métricas é um segundo endereço interno, só se configurado). `docs/stack-local.md`: porta de métricas só em `expose`, nunca `ports`. `config.example.yaml`, `deploy/config.docker.yaml` (`metrics.addr: "0.0.0.0:9091"` comentado), `docker-compose.yml` e `Dockerfile` (`expose`/`EXPOSE 9091`, documentais).
+  - Arquivos: `docs/decisions.md`, `docs/architecture.md`, `docs/stack-local.md`, `config.example.yaml`, `deploy/config.docker.yaml`, `docker-compose.yml`, `Dockerfile`.
+  - **Pronto quando:** o ADR cita o ADR de 2026-10-24 e o fim do adiamento; `docker compose config` (ou leitura do compose) mostra `expose` e nenhum `ports:` para 9091.
+  - **Refs:** R8.12, R8.9.3 · design §10.5 e §10.6.
+- [ ] **Fechamento Fase 7:** `make check` verde; `/metrics` e a ausência dele na porta da API provados por E2E; commit `auditoria-profunda Fase 7: expõe métricas HTTP em listener interno dedicado`.
+
+---
+
+## Fase 8 — R8 famílias: negócio, integrações, auditoria e backup
+
+> Dep. de fase: Fase 7 (base), Fase 3 (audit), Fases 4 e 5 (Drive e retenção), Fase 6 (limitador). Cada serviço ganha `SetMetrics` com default `NopMetrics{}`, então os testes existentes não mudam.
+
+- [ ] **8.1 Instrumentação de negócio nos serviços** (dep: 7.4)
+  - `SetMetrics(Metrics)` em `PatientService` (cadastro/aprovação/recusa), `SessionService` (criada/confirmada/cancelada/finalizada/falta), `AppointmentService` (criado/confirmado/recusado), `BillingService` (débito gerado), `PaymentService` (pagamento), `InvoiceService` (PDF). Eventos contados só no caminho de sucesso. Fiação em `buildServices` com `obs.App()`.
+  - Arquivos: `internal/app/patient_service.go`, `internal/app/session_service.go`, `internal/app/appointment_service.go`, `internal/app/billing_service.go`, `internal/app/payment_service.go`, `internal/app/invoice_service.go`, `internal/api/wiring.go`; testes: `internal/app/patient_service_test.go`, `session_service_test.go`, `appointment_service_test.go`, `billing_service_test.go`, `payment_service_test.go`, `invoice_service_test.go` e um fake `Metrics` em `internal/app/fakes_test.go`.
+  - **Pronto quando:** `go test ./internal/app/...` cobre, com `Metrics` fake, os eventos certos nos caminhos ok e erro de cada serviço.
+  - **Refs:** R8.4 · design §10.2.
+- [ ] **8.2 Famílias de negócio e gauges de fila (`QueueStats`)** (dep: 8.1)
+  - Famílias `pacientes_eventos_total`, `sessoes_eventos_total`, `agendamentos_eventos_total`, `debitos_gerados_total`, `pagamentos_registrados_total`, `pdfs_gerados_total` em `platform/metrics`. `pb.NewQueueStats(a)` com `CountRecords("patient", dbx.HashExp{"approval_status":"pendente"})` e `CountRecords("appointment_request", dbx.HashExp{"status":"pendente"})` (nomes verificados em `0010_patient_scheduling.go`); `Collector` custom com `context.WithTimeout(2s)`, cache de 15 s, omissão da amostra em erro e `metrics_coleta_erros_total{fonte}`.
+  - Arquivos: `internal/platform/metrics/business.go` (novo), `internal/platform/metrics/queues.go` (novo), `internal/platform/metrics/business_test.go` (novo), `internal/platform/pb/queue_stats.go` (novo), `internal/platform/pb/queue_stats_test.go` (novo), `internal/api/wiring.go`.
+  - **Pronto quando:** `go test ./internal/platform/...` cobre a família com o rótulo esperado, a fonte que erra omitindo a amostra e contando o erro, e o cache de 15 s com relógio fake.
+  - **Refs:** R8.4 · design §10.2 e §10.3.
+- [ ] **8.3 Decoradores de Calendar, Gemini e cifra; `CalendarDegraded`; OAuth e `gemini_ligada`** (dep: 7.5)
+  - `WrapCipher`, `WrapAI`, `WrapCalendar` (confirmar o nome real da interface do calendar em `internal/app`; suposição do design) aplicados no wiring; famílias `calendar_*`, `gemini_*`, `cifra_operacoes_total`, `google_oauth_ok` (via `GoogleAuth.Status`, mesmo critério do `/readyz`), `gemini_ligada`. `SessionService` chama `CalendarDegraded()` no ramo "agenda sem calendar configurado" (confirmar o ramo exato em `session_service.go`). Rótulos sem segredo e sem texto livre.
+  - Arquivos: `internal/platform/metrics/decorators.go` (novo), `internal/platform/metrics/decorators_test.go` (novo), `internal/app/session_service.go`, `internal/api/wiring.go`, `internal/api/calendar_test.go`.
+  - **Pronto quando:** `go test ./internal/platform/metrics/... ./internal/api/...` cobrem: cada decorador conta ok/erro/conflito e latência; `google_oauth_ok` coerente com `/readyz`; Calendar/Gemini com os fakes reatribuídos nos seams `calendarWirer` e `aiSummarizerBuilder`.
+  - **Refs:** R8.5, R8.7, R8.8 · design §10.2, §10.3 e §10.9.
+- [ ] **8.4 Auditoria: `AuditService.SetMetrics`, `audit_log_total`, `audit_log_falhas_total`** (dep: 3.2, 7.4)
+  - `SetMetrics(Metrics)` em `AuditService`; `Record` chama `AuditRecorded(action)` em sucesso e `AuditFailed(action)` em falha; `action` sempre constante de `domain.AuditAction*`. Famílias em `platform/metrics`. Conecta a lacuna deixada na task 3.2.
+  - Arquivos: `internal/app/audit_service.go`, `internal/app/audit_service_test.go`, `internal/platform/metrics/business.go`, `internal/api/wiring.go`.
+  - **Pronto quando:** `go test ./internal/app/ ./internal/platform/metrics/` cobre sucesso e falha de gravação contando a ação certa.
+  - **Refs:** R8.7, R1 · design §1 e §10.3.
+- [ ] **8.5 Backup e Drive: adapter `Obs.Drive()` ligado ao `Syncer`** (dep: 5.4, 7.5)
+  - Implementar `drivesync.Observer` em `platform/metrics` (`backup_total`, `backup_duracao_segundos`, `backup_tamanho_bytes`, `backup_ultimo_sucesso_timestamp_segundos{destino}`, `drive_espelhamento_total`, `drive_dr_pronto`, `drive_snapshots_mantidos`, `drive_retencao_falhas_total`); `drive_dr_pronto` e o timestamp são **derivados** no adapter (sem acrescentar métodos ao `Observer`, regra do design §3.1). `wireDriveSync` recebe `obs.Drive()`. Incluir aqui o caso 7 do E2E de métricas (backup local) em `test/e2e/metrics_test.go`.
+  - Arquivos: `internal/platform/metrics/drive.go` (novo), `internal/platform/metrics/drive_test.go` (novo), `internal/api/wiring.go`, `test/e2e/metrics_test.go`.
+  - **Pronto quando:** `go test ./internal/platform/metrics/... ./internal/api/... ./test/e2e/ -run 'Metrics|DriveDR'` passam; `snapshots_mantidos` ausente quando a listagem falha.
+  - **Refs:** R8.6 · design §3.1 e §10.3.
+- [ ] **8.6 Rate limit ligado ao recorder** (dep: 6.2, 7.6)
+  - `portal.Mount` recebe o `HTTPRecorder` (ou `RateLimitHooks`) e monta os limitadores com `OnReject: obs.RateLimited`; família `rate_limit_rejeicoes_total{escopo}`.
+  - Arquivos: `internal/api/portal/me.go`, `internal/api/wiring.go`, `internal/api/api.go`, `internal/platform/metrics/http.go`.
+  - **Pronto quando:** teste em processo com 429 por estouro e por saturação incrementando `rate_limit_rejeicoes_total{escopo}`; `go test ./internal/api/...` verde.
+  - **Refs:** R8.3, R7.1 · design §7 e §10.3.
+- [ ] **8.7 Testes em processo e E2E de vazamento ampliado** (dep: 8.1 a 8.6)
+  - Gauge `identidade_dev_ativa` com o seam `configLoader` devolvendo `DevIdentity`; ampliar o caso de vazamento da task 7.8 para cobrir as novas famílias (sentinelas de segredo: client secret, refresh token, api key do Gemini, chave de cifra) e conferir que os rótulos novos usam só enums fechados.
+  - Arquivos: `internal/api/metrics_test.go` (novo), `test/e2e/metrics_test.go`.
+  - **Pronto quando:** `go test ./internal/api/ -run Metrics` e `go test ./test/e2e/ -run Metrics` passam.
+  - **Refs:** R8.9.1, R8.9.4, R8.3 · design §10.8.
+- [ ] **8.8 Docs de R8: nomes, coleta e alertas** (dep: 8.7)
+  - `docs/deploy.md`: `metrics.addr`, tabela de famílias, como coletar, política de rede (firewall só do IP do coletor; TLS/mTLS como evolução), alertas sugeridos do design §10.6; `docs/architecture.md`; `docs/requirements.md` (requisito não funcional de observabilidade); `docs/decisions.md` (nota de fechamento do OBS-1 e do R5.2 da pocketbase-finish). `/metrics` fica fora de `/v1` e do Swagger.
+  - Arquivos: `docs/deploy.md`, `docs/architecture.md`, `docs/requirements.md`, `docs/decisions.md`.
+  - **Pronto quando:** os documentos listam as famílias e os alertas; `go test ./internal/api/swagger/...` continua verde.
+  - **Refs:** R8, R10 · design §10.6 e §10.8.
+- [ ] **Fechamento Fase 8:** `make check` verde, incluindo `go test -race ./internal/...`; docs atualizados; commit `auditoria-profunda Fase 8: instrumenta negócio, integrações, auditoria e backup`.
+
+---
+
+## Fase 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish
+
+> Dep. de fase: Fases 5 e 7 (os docs de Drive e métricas já foram escritos nelas; esta fase consolida e fecha as pendências documentais).
+
+- [ ] **9.1 Steering sem Gmail (R6.1)** (dep: 5.2)
+  - `psicoman-google-api.md`: título `Integração Google (Calendar, Meet, Drive)`; remover o escopo `gmail.send` e a seção `## Gmail`; ajustar a nota de IA ("Calendar/Gmail/Drive" → "Calendar/Drive") e a seção Testes (remover `GmailClient`; as interfaces vivem em `internal/integration/google`, não em `internal/app`/`internal/domain`); acrescentar a linha "Gmail: fora de escopo (ver `docs/requirements.md` §3.7/§5)". `psicoman-golang.md` (linha 33, "Calendar/Gmail/Drive"). `psicoman-testes-e2e.md` (linha 17: remover `GmailClient` e trocar o modelo de dois binários "`admin` ou `portal`" pelo binário único `cmd/psicoman`).
+  - Arquivos: `.kiro/steering/psicoman-google-api.md`, `.kiro/steering/psicoman-golang.md`, `.kiro/steering/psicoman-testes-e2e.md`.
+  - **Pronto quando:** `grep -ri gmail .kiro/steering/` devolve só a linha "fora de escopo".
+  - **Refs:** R6.1 · design §9.
+- [ ] **9.2 Steering de testes: regra do E2E de métricas e de rate limit** (dep: 7.8, 6.3)
+  - Acrescentar em `psicoman-testes-e2e.md` a regra do E2E de métricas (listener dedicado, isolamento, vazamento) e a do E2E de 429, conforme o design §9 (R6.1).
+  - Arquivo: `.kiro/steering/psicoman-testes-e2e.md`.
+  - **Pronto quando:** o steering descreve os dois casos e cita `test/e2e/metrics_test.go`.
+  - **Refs:** R6.1, R8 · design §9.
+- [ ] **9.3 Coerência de `docs/architecture.md`, `docs/deploy.md`, `README.md` e `docs/requirements.md` (R6.2)** (dep: 5.7, 7.9, 8.8)
+  - Revisão final de consistência: §0.10 (Drive DR real), §0.21, seção de auditoria, observabilidade, `google.*`, `metrics.addr`, instalação do linter, duas camadas de rate limit. `README.md` com o uso novo (`make tools`, `metrics.addr`, `drive_folder` opcional). Corrigir divergências entre o que cada fase escreveu.
+  - Arquivos: `docs/architecture.md`, `docs/deploy.md`, `README.md`, `docs/requirements.md`.
+  - **Pronto quando:** leitura cruzada não encontra contradição (ex.: `grep -n "drive_folder" docs/` não descreve mais a pasta como obrigatória).
+  - **Refs:** R6.2, R10 · design §9.
+- [ ] **9.4 Consolidar a tabela "Status ao vivo" da `pocketbase-finish` (R6.3)** (dep: —)
+  - Antes de marcar, confirmar o merge do PR #4 com `git log --oneline main | head` / `gh pr view 4` (suposição não verificada localmente). Em `.kiro/specs/pocketbase-finish/tasks.md`: remover a linha duplicada `10 — Fechamento ... ⬜ pendente`, manter a `✅ concluída` com a observação "mergeada no PR #4"; marcar `[x]` em `10.1`, `10.2` e `10.3`; atualizar a linha **Agora**.
+  - Arquivo: `.kiro/specs/pocketbase-finish/tasks.md`.
+  - **Pronto quando:** `grep -c "10 — Fechamento" .kiro/specs/pocketbase-finish/tasks.md` mostra uma única linha na tabela e a seção da Fase 10 não tem `[ ]`. Se o merge não puder ser confirmado, parar e perguntar ao Rafael.
+  - **Refs:** R6.3 · design §9 e §11.5 item 7.
+- [ ] **9.5 Checklist de rotação de segredos para o Rafael (R7.3)** (dep: —)
+  - Seção de segurança em `docs/deploy.md` com o checklist **operacional** (sem valores): rotacionar `google.client_secret` e refazer o refresh token por `/v1/admin/google/authorize`; rotacionar `llm.gemini.api_key`; confirmar `git check-ignore config.dev.yaml`; não ler nem copiar `config.dev.yaml` em testes. **Item de checklist a cargo do Rafael**, fora do código; a task só documenta, não rotaciona.
+  - Arquivo: `docs/deploy.md`.
+  - **Pronto quando:** a seção existe e a task 10.3 a repete como item de fechamento marcável pelo Rafael.
+  - **Refs:** R7.3 · design §9.
+- [ ] **Fechamento Fase 9:** `make check` verde; steering e docs coerentes; commit `auditoria-profunda Fase 9: alinha steering e docs ao código e fecha pendências documentais`.
+
+---
+
+## Fase 10 — Fechamento da onda
+
+- [ ] **10.1 Release notes visuais** (dep: Fases 1 a 9)
+  - Entrada `auditoria-profunda` no topo de `docs/release-notes.md`: título, data, resumo em uma frase e listas **Novidades** (auditoria do prontuário, pasta de DR automática, retenção de snapshots, limite de tentativas, `state` do OAuth, métricas Prometheus em listener interno), **Melhorias** (ator real no `audit_log`, linter ativo no gate e no CI, `/readyz` com `checks.drive_dr`), **Correções** (steering sem Gmail, tabela da Fase 10) e **Notas de migração/operação** (`drive_folder` opcional: instâncias que tinham o DR desativado por falta dele passam a ativá-lo; `drive_retention` default 14; `metrics.addr` ausente = sem listener; o callback do OAuth exige o cookie do authorize, quem tinha o fluxo aberto reinicia; snapshots antigos sem `appProperties` ficam fora da retenção; rotação de segredos). Linguagem orientada ao usuário/terapeuta, sem valores de segredo.
+  - Arquivo: `docs/release-notes.md`.
+  - **Pronto quando:** a entrada existe, com todas as seções, no topo do arquivo.
+  - **Refs:** R10 · `psicoman-processo-entrega.md` (Release notes).
+- [ ] **10.2 Verificação final da branch** (dep: 10.1)
+  - `make check > /tmp/check-final.log 2>&1; echo "exit=$?"` e `go test -race ./internal/... > /tmp/race-final.log 2>&1; echo "exit=$?"`, ambos `exit=0`, com o lint real. Conferir `git status` limpo, `git log --oneline main..HEAD` com um commit por fase, nenhum segredo/`config.dev.yaml`/artefato temporário versionado, e a matriz de cobertura abaixo toda marcada.
+  - **Pronto quando:** os dois comandos terminam com `exit=0` e o log de commits bate com a tabela de status.
+- [ ] **10.3 Checklist de fechamento (para o Rafael)** (dep: 10.2)
+  - [ ] Segredos do Google (`client_secret`, refresh token) e do Gemini (`api_key`) **rotacionados** (R7.3).
+  - [ ] `config.dev.yaml` segue git-ignored (`git check-ignore config.dev.yaml`).
+  - [ ] Firewall/rede: porta de métricas acessível somente do coletor; nada publicado na borda.
+  - [ ] Proxy/Pangolin repassa `X-Forwarded-Proto` (cookie `Secure` do OAuth).
+  - [ ] Decisões abertas do design aceitas ou ajustadas (retenção N=14, `127.0.0.1:9091`/`0.0.0.0:9091`, audit best-effort, limites 5/h e 10/h, baseline do linter).
+  - [ ] Backlog aberto: enumeração por `409` no `register`; login nativo do paciente sem limite próprio.
+  - [ ] Spike manual de `drive.file` (task 4.1) com resultado registrado, ou a retenção está no fallback "manual".
+- [ ] **10.4 Push e PR somente com OK do Rafael** (dep: 10.3)
+  - **PARAR e pedir o OK do Rafael.** Só com a confirmação explícita: `git push -u origin auditoria-profunda` e abrir o PR (`gh pr create`, título curto, descrição com resumo, o que foi testado e o que ficou pendente). Nunca push para a `main`.
+  - **Pronto quando:** o Rafael confirmou; a branch está no remoto; o PR aberto.
+- [ ] **Fechamento Fase 10:** tabela "Status ao vivo" toda `✅ concluída`, com os commits; commit final `auditoria-profunda Fase 10: fecha a onda com release notes e checklist`.
+
+---
+
+## Matriz de cobertura (requisito → tarefa → design)
+
+| Requisito | Tarefas | Seção do `design.md` |
+|-----------|---------|----------------------|
+| R1.1, R1.2, R1.3, R1.4 | 3.4, 3.5, 3.6, 3.7, 3.8 | §1, §6 |
+| R2.1, R2.2 | — **descartados por decisão do Rafael; nada a implementar** | §12 (linha "R2.1, R2.2, R3.2") |
+| R2.3 | 5.1, 5.2, 5.7 | §2, §9 (R6.1) |
+| R2.4 | 5.1, 5.3, 5.4, 5.5, 5.6, 5.7 | §2, §3.1 |
+| R3.1 | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6 | §3, §3.2 |
+| R3.2 | — **descartado por decisão do Rafael; nada a implementar** (a documentação do comportamento real segue em R6.2: 5.7, 9.3) | §12 |
+| R3.3 | 5.4, 5.5, 5.6, 5.7 | §3, §3.1 |
+| R3.4 | 4.3, 4.4, 4.5, 4.6 | §3, §3.1 |
+| R4.1 | 1.1, 1.2, 1.5, 2.1, 2.2 | §4 |
+| R4.2 | 1.3, 1.4, 1.5, 2.2 | §4 |
+| R5.1 | 3.6 | §1, §5 |
+| R5.2 | 3.7 | §1, §5 |
+| R6.1 | 5.2, 9.1, 9.2 | §9 |
+| R6.2 | 5.7, 7.9, 8.8, 9.3 | §9 |
+| R6.3 | 9.4 | §9, §11.5 |
+| R7.1 | 6.1, 6.2, 6.3, 6.7, 8.6 | §7 |
+| R7.2 | 6.4, 6.5, 6.6, 6.7 | §8 |
+| R7.3 | 9.5, 10.3 | §9 |
+| R7.4 | 3.1, 3.2, 3.3, 3.7, 3.8 | §6 |
+| R8.1 | 7.7, 7.8 | §10.5 |
+| R8.2 | 7.1, 7.5, 7.6, 7.8 | §10.3, §10.4 |
+| R8.3 | 7.5, 7.6, 7.8, 8.6, 8.7 | §10.3, §10.4 |
+| R8.4 | 7.4, 8.1, 8.2 | §10.2, §10.3 |
+| R8.5 | 8.3 | §10.2, §10.3 |
+| R8.6 | 5.4, 8.5 | §3.1, §10.3, §2, §3 |
+| R8.7 | 8.3, 8.4, 8.7 | §10.2, §10.3, §1 |
+| R8.8 | 7.5, 8.3 | §10.1, §10.3 |
+| R8.9.1, R8.9.2, R8.9.4 | 7.6, 7.8, 8.7 | §10.3, §10.4, §10.8 |
+| R8.9.3 | 7.7, 7.8, 7.9 | §10.5, §10.6, §10.8 |
+| R8.10 | 7.6 | §10.4 |
+| R8.11 | 7.2, 7.3, 7.4 | §10.1, §10.7 |
+| R8.12 | 7.9 | §10.5 |
+| R9 (rastreabilidade) | — nada a implementar; o único toque é a extensão do `/readyz` com `checks.drive_dr` (5.5) | §12 |
+| R10 (DoD) | todas as tasks de fechamento de fase, 9.3, 10.2 | §11.4 |
