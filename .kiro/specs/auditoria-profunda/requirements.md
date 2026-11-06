@@ -1,12 +1,12 @@
 # auditoria-profunda — Requisitos
 
-Onda de **correção de achados da auditoria profunda** do Psicoman (2026-11-05). A auditoria foi uma varredura read-only do repositório contra as fontes de verdade (`docs/`, `.kiro/specs/`, `.kiro/steering/`) e o código (`internal/`, `cmd/`, `test/`), consolidada em [`../../../.agents/tasks/auditoria-profunda/findings.md`](../../../.agents/tasks/auditoria-profunda/findings.md). Nenhum código foi alterado, o servidor não foi executado e a API real do Google não foi tocada durante a auditoria. Esta onda resolve o que a auditoria apontou como aberto — gaps de feature do backup ao Drive, lacunas de auditoria LGPD no caminho clínico, dívidas de qualidade (lint desligado), inconsistências doc/steering e as métricas de observabilidade antes adiadas (promovidas a requisito a pedido do Rafael) — deixando de fora o que já está **resolvido** (gaps R1 da [`../pocketbase-finish/`](../pocketbase-finish/), OAuth 3-legged, health/livez/readyz).
+Onda de **correção de achados da auditoria profunda** do Psicoman (2026-11-05). A auditoria foi uma varredura read-only do repositório contra as fontes de verdade (`docs/`, `.kiro/specs/`, `.kiro/steering/`) e o código (`internal/`, `cmd/`, `test/`), consolidada em [Anexo A](#anexo-a--achados-e-evidências). Nenhum código foi alterado, o servidor não foi executado e a API real do Google não foi tocada durante a auditoria. Esta onda resolve o que a auditoria apontou como aberto — gaps de feature do backup ao Drive, lacunas de auditoria LGPD no caminho clínico, dívidas de qualidade (lint desligado), inconsistências doc/steering e as métricas de observabilidade antes adiadas (promovidas a requisito a pedido do Rafael) — deixando de fora o que já está **resolvido** (gaps R1 da [`../pocketbase-finish/`](../pocketbase-finish/), OAuth 3-legged, health/livez/readyz).
 
-> Responde **o quê**/**por quê**. O **como** fica em [`design.md`](./design.md) (a criar na sessão de execução); o plano em [`tasks.md`](./tasks.md). Fonte de cada requisito: um achado real do findings (ID rastreado em cada grupo). Nenhum requisito aqui é inventado — gap já fechado não é reaberto.
+> Responde **o quê**/**por quê**. O **como** fica em [`design.md`](./design.md) (a criar na sessão de execução); o plano em [`tasks.md`](./tasks.md). Fonte de cada requisito: um achado real do [Anexo A](#anexo-a--achados-e-evidências) (ID rastreado em cada grupo). Nenhum requisito aqui é inventado — gap já fechado não é reaberto.
 
 Princípios herdados (não reabrir): binário único; regra de dependência (`domain`/`app`/`config` não importam o PocketBase); cifra por campo `SealedText` na borda + DTO/`Reveal()`; contrato `/v1` por ator com envelope PT-BR; segredos nunca em log/repo; ULID, centavos `int64`, `America/Sao_Paulo`. Auditoria de dado sensível conforme [`../../steering/psicoman-seguranca-lgpd.md`](../../steering/psicoman-seguranca-lgpd.md) e [`../../../docs/requirements.md`](../../../docs/requirements.md).
 
-Resultado literal da auditoria para o gate: `make check` **verde** (exit=0 — gofmt + go vet + build + unit + e2e), porém `make lint` **pula o golangci-lint** (incompatível com o toolchain Go 1.27 × golangci-lint v1.64.8) — análise estática efetivamente desligada. Detalhe em [`../../../.agents/tasks/auditoria-profunda/findings.md`](../../../.agents/tasks/auditoria-profunda/findings.md) (seção "Resultado literal de `make check` e `make lint`") e nos requisitos R4 abaixo.
+Resultado literal da auditoria para o gate: `make check` **verde** (exit=0 — gofmt + go vet + build + unit + e2e), porém `make lint` **pula o golangci-lint** (incompatível com o toolchain Go 1.27 × golangci-lint v1.64.8) — análise estática efetivamente desligada. Detalhe em [Anexo A](#anexo-a--achados-e-evidências) (seção "Resultado literal de `make check` e `make lint`") e nos requisitos R4 abaixo.
 
 ---
 
@@ -58,7 +58,7 @@ Resultado literal da auditoria para o gate: `make check` **verde** (exit=0 — g
 - **R4.1** O sistema DEVE atualizar o golangci-lint para uma versão compatível com o toolchain Go 1.27 e revalidar `.golangci.yml`.
 - **R4.2** QUANDO o gate roda (`make lint`/`make check`), O golangci-lint DEVE executar de fato (não apenas em modo advisory/skip), fazendo a análise estática voltar a ser parte do gate.
 
-**Aceite.** `make lint` roda o golangci-lint sem skip; `make check` continua verde com a análise estática ativa; `.golangci.yml` revalidado. Enquanto R4.1 não fecha, o findings registra que o projeto opera sem análise estática de bugs.
+**Aceite.** `make lint` roda o golangci-lint sem skip; `make check` continua verde com a análise estática ativa; `.golangci.yml` revalidado. Enquanto R4.1 não fecha, o projeto opera sem análise estática de bugs (ver Anexo A.1).
 
 ---
 
@@ -147,10 +147,57 @@ Toda mudança de comportamento fecha com: código verde (`make check`), docs atu
 
 ## Recorte sugerido em sub-ondas
 
-A onda é média-grande; candidato a quebrar por severidade (prioridade do findings):
+A onda é média-grande; candidato a quebrar por severidade (prioridade do Anexo A):
 
 - **Sub-onda A (alta):** R1 (auditoria clínica) + R5 (testes de R1) + R2 (backup incremental). O coração de LGPD e o gap de backup.
 - **Sub-onda B (média):** R3 (pasta de DR) + R4 (golangci-lint) + R6 (docs/steering) + R7.1 (rate limit) + R8 (métricas ricas). R8 depende parcialmente de R1 (contador de `audit_log`, R8.7) e de R2 (delta do backup, R8.6); as métricas desses pontos entram quando os requisitos de origem forem implementados, sem bloquear o restante de R8.
 - **Sub-onda C (baixa):** R7.2 (state OAuth) + R7.3 (rotação de segredos) + R7.4 (actor do audit) + R6.3 (tabela Fase 10).
 
 **Decisão necessária (Rafael):** confirmar o recorte em sub-ondas e, dentro de R2/R3/R7.1/R7.2/R8, as escolhas em aberto marcadas acima. Detalhamento e recomendações em [`design.md`](./design.md).
+
+---
+
+## Anexo A — Achados e evidências
+
+Consolida o relatório da auditoria de 2026-11-05 dentro da spec, para que a implementação não dependa de artefatos locais fora do git. Cada achado aberto aponta o requisito que o resolve e a evidência (arquivo ou saída de comando) encontrada na varredura. Os números de linha refletem o código na data da auditoria e podem ter se deslocado.
+
+### A.1 Resultado literal de `make check` e `make lint`
+
+- `make check`: **exit=0** (gofmt + go vet + build + unit + e2e, todos verdes).
+- `make lint`: **exit=0**, mas o golangci-lint foi **pulado**. Saída: `golangci-lint v1.64.8 é incompatível com este toolchain Go (não decodifica o export data); pulando. Gate real = gofmt + go vet.` Promovido a [R4](#r4-qualidade-reativar-análise-estática-golangci-lint-qg-1-tst-1--média).
+
+### A.2 Achados abertos
+
+| ID | Sev. | Requisito | Evidência |
+|----|------|-----------|-----------|
+| SEG-1 | alta | R1.1 | `internal/api/app/patients.go` (`GetPatientChart`) revela notas e anamnese em claro via `Reveal()` em `internal/api/app/dto.go`, sem auditoria. `ProntuarioService` (`internal/app/prontuario_service.go`) não tem dependência de auditoria; o wiring o constrói com `app.NewProntuarioService(prontuarioRepo, nil)` em `internal/api/wiring.go`. `HistoryService` e `DayFeedService` auditam `AuditActionRead`; o chart não. |
+| SEG-2 | alta | R1.2 | `AddNote` e `UpsertAnamnesis` em `internal/app/prontuario_service.go` e `internal/api/app/patients.go` persistem sem gerar `audit_log`. |
+| DRV-1 | alta | R2 | `internal/drivesync/drivesync.go` (`mirror`/`uploadSealed`): lê o snapshot inteiro, cifra e sobe o blob completo (`<backup>.enc`). Sem hash, manifesto, diff ou dedup. O steering `psicoman-google-api.md` pede incremental por manifesto. |
+| DRV-2 | média | R3 | `internal/api/wiring.go` (`wireDriveSync`) exige `client_id`, `client_secret` e `drive_folder`; vazio vira `drivesync.New(nil, …)` (no-op). `internal/integration/google/drive.go` só tem `Upload` de arquivo, sem `files.create` de pasta. Reproduzido numa sessão de teste real: o upload com o nome da pasta deu `404`, e com o folder id criado à mão funcionou. |
+| QG-1 / TST-1 | média | R4 | Saída do `make lint` em A.1. `.golangci.yml` existe mas não executa. |
+| TST-2 | baixa | R5 | Há teste de auditoria para history/dayfeed em `internal/app/feed_service_test.go`; nenhum para `GetPatientChart`, `AddNote` ou `UpsertAnamnesis`. |
+| DOC-1 | média | R6.1 | `psicoman-google-api.md` cita o escopo `gmail.send` e tem seção Gmail, mas Gmail está fora de escopo (`docs/requirements.md` §3.7/§5). `AuthorizeScopes` em `internal/integration/google/oauth.go` pede só `calendar` e `drive.file`. |
+| DOC-2 | média | R6.2 | `docs/architecture.md` §0.10 descreve o DR como funcional, sem citar o pré-requisito da pasta nem o snapshot inteiro. `docs/deploy.md` não traz o passo de criar a pasta. |
+| DOC-3 | baixa | R6.3 | `.kiro/specs/pocketbase-finish/tasks.md`: a tabela "Status ao vivo" tem a Fase 10 duas vezes (`⬜ pendente` e `✅ concluída`), e a seção da Fase 10 segue com checkboxes `[ ]`. A onda foi mergeada no PR #4. |
+| SEG-3 | média | R7.1 | Nenhum middleware de rate limit em `internal/**/*.go`. O limite existe só no nginx de borda (`deploy/nginx/portal.conf`, por IP). `POST /v1/portal/register` com e-mail repetido não é limitado em lugar nenhum. |
+| SEG-4 | baixa | R7.2 | `internal/api/admin/google_oauth.go`: `GoogleAuthorize` gera `state := ulid.New()`; `GoogleCallback` não lê nem compara `state`. |
+| SEG-5 | baixa | R7.3 | `config.dev.yaml` tem segredos reais em claro (chaves de cifra, client secret do Google, api key do Gemini). O arquivo é git-ignored e não rastreado. Os valores foram expostos no ambiente de dev. |
+| QG-2 | baixa | R7.4 | `internal/api/app/sessions.go`: `// TODO Fase 5: extrair o autor do AuthAppStub; por ora é a terapeuta.` O `actor` do audit de sessão é fixo. `httpx.ActorIdentity` grava a identidade do Pangolin, mas ninguém a consome. |
+| OBS-1 | média | R8 | Probes `/v1/health`, `/v1/livez` e `/v1/readyz` existem (`internal/api/api.go`). Só há timing por rota **logado** (`httpx.Timing`/`httpx.Logging`), sem endpoint de métricas. Métricas adiadas em `docs/decisions.md` (2026-10-24) e promovidas nesta onda a pedido do Rafael. |
+
+### A.3 Verificado e correto (não vira requisito)
+
+- **Features no `/v1`:** os gaps R1 da `pocketbase-finish` estão fechados. `internal/api/app/mount.go` registra day-feed, history, session-metrics, calendário, custos, locais, disponibilidades, origens, planos e pedidos de agendamento. `internal/api/swagger/contract_test.go` falha o build se rota e Swagger divergirem.
+- **OAuth 3-legged:** autorização real, refresh token cifrado em `google_token`, estado "reautorização necessária" no `/readyz`.
+- **Gate do Pangolin e modo dev:** `internal/api/httpx/auth.go` é fail-closed. Sem header e com `pangolin.dev_identity` vazio, responde 401; o header real sempre vence a identidade dev; o boot loga WARN quando o modo dev está ativo. Coerente com o ADR de 2026-11-05.
+- **Gate de aprovação do portal:** `internal/api/portal/gate.go` (não aprovado → 403, sem sessão → 401).
+- **Não vazamento clínico:** `Reveal()` só aparece nos mappers do ator `app`; o portal tem `leak_test.go`.
+- **Arquitetura:** `internal/archtest/arch_test.go` prova que `domain`, `app` e `config` não importam o PocketBase. ULID, centavos `int64`, `America/Sao_Paulo` e envelope PT-BR respeitados.
+- **Testes:** suíte E2E ampla em `test/e2e/`, sem `t.Skip` e sem chamada à API real do Google ou do Gemini (sempre fakes atrás de interface).
+- **Gmail:** sem código Gmail, coerente com a decisão de produto (cobrança em PDF e envio por WhatsApp).
+
+### A.4 Registro da revisão
+
+O `requirements.md` passou por revisão independente (veredito **APPROVED**, zero achados bloqueantes), que conferiu formato contra a `pocketbase-finish`, rastreabilidade de cada requisito a um achado real e cobertura dos pontos levantados na sessão (pasta do Drive, backup incremental, modo dev de identidade). A revisão cobriu R1 a R7. O **R8 (métricas)** entrou depois, a pedido do Rafael, e foi revisado apenas pelo autor da edição. O modo dev de identidade não foi levantado como requisito porque está implementado e correto (A.3).
+
+Observações não bloqueantes da revisão: R2.3 e R6.2 tocam `docs/decisions.md` e o steering para o caso "snapshot inteiro" (redundância aceita, reforça a rastreabilidade); o rótulo de severidade "média/baixa" em R6 reflete DOC-1 e DOC-2 (média) com DOC-3 (baixa).
