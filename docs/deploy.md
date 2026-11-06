@@ -78,8 +78,15 @@ Mantenha o relógio da VM sincronizado (NTP). O sistema opera internamente em
 ### 3.1 Compilar o binário único
 
 ```bash
+make tools        # uma vez: instala o golangci-lint v2 (compilado com o Go local)
 make build        # gera bin/psicoman (go build -o bin/psicoman ./cmd/psicoman)
+make check        # gate completo: fmt + vet + build + testes + lint (obrigatório)
 ```
+
+> O `make check` roda o `golangci-lint` v2 como **gate obrigatório** (não é mais
+> advisory). O `make tools` o instala compilando a versão fixada com o toolchain
+> Go local — binários pré-compilados não decodificam o export data do Go 1.27.
+> Para pular o lint pontualmente: `make check SKIP_LINT=1` (desaconselhado).
 
 ### 3.2 Gerar o `config.yaml`
 

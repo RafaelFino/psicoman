@@ -29,8 +29,8 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 | Fase | Estado | Commit | Observação |
 |------|--------|--------|------------|
-| 0 — Preparação (branch, baseline, specs) | 🔄 em progresso | — | branch `auditoria-profunda` criada; baseline `make check` = `exit=0` (lint v1.64.8 advisory pulado, esperado); spec já versionada na `main` (b56d3a3), working tree limpo — 0.2 ajustado: não há commit "adiciona a spec", só o ADR da 0.3 |
-| 1 — R4: golangci-lint v2 reativado | ⬜ pendente | — | spike do linter primeiro (pré-verificado 2026-11-05: v2.15.0 decodifica o Go 1.27; 185 achados); Makefile, YAML e CI |
+| 0 — Preparação (branch, baseline, specs) | ✅ concluída | `c7bb6a5` | branch criada; baseline `make check` verde (lint v1.64.8 advisory pulado, esperado); spec já versionada na `main` (b56d3a3), então 0.2 fechou só com o ADR da 0.3 |
+| 1 — R4: golangci-lint v2 reativado | 🔄 código pronto, commit junto da Fase 2 | — | spike ✅; `.golangci.yml` v2 + 4 exclusões (inclui ST1005, achado novo); Makefile (`tools`+`lint` obrigatório+`SKIP_LINT=1`) validado nos 4 cenários; CI com `make tools`; ADR+README+deploy. 36 achados pós-exclusão (<100, sem baseline) → gate só fica verde após a triagem (Fase 2); por isso o commit de fechamento da Fase 1 sai junto da Fase 2, todos com check verde |
 | 2 — R4: triagem dos achados do linter | ⬜ pendente | — | commits separados do trabalho funcional; ≈35 achados depois de desligar `misspell` PT-BR e 2 regras do `revive` |
 | 3 — R7.4 + R1 + R5: ator real e auditoria clínica | ⬜ pendente | — | `domain.WithActor`, `ProntuarioService.SetAudit`, E2E da trilha |
 | 4 — R3: pasta de DR criada automaticamente | ⬜ pendente | — | spike `drive.file` (doc oficial confirma; só falta runtime e pai na lixeira); migration `0050`; `FolderResolver` |
@@ -41,7 +41,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 | 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ⬜ pendente | — | Gmail fora do steering; checklist de segredos |
 | 10 — Fechamento (release notes + checklist + push) | ⬜ pendente | — | push só com OK do Rafael |
 
-**Agora:** Fase 0 em fechamento (0.1, 0.2, 0.3 concluídas). Próxima ação: `make check` + commit da Fase 0, depois Fase 1 (spike do linter 1.1).
+**Agora:** Fase 0 concluída e commitada (`c7bb6a5`). Iniciando a Fase 1 — task 1.1 (spike: instalar o golangci-lint v2.15.0 compilado com o toolchain local e reconfirmar os achados). _(Nota: a linha de commit da Fase 0 nesta tabela entra no próximo commit que tocar o tasks.md — evita um commit só de bookkeeping e não reescreve o `c7bb6a5`.)_
 
 ---
 
@@ -74,7 +74,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
   - Entrada curta no topo do arquivo: contexto (auditoria de 2026-11-05), decisão (onda `auditoria-profunda` com as decisões do Rafael acima), consequência (ponteiro para `.kiro/specs/auditoria-profunda/`). Atende à regra "toda spec nascida de auditoria tem entrada correspondente".
   - Arquivo: `docs/decisions.md`.
   - **Pronto quando:** a entrada existe, com data, contexto, decisão e consequências, apontando para a spec.
-- [ ] **Fechamento Fase 0:** `make check` verde; commit `auditoria-profunda Fase 0: adiciona a spec da onda e o registro da decisão`.
+- [x] **Fechamento Fase 0:** `make check` verde; commit `c7bb6a5` `auditoria-profunda Fase 0: registra a decisao da onda e inicia o acompanhamento no tasks.md` (ajuste: spec já estava na `main`, então o commit traz o ADR e o acompanhamento, não a spec).
 
 ---
 
@@ -82,50 +82,46 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 > Dep. de fase: Fase 0. Faz o gate real valer antes de qualquer código novo. Se o spike 1.1 falhar, **a fase para** e o Rafael decide (esperar release, ou rodar o linter com outro toolchain, perdendo análise de código do Go 1.27).
 
-- [ ] **1.1 SPIKE: golangci-lint v2.15.0 compilado com o toolchain local** (dep: —)
+- [x] **1.1 SPIKE: golangci-lint v2.15.0 compilado com o toolchain local** (dep: —)
   - `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`, depois `golangci-lint run ./... > /tmp/lint-spike.log 2>&1; echo "exit=$?"`. Contar achados por linter (`grep -c`) e anotar o total na observação da fase. Sem alterar arquivo do repositório nesta task.
   - **Pré-verificado em 2026-11-05:** `v2.15.0` existe (última v2); `GOBIN=/tmp/gobin go install` compila com go1.27.1; `golangci-lint run` decodifica o export data do Go 1.27. Achados: **185** com a config produzida por `migrate` (`revive` 127, `misspell` 43, `staticcheck` 15) e **195** com o rascunho do design §4 (`errcheck` 8, `misspell` 43, `revive` 129, `staticcheck` 15); `config verify` passa no rascunho. Top de regras: `revive:error-strings` ≈60, `revive:unused-parameter` ≈56, `misspell` 43 (falsos positivos em português).
   - **Pronto quando (reconfirmar rapidamente):** repetir `go install`, `golangci-lint version` e `run`; o linter decodifica o export data do Go 1.27 (sem a mensagem "não decodifica o export data") e o total de achados está registrado e é da mesma ordem (~190). Falha → parar e reportar ao Rafael.
+  - **✅ RECONFIRMADO (2026-11-06):** `GOBIN=/tmp/gobin go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` → `version 2.15.0 built with go1.27.1`; `run` com o rascunho v2 → exit 1, **0 erros de export data/typecheck**, **195 achados** (revive 129, misspell 43, staticcheck 15, errcheck 8). `config verify` do rascunho = exit 0. Idêntico ao pré-verificado. Logs: `/tmp/lint-spike.log`.
   - **Refs:** R4.1 · design §4 e §11.5 item 1.
-- [ ] **1.2 Migrar `.golangci.yml` para o formato v2** (dep: 1.1)
+- [x] **1.2 Migrar `.golangci.yml` para o formato v2** (dep: 1.1) — adotado o rascunho explícito do design §4 (`version: "2"`, `default: none`, enable de 7 linters, `gofmt` em `formatters`, exclusão de `errcheck` em `_test.go`). `config verify` = exit 0; `run ./...` executa (195 achados).
   - **Pré-verificado em 2026-11-05:** o `migrate` mantém o conjunto padrão de linters, acrescenta `exclusions.presets` (que escondem os `Close()` do `errcheck`) e descarta `run.timeout`; o rascunho do design §4 passa no `config verify`. Preferir o rascunho explícito.
   - Rodar `golangci-lint migrate`, revisar à mão contra o rascunho do design §4 (`version: "2"`, `linters.default: none`, `enable: [errcheck, govet, ineffassign, staticcheck, unused, misspell, revive]`, `formatters.enable: [gofmt]`, exclusão de `errcheck` em `_test.go` em `linters.exclusions.rules`).
   - Arquivo: `.golangci.yml`.
   - **Pronto quando:** `golangci-lint config verify` sai com 0 e `golangci-lint run ./...` executa de fato.
   - **Refs:** R4.1 · design §4.
-- [ ] **1.3 Reescrever o alvo `lint` do Makefile e adicionar `tools`** (dep: 1.2)
+- [x] **1.3 Reescrever o alvo `lint` do Makefile e adicionar `tools`** (dep: 1.2) — `GOLANGCI_LINT_VERSION ?= v2.15.0`; alvo `tools`; `lint: fmt-check vet` com 3 guardas (ausente→exit 1 pedindo `make tools`; versão≠fixada→exit 1; ok→`run ./...` sem `|| echo`/`@true`/probe/timeout); escape `SKIP_LINT=1` barulhento; cabeçalho atualizado; `check` encadeia `lint`. **Validação manual (logs /tmp/lint-t{1..4}.log):** (1) ausente→exit≠0 "Rode 'make tools'"; (2) shim v2.14.0→exit≠0 "difere da versão fixada"; (3) SKIP_LINT=1→exit 0 "LINT PULADO POR PEDIDO EXPLÍCITO"; (4) linter certo→roda de verdade (imprime `golangci-lint v2.15.0`, 195 achados) e **gate quebra** (exit 2). O estado pré-triagem do repo já prova a quebra do gate; a Fase 2 zera os achados.
   - `GOLANGCI_LINT_VERSION ?= v2.15.0`; alvo `tools` com `go install ...@$(GOLANGCI_LINT_VERSION)`; `lint: fmt-check vet` seguido de: linter ausente → `exit 1` com "rode `make tools`"; versão diferente da fixada → `exit 1`; senão `golangci-lint run ./...` **sem** `|| echo`, **sem** `@true`, **sem** probe e **sem** `timeout` externo. Escape explícito `make check SKIP_LINT=1` que imprime `!! LINT PULADO POR PEDIDO EXPLÍCITO` e sai 0. Atualizar o comentário do cabeçalho do Makefile ("lint advisory"). Checar que `check:` (linha 75) continua encadeando `lint`.
   - Arquivo: `Makefile`.
   - **Pronto quando (validação manual, anotada na observação da fase):** `make lint` com linter ausente (via `PATH` sem o binário) falha; com versão errada falha; com `SKIP_LINT=1` avisa e passa; com tudo certo roda de verdade. Prova de que o gate quebra: inserir um `ineffassign` temporário em um arquivo, ver `make lint` falhar, remover e ver passar.
   - **Refs:** R4.2 · design §4.
-- [ ] **1.4 Instalar o linter no CI** (dep: 1.3)
+- [x] **1.4 Instalar o linter no CI** (dep: 1.3) — no job `check`, antes de `make check`: passo "install golangci-lint (make tools)" que roda `make tools` e acrescenta `$(go env GOPATH)/bin` ao `$GITHUB_PATH`. Não usa a action em modo binário (comentário explica o motivo do export data). YAML validado (`python3 yaml.safe_load` = válido); passo posicionado antes do `make check`.
   - No job `check` de `.github/workflows/ci.yml`, antes de `make check`: passo `make tools` e `$(go env GOPATH)/bin` no `PATH`. Não usar action em modo binário (binário pré-compilado repete o erro de export data).
   - Arquivo: `.github/workflows/ci.yml`.
   - **Pronto quando:** `yq`/leitura do YAML mostra o passo antes de `make check`; sintaxe do workflow válida (conferir com `actionlint` se existir; senão, revisão manual anotada).
   - **Refs:** R4.2 · design §4.
-- [ ] **1.5 Baseline condicional e docs de R4** (dep: 1.3)
+- [x] **1.5 Baseline condicional e docs de R4** (dep: 1.3) — configuradas 4 exclusões justificadas no YAML: `misspell` (43 falsos positivos PT-BR), `revive:error-strings` (≈60), `revive:unused-parameter` (≈56) e **`staticcheck:ST1005`** (≈60 — **achado novo não previsto no design**: na v2 o staticcheck absorve o stylecheck e reporta o mesmo check de capitalização do revive:error-strings; desligado pela mesma justificativa). Pós-exclusões: **36 achados** (staticcheck 15, revive 13, errcheck 8) < 100 → **sem baseline `new-from-rev`**. ADR de R4 criado em `docs/decisions.md`; `README.md` e `docs/deploy.md` passam a instruir `make tools`.
   - **Antes de decidir o baseline**, configurar as três exclusões justificadas (comentário no YAML): `misspell` (falsos positivos em português), `revive:error-strings` e `revive:unused-parameter`; medido em 2026-11-05, isso deixa ≈35 achados (8 `errcheck` de `Close()`, 15 `staticcheck`, resto de `revive`). Contar de novo **depois** das exclusões e aplicar a regra abaixo a esse número.
   - Se o spike contou mais de ~100 achados (já com as exclusões): `issues.new-from-rev` no YAML apontando para o commit anterior à fase (o gate cobra só código novo) e abrir a task de dívida na Fase 2. Caso contrário, nenhum baseline. Atualizar `README.md` e `docs/deploy.md` (instalar com `make tools`) e criar o ADR curto em `docs/decisions.md` ("linter v2, fim do modo advisory", escolha do baseline).
   - Arquivos: `.golangci.yml`, `README.md`, `docs/deploy.md`, `docs/decisions.md`.
   - **Pronto quando:** `make lint` roda o linter e sai 0 (com baseline, se aplicável); ADR e docs citam `make tools`.
   - **Refs:** R4.1, R4.2 · design §4.
-- [ ] **Fechamento Fase 1:** `make check` verde (já com o linter real, ou com baseline registrada); docs/ADR atualizados; commit `auditoria-profunda Fase 1: reativa o golangci-lint v2 no gate e no CI`.
+- [~] **Fechamento Fase 1:** config/Makefile/CI/docs prontos; fmt+vet+build+testes verdes (`/tmp/check-fase1-nolint.log`). **Sem baseline**, o linter real expõe 36 achados pré-existentes, então `make check` só fica verde após a triagem. Para respeitar "cada commit deixa a base consistente" (steering de processo), o commit de fechamento da Fase 1 (`reativa o golangci-lint v2 no gate e no CI`) é feito **junto da Fase 2**, após a triagem zerar os achados — reativação e correções em commits separados por natureza, todos com `make check` verde. Ver nota no topo da Fase 2.
 
 ---
 
 ## Fase 2 — R4: triagem dos achados do linter
 
 > Dep. de fase: Fase 1. Commits **separados** do trabalho funcional das demais fases, para o diff funcional não ser contaminado (design §4).
+>
+> **Nota de execução (2026-11-06):** sem baseline, a reativação do linter (Fase 1) deixa 36 achados pré-existentes expostos, o que impede `make check` de ficar verde num commit só da Fase 1. Para respeitar "cada commit deixa a base consistente" (steering de processo), a ordem de commits é: (a) triagem que zera os achados (bugs reais e estilo), depois (b) o commit de reativação da Fase 1 (`.golangci.yml`, `Makefile`, CI, docs/ADR) — ou, de forma equivalente e mais simples, a reativação e as correções entram como commits separados por natureza em sequência contígua, todos verificados com `make check` verde ao final. O importante: nenhum commit publicado deixa o gate quebrado.
 
-- [ ] **2.1 Classificar os achados e corrigir os bugs reais** (dep: 1.5)
-  - Rodar `golangci-lint run ./... > /tmp/lint-triagem.log 2>&1`, separar por linter. Corrigir o que for bug real (errcheck, ineffassign, staticcheck SA). Arquivos: os que o relatório apontar (lista fechada na observação da fase). Sem mudança de comportamento além da correção.
-  - **Pronto quando:** `golangci-lint run ./...` sem achados de classe bug e `make test-unit e2e` verdes.
-  - **Refs:** R4 · design §4 (regras 1 e 4).
-- [ ] **2.2 Tratar o estilo de baixo valor** (dep: 2.1)
-  - `revive` ruidoso ou similar: desligar regra no `.golangci.yml` **com comentário justificando**; supressão pontual só com `//nolint:<linter> // <justificativa>`. Se o volume pedir, ativar `new-from-rev` e registrar a dívida remanescente no ADR de R4 (task 1.5).
-  - Arquivos: `.golangci.yml` e os arquivos com `//nolint` justificado.
-  - **Pronto quando:** `make lint` sai 0 sem `SKIP_LINT`; cada `//nolint` tem justificativa na mesma linha.
-  - **Refs:** R4 · design §4 (regras 2 e 3).
+- [x] **2.1 Classificar os achados e corrigir os bugs reais** (dep: 1.5) — corrigidos: 8 `errcheck` de `Close()` (drivesync, gemini, calendar, drive, ged_store) → `defer func(){ _ = x.Close() }()`; 1 `S1017` (drivesync `encName`) → `strings.TrimSuffix`; 7 `QF1012` (pdf.go) → `fmt.Fprintf`; 1 `QF1001` (httpx_test) → De Morgan; 1 `SA9005` (sealed_text_test) → `//nolint` justificado (marshal de tipo opaco é o invariante); 5 `SA1019` → `ResetBootstrapState`→`ClearBootstrap` (3) e `go/parser.ParseDir`→helper `ParseFile` (2, leak_test, sem dep nova). Builtins sombreados: `clear`→`plain` (health.go), `func min` redundantes removidos (pdf_test, invoice_test). Testes unit+e2e verdes.
+- [x] **2.2 Tratar o estilo de baixo valor** (dep: 2.1) — desligadas por regra no `.golangci.yml`, com comentário justificando cada uma: `revive:exported` (stutters — renomear DTOs/tipos públicos é churn de API sem ganho), `revive:unexported-return` (construtor devolve concreto, consumido via interface — intencional), `revive:context-as-argument` (`resolvePatient(e, ctx)`, `e` é o portador do handler). `golangci-lint run ./...` → **0 issues**. O único `//nolint` (SA9005) tem justificativa na mesma linha.
 - [ ] **Fechamento Fase 2:** `make check` verde; ADR de R4 atualizado com o desfecho da triagem; commits em PT-BR separados por natureza (ex.: `auditoria-profunda Fase 2: corrige achados de errcheck e ineffassign`, `auditoria-profunda Fase 2: ajusta regras de estilo do revive`).
 
 ---

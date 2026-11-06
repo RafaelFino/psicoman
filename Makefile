@@ -1,6 +1,8 @@
 # Psicoman — Makefile
 # Binário único (cmd/psicoman) com o PocketBase embarcado como framework.
-# Gate de qualidade: make check (fmt + vet + build + test-unit + e2e; lint advisory).
+# Gate de qualidade: make check (fmt + vet + build + test-unit + e2e + lint).
+# O lint NÃO é mais advisory: golangci-lint v2 é obrigatório e sua falha derruba
+# o check. Instale/atualize com `make tools`. Escape explícito: `make check SKIP_LINT=1`.
 
 GO         ?= go
 BIN_DIR    ?= bin
@@ -8,8 +10,12 @@ BIN        := $(BIN_DIR)/psicoman
 DATA_DIR   ?= ./pb_data
 HTTP_ADDR  ?= 127.0.0.1:8090
 
+# golangci-lint v2: versão fixada. Compilar com o toolchain local é obrigatório
+# (binários pré-compilados não decodificam o export data do Go 1.27).
+GOLANGCI_LINT_VERSION ?= v2.15.0
+
 .PHONY: help all build test test-unit e2e \
-        fmt fmt-check vet lint check tidy serve clean
+        fmt fmt-check vet lint tools check tidy serve clean
 
 ## help: lista os alvos disponíveis
 help:
@@ -49,32 +55,39 @@ fmt-check:
 vet:
 	$(GO) vet ./...
 
-## lint: golangci-lint se instalado (advisory); gate obrigatório é fmt+vet
-# Advisory de verdade: nenhuma falha do golangci-lint pode derrubar o `make check`.
-# Um probe barato detecta a incompatibilidade de toolchain (golangci-lint v1.x não
-# decodifica o export data do Go 1.27 -> "export data version N"): nesse caso o lint
-# é pulado com aviso, evitando a varredura pesada de ./... que trava/crasha o gate.
-# Quando o golangci-lint é compatível, roda normal e absorve avisos. Gate real = gofmt + go vet.
-lint: fmt-check vet
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-	  echo "==> golangci-lint (advisory)"; \
-	  probe="$$(timeout 60 golangci-lint run --no-config --disable-all --enable=govet ./internal/platform/clock/... 2>&1 || true)"; \
-	  case "$$probe" in \
-	    *"export data version"*|*"could not load export data"*) \
-	      echo "!! golangci-lint $$(golangci-lint version 2>/dev/null | awk '{print $$4}') é incompatível com este toolchain Go (não decodifica o export data); pulando. Gate real = gofmt + go vet. Atualize o golangci-lint para voltar a rodar o lint." ;; \
-	    *) \
-	      ( timeout 180 golangci-lint run ./... ) || echo "!! golangci-lint reportou avisos ou não concluiu (não bloqueia o check)." ;; \
-	  esac; \
-	else \
-	  echo "==> golangci-lint não instalado; gate = gofmt + go vet."; \
-	  echo "    Instale (opcional): https://golangci-lint.run/usage/install/"; \
-	fi
-	@true
+## tools: instala o golangci-lint v2 fixado, compilado com o toolchain local
+tools:
+	@echo "==> instalando golangci-lint $(GOLANGCI_LINT_VERSION) (compilado com o Go local)"
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
-## check: gate de qualidade (fmt + vet + build + testes + e2e); lint é advisory
+## lint: golangci-lint v2 OBRIGATÓRIO (falha derruba o check). Pule só com SKIP_LINT=1.
+# Fim do modo advisory: sem `|| echo`, sem `@true`, sem probe e sem `timeout` externo
+# (o run.timeout do .golangci.yml governa). Três guardas antes de rodar:
+#   1. golangci-lint ausente     -> falha pedindo `make tools`.
+#   2. versão != a fixada        -> falha pedindo `make tools`.
+#   3. ok                        -> roda `golangci-lint run ./...` de verdade.
+lint: fmt-check vet
+ifeq ($(SKIP_LINT),1)
+	@echo "!! LINT PULADO POR PEDIDO EXPLÍCITO (SKIP_LINT=1)"
+else
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+	  echo "!! golangci-lint não encontrado no PATH. Rode 'make tools' (instala $(GOLANGCI_LINT_VERSION))."; \
+	  exit 1; \
+	fi; \
+	have="$$(golangci-lint version 2>/dev/null | grep -oE 'version [0-9]+\.[0-9]+\.[0-9]+' | awk '{print "v"$$2}')"; \
+	want="$(GOLANGCI_LINT_VERSION)"; \
+	if [ "$$have" != "$$want" ]; then \
+	  echo "!! golangci-lint $$have difere da versão fixada $$want. Rode 'make tools'."; \
+	  exit 1; \
+	fi; \
+	echo "==> golangci-lint $$have"; \
+	golangci-lint run ./...
+endif
+
+## check: gate de qualidade (fmt + vet + build + testes + e2e + lint obrigatório)
 check: fmt-check vet build test-unit e2e
-	@$(MAKE) --no-print-directory lint
-	@echo "==> check OK: formatado, vet limpo, build ok, testes verdes."
+	@$(MAKE) --no-print-directory lint SKIP_LINT=$(SKIP_LINT)
+	@echo "==> check OK: formatado, vet limpo, build ok, testes verdes, lint limpo."
 
 ## tidy: organiza go.mod/go.sum
 tidy:

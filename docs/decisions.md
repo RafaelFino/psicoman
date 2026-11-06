@@ -6,6 +6,35 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-06 — `auditoria-profunda` Fase 1: golangci-lint v2 como gate obrigatório (fim do modo advisory)
+
+**Contexto.** O gate de lint estava desligado na prática: o `golangci-lint v1.64.8` (compilado com Go mais velho) não decodifica o export data do Go 1.27, então o `make lint` detectava a incompatibilidade por um probe e **pulava** o linter, engolindo qualquer falha com `|| echo` e `@true`. O `.golangci.yml` estava no formato v1 e o CI não instalava o linter. Resultado: fmt + vet eram o único gate estático real.
+
+**Decisão.**
+1. Adotar o **golangci-lint v2.15.0** (última v2), instalado via `go install .../v2/cmd/golangci-lint@v2.15.0` — **compilado com o toolchain local** (`make tools`). Binários pré-compilados (inclusive a `golangci-lint-action` em modo binário) repetem o erro de export data; por isso o CI roda `make tools` em vez da action.
+2. Migrar o `.golangci.yml` para o formato v2 (rascunho explícito: `version: "2"`, `linters.default: none`, enable de `errcheck/govet/ineffassign/staticcheck/unused/revive`, `gofmt` em `formatters`, exclusão de `errcheck` em `_test.go`).
+3. Reescrever o alvo `lint`: **falha de verdade** (sem `|| echo`, sem `@true`, sem probe, sem `timeout` externo). Guardas: linter ausente → `exit 1` pedindo `make tools`; versão diferente da fixada → `exit 1`; senão `golangci-lint run ./...`. Escape explícito e barulhento `make check SKIP_LINT=1`.
+4. CI: passo `make tools` + `$(go env GOPATH)/bin` no PATH, antes do `make check`.
+
+**Exclusões justificadas (com comentário no YAML).**
+- `misspell` desligado inteiro: o dicionário trata palavras em PT-BR (operacional, autor, independente) como erro de inglês — 43 falsos positivos, zero sinal.
+- `revive:error-strings` e `revive:unused-parameter`: ruído de alto volume (≈60 e ≈56) e baixo valor num projeto PT-BR com assinaturas de interface.
+- `staticcheck:ST1005`: **achado não previsto no design**. Na v2 o staticcheck absorve o stylecheck e passa a reportar ST1005, que é o **mesmo** check de capitalização de mensagens de erro que `revive:error-strings` (≈60 ocorrências de mensagens PT-BR). Desligado pela mesma justificativa, para manter coerência com a exclusão do revive.
+
+**Baseline (regra da task 1.5).** A triagem pré-exclusões achou 195; após as quatro exclusões acima, **36 achados** (staticcheck 15, revive 13, errcheck 8). Como 36 < ~100, **não há baseline `new-from-rev`**: a Fase 2 corrige/trata os 36 sem registrar dívida. (Se tivesse passado de 100, o gate cobriria só código novo via `issues.new-from-rev`.)
+
+**Consequências.**
+- Todo código novo das fases seguintes nasce sob o gate real.
+- `README.md` e `docs/deploy.md` passam a instruir `make tools`.
+
+**Desfecho da triagem (Fase 2).** Os 36 achados foram zerados sem baseline:
+- **Bugs reais / correções mecânicas (commit de triagem 1):** 8 `errcheck` de `Close()` → `defer func() { _ = x.Close() }()`; 1 `S1017` → `strings.TrimSuffix`; 7 `QF1012` → `fmt.Fprintf`; 1 `QF1001` → De Morgan; 1 `SA9005` → `//nolint:staticcheck` justificado (marshal de tipo opaco é o invariante do teste `SealedText`); 5 `SA1019` → `ResetBootstrapState`→`ClearBootstrap` (3) e `go/parser.ParseDir`→helper `ParseFile` sem dependência externa (2).
+- **Sombra de builtin corrigida:** variável `clear` renomeada para `plain` (health.go); helpers locais `func min` redundantes removidos (o builtin do Go 1.21+ cobre) em `pdf_test.go` e `invoice_test.go`.
+- **Estilo de baixo valor desligado por regra (commit de triagem 2), com justificativa no YAML:** `revive:exported` (stutters — renomear DTOs/tipos públicos é churn sem ganho), `revive:unexported-return` (construtor devolve concreto, consumido via interface — padrão intencional), `revive:context-as-argument` (`resolvePatient(e, ctx)` — `e` é o portador do handler).
+- Resultado: `golangci-lint run ./...` → **0 issues**; `make check` verde (fmt+vet+build+unit+e2e+lint). Nenhuma dívida de lint registrada.
+
+---
+
 ## 2026-11-05 — Onda `auditoria-profunda` (correção dos achados da auditoria profunda)
 
 **Contexto.** Auditoria profunda de 2026-11-05 sobre o Psicoman levantou achados de conformidade, robustez e operação: ausência de trilha de auditoria LGPD no caminho clínico (prontuário), ator fixo `"sistema"` no `audit_log` em vez da identidade real, backup ao Drive sem retenção e dependente de pasta configurada à mão, `golangci-lint` em modo advisory (gate real desligado por incompatibilidade do v1 com o Go 1.27), falta de rate limit no portal e de validação do `state` do OAuth, e ausência de métricas operacionais. Evidências e requisitos em [`.kiro/specs/auditoria-profunda/requirements.md`](../.kiro/specs/auditoria-profunda/requirements.md) (R1–R10, Anexo A).

@@ -59,14 +59,20 @@ flowchart TB
 ## Build e execução
 
 ```bash
+make tools        # instala o golangci-lint v2 (compilado com o Go local) — faça uma vez
 make build        # compila UM binário em bin/psicoman
-make check        # gate: fmt + vet + build + testes unit + e2e
+make check        # gate: fmt + vet + build + testes unit + e2e + lint (obrigatório)
 make test-unit    # só testes unitários
 make e2e          # só testes end-to-end
 
 # executar (atrás do Pangolin, em produção):
 bin/psicoman serve --http 127.0.0.1:8090 --dir ./pb_data
 ```
+
+O `make check` roda o `golangci-lint` v2 como gate obrigatório (não é mais advisory).
+Instale-o uma vez com `make tools` — ele compila a versão fixada com o seu toolchain
+Go local, porque binários pré-compilados não decodificam o export data do Go 1.27.
+Para pular o lint pontualmente (não recomendado): `make check SKIP_LINT=1`.
 
 A configuração vem de um `config.yaml` (ver `config.example.yaml`): cifra, header do Pangolin, credenciais Google e chave do Gemini. **Variáveis de ambiente sobrescrevem o arquivo**; a origem de cada chave é logada no boot, sem vazar segredos. A admin UI nativa do PocketBase fica em `/_/`.
 

@@ -1,25 +1,71 @@
-# Configuração do golangci-lint para o Psicoman.
+# Configuração do golangci-lint (formato v2) para o Psicoman.
 # Conjunto enxuto e pragmático: correção + higiene, sem ruído excessivo.
+# Requer golangci-lint v2.15.0 instalado com o toolchain local (`make tools`):
+# binários pré-compilados são buildados com um Go mais velho e não decodificam
+# o export data do Go 1.27.
+version: "2"
+
 run:
+  # Na v2 o timeout é desligado por padrão; mantemos um teto explícito.
   timeout: 5m
   tests: true
 
 linters:
+  # Habilitação explícita: nada implícito. `staticcheck` já absorve gosimple/stylecheck.
+  default: none
   enable:
     - errcheck      # erros não verificados
     - govet         # análise estática
     - ineffassign   # atribuições inúteis
-    - staticcheck   # bugs e simplificações
+    - staticcheck   # bugs e simplificações (inclui SA/QF/S)
     - unused        # código morto
-    - misspell      # erros de digitação em comentários
-    - gofmt         # formatação
     - revive        # estilo (substitui golint)
+    # misspell DESLIGADO de propósito: o dicionário trata palavras em português
+    # (operacional, autor, independente, ...) como erro de inglês — 43 falsos
+    # positivos, zero sinal útil num projeto PT-BR. Ver ADR R4 (docs/decisions.md).
+  exclusions:
+    rules:
+      # Testes podem ignorar erros de Close()/Body em respostas HTTP.
+      - path: _test\.go
+        linters: [errcheck]
+      # revive:error-strings — exige mensagens de erro minúsculas/sem pontuação,
+      # regra pensada para inglês; nossas mensagens são PT-BR e voltadas ao usuário.
+      # Ruído de alto volume (≈60) e baixo valor. Ver ADR R4.
+      - linters: [revive]
+        text: "error-strings:"
+      # revive:unused-parameter — pede renomear p/ _ parâmetros não usados; colide
+      # com assinaturas de interface (ctx, etc.) que precisam do nome. ≈56 achados
+      # de baixo valor. Ver ADR R4.
+      - linters: [revive]
+        text: "unused-parameter:"
+      # staticcheck ST1005 — na v2 o staticcheck absorve o stylecheck e passa a
+      # reportar o MESMO check que revive:error-strings (mensagens de erro
+      # capitalizadas/com pontuação). Mesma justificativa PT-BR, mesmo ruído
+      # (≈60). Desligado pelo mesmo motivo; manter coerente com a exclusão do
+      # revive acima. Ver ADR R4.
+      - linters: [staticcheck]
+        text: "ST1005:"
+      # revive:exported ("stutters") — pediria renomear DTOs e tipos públicos
+      # (PortalMeDTO, TherapistProfile, BillingPeriodFor, ...). Os nomes atuais
+      # são intencionais e legíveis no domínio; renomear é churn amplo de API
+      # pública sem ganho. Baixo valor. Ver ADR R4.
+      - linters: [revive]
+        text: "exported:"
+      # revive:unexported-return — construtores que devolvem o tipo concreto não
+      # exportado (NewSessionRepository -> *sessionRepo) são padrão intencional
+      # do projeto (o consumidor usa via interface). Ver ADR R4.
+      - linters: [revive]
+        text: "unexported-return:"
+      # revive:context-as-argument — resolvePatient recebe (e, ctx) porque `e`
+      # (RequestEvent) é o portador do handler; reordenar tocaria call sites sem
+      # ganho real. Convenção de baixo valor aqui. Ver ADR R4.
+      - linters: [revive]
+        text: "context-as-argument:"
+
+formatters:
+  # gofmt virou "formatter" na v2 (deixa de ser linter).
+  enable: [gofmt]
 
 issues:
-  exclude-rules:
-    # Testes podem ignorar erros de Close()/Body em respostas HTTP.
-    - path: _test\.go
-      linters:
-        - errcheck
   max-issues-per-linter: 0
   max-same-issues: 0
