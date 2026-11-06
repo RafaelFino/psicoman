@@ -6,6 +6,19 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-05 — Onda `auditoria-profunda` (correção dos achados da auditoria profunda)
+
+**Contexto.** Auditoria profunda de 2026-11-05 sobre o Psicoman levantou achados de conformidade, robustez e operação: ausência de trilha de auditoria LGPD no caminho clínico (prontuário), ator fixo `"sistema"` no `audit_log` em vez da identidade real, backup ao Drive sem retenção e dependente de pasta configurada à mão, `golangci-lint` em modo advisory (gate real desligado por incompatibilidade do v1 com o Go 1.27), falta de rate limit no portal e de validação do `state` do OAuth, e ausência de métricas operacionais. Evidências e requisitos em [`.kiro/specs/auditoria-profunda/requirements.md`](../.kiro/specs/auditoria-profunda/requirements.md) (R1–R10, Anexo A).
+
+**Decisão.** Abrir a onda `auditoria-profunda` (branch dedicada homônima a partir da `main`), com spec completa em [`.kiro/specs/auditoria-profunda/`](../.kiro/specs/auditoria-profunda/) (`requirements.md`, `design.md`, `tasks.md`). Decisões fechadas pelo Rafael em 2026-11-05: R2 snapshot inteiro (sem incremental) com retenção de 14 snapshots por lixeira; R3 pasta de DR criada automaticamente, `google.drive_folder` opcional, id persistido na coleção `drive_dr` (migration 0050); R7.1 rate limit em memória (5 cadastros/h por e-mail, 10 pedidos/h por paciente) somado ao limite por IP do nginx; R7.2 validação do `state` do OAuth (store de uso único + cookie); R8 `client_golang` v1.25.0 em listener dedicado interno, fail-closed, só quando `metrics.addr` está configurado; R4 `golangci-lint` v2.15.0 instalado via `make tools` (fora do `go.mod`); auditoria best-effort (falha loga e conta métrica, sem derrubar a requisição).
+
+**Consequências.**
+- Decisões detalhadas (ADRs específicos) serão registradas ao longo das fases desta mesma onda (auditoria clínica, pasta de DR, snapshot/retenção, `state` do OAuth, rate limit em duas camadas, listener de métricas).
+- Ponteiro canônico da onda: `.kiro/specs/auditoria-profunda/`. Progresso rastreado na tabela "Status ao vivo" de `tasks.md`.
+- Sem push antes do fim da onda e só com OK do Rafael.
+
+---
+
 ## 2026-11-05 — Modo dev de identidade (bypass do gate do Pangolin) reintroduzido
 
 **Contexto.** Rodando a API localmente (fora do Pangolin), o callback OAuth do Google pelo navegador (`GET /v1/admin/google/callback`) e qualquer rota `/v1/app/*` / `/v1/admin/*` batem no middleware `RequirePangolinIdentity` e recebem `401 nao_autenticado`, porque o navegador não injeta o header de identidade (`X-Pangolin-User`) que só existe atrás do gateway em produção. A arquitetura de dois binários tinha um `dev_mode` para isso, removido na migração para o binário único (ver entradas de 2026-10-24). Faltava uma forma de relaxar o gate só em dev para concluir o consentimento do Google e exercitar E2E de ponta a ponta.

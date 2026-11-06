@@ -29,7 +29,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 | Fase | Estado | Commit | Observação |
 |------|--------|--------|------------|
-| 0 — Preparação (branch, baseline, specs) | ⬜ pendente | — | branch `auditoria-profunda` a partir da `main` |
+| 0 — Preparação (branch, baseline, specs) | 🔄 em progresso | — | branch `auditoria-profunda` criada; baseline `make check` = `exit=0` (lint v1.64.8 advisory pulado, esperado); spec já versionada na `main` (b56d3a3), working tree limpo — 0.2 ajustado: não há commit "adiciona a spec", só o ADR da 0.3 |
 | 1 — R4: golangci-lint v2 reativado | ⬜ pendente | — | spike do linter primeiro (pré-verificado 2026-11-05: v2.15.0 decodifica o Go 1.27; 185 achados); Makefile, YAML e CI |
 | 2 — R4: triagem dos achados do linter | ⬜ pendente | — | commits separados do trabalho funcional; ≈35 achados depois de desligar `misspell` PT-BR e 2 regras do `revive` |
 | 3 — R7.4 + R1 + R5: ator real e auditoria clínica | ⬜ pendente | — | `domain.WithActor`, `ProntuarioService.SetAudit`, E2E da trilha |
@@ -41,7 +41,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 | 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ⬜ pendente | — | Gmail fora do steering; checklist de segredos |
 | 10 — Fechamento (release notes + checklist + push) | ⬜ pendente | — | push só com OK do Rafael |
 
-**Agora:** nenhuma fase iniciada. Próxima ação: task 0.1.
+**Agora:** Fase 0 em fechamento (0.1, 0.2, 0.3 concluídas). Próxima ação: `make check` + commit da Fase 0, depois Fase 1 (spike do linter 1.1).
 
 ---
 
@@ -62,15 +62,15 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 ## Fase 0 — Preparação
 
-- [ ] **0.1 Criar a branch da onda a partir da `main`** (dep: —) **(PRIMEIRA TASK)**
+- [x] **0.1 Criar a branch da onda a partir da `main`** (dep: —) **(PRIMEIRA TASK)**
   - `git switch main`, confirmar a `main` atualizada com `git status`, `git switch -c auditoria-profunda`. Não trabalhar na `main` em nenhum momento.
   - **Pronto quando:** `git branch --show-current` imprime `auditoria-profunda`.
   - **Refs:** `psicoman-processo-entrega.md` (Fluxo de Git).
-- [ ] **0.2 Baseline do gate e inclusão das specs na branch** (dep: 0.1)
+- [x] **0.2 Baseline do gate e inclusão das specs na branch** (dep: 0.1) — baseline `exit=0` (`/tmp/check-baseline.log`: gofmt+vet+build+testes unit/E2E verdes; lint v1.64.8 advisory pulado por incompatibilidade com Go 1.27, que a Fase 1 corrige). `git status` limpo: os três arquivos da spec **já estavam commitados na `main`** (b56d3a3), então não há o commit "adiciona a spec"; a Fase 0 fecha só com o ADR da 0.3.
   - Rodar `make check > /tmp/check-baseline.log 2>&1; echo "exit=$?"` e registrar o resultado na observação da Fase 0. Com `git status`, listar o que está modificado/novo: `.kiro/specs/auditoria-profunda/requirements.md` (modificado), `design.md` e este `tasks.md` (novos). O diff do `requirements.md` vem das decisões do Rafael e das correções factuais já aplicadas; os três arquivos de spec entram juntos no primeiro commit da branch. Nenhum arquivo de `.agents/` entra no commit (diretório git-ignored).
   - Arquivos: `.kiro/specs/auditoria-profunda/requirements.md`, `.kiro/specs/auditoria-profunda/design.md`, `.kiro/specs/auditoria-profunda/tasks.md` (novo).
   - **Pronto quando:** baseline `exit=0` anotado; `git status` não mostra nada fora dos arquivos de spec esperados.
-- [ ] **0.3 Registrar a spec em `docs/decisions.md`** (dep: 0.2)
+- [x] **0.3 Registrar a spec em `docs/decisions.md`** (dep: 0.2) — entrada "Onda `auditoria-profunda`" no topo (data, contexto, decisão, consequências), apontando para `.kiro/specs/auditoria-profunda/`.
   - Entrada curta no topo do arquivo: contexto (auditoria de 2026-11-05), decisão (onda `auditoria-profunda` com as decisões do Rafael acima), consequência (ponteiro para `.kiro/specs/auditoria-profunda/`). Atende à regra "toda spec nascida de auditoria tem entrada correspondente".
   - Arquivo: `docs/decisions.md`.
   - **Pronto quando:** a entrada existe, com data, contexto, decisão e consequências, apontando para a spec.
