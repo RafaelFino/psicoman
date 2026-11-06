@@ -75,7 +75,7 @@ func Register(app core.App) {
 		swagger.Mount(v1)
 
 		appGrp := v1.Group("/app")
-		appGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr, devIdentity))
+		appGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr, devIdentity), httpx.PropagateActor)
 		apiapp.Mount(appGrp, svc)
 
 		portalGrp := v1.Group("/portal")
@@ -83,7 +83,7 @@ func Register(app core.App) {
 		portal.Mount(portalGrp, svc)
 
 		adminGrp := v1.Group("/admin")
-		adminGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr, devIdentity))
+		adminGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr, devIdentity), httpx.PropagateActor)
 		admin.Mount(adminGrp, svc)
 
 		return e.Next()

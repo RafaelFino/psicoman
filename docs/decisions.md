@@ -6,6 +6,26 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-06 — `auditoria-profunda` Fase 3: auditoria no caminho clínico e ator real no audit_log
+
+**Contexto.** Dois achados da auditoria: (R1) leitura e escrita do prontuário (anamnese, notas) não deixavam trilha no `audit_log`, exigência LGPD de rastreabilidade de acesso a dado clínico; (R7.4) o `audit_log` gravava o ator fixo `"sistema"` em todas as operações, mesmo quando disparadas por um request autenticado — a identidade real do terapeuta não chegava à trilha.
+
+**Decisão.**
+1. **Ator por context, não por parâmetro.** `domain.WithActor(ctx, actor)` / `domain.ActorFrom(ctx)` (stdlib; `domain` segue sem PocketBase). Um middleware `httpx.PropagateActor`, ligado **depois** de `RequirePangolinIdentity` em `/v1/app` e `/v1/admin`, injeta a identidade resolvida no context do request. `AuditService.Record` resolve o ator efetivo: se recebe `""` ou `"sistema"`, usa `ActorFrom(ctx)`; se ainda vazio, `"sistema"`. Assim as 11 chamadas que passam `"sistema"` literal passam a gravar a identidade real quando há request, **sem editar cada ponto de chamada**, e as assinaturas de `GetChart`/`AddNote`/`UpsertAnamnesis` não mudam.
+2. **Auditoria no service, best-effort, só após sucesso.** `ProntuarioService.SetAudit` (padrão de `SessionService`). `GetChart` → `ler` em `prontuario`; `AddNote` → `criar` em `note`; `UpsertAnamnesis` → `criar`/`atualizar` em `anamnesis`. O `meta` carrega só a forma (`patient_id`, contagem de notas, presença de anamnese, `session_id`), **nunca o texto clínico**.
+3. **Falha observável.** Uma falha de `Insert` é logada (`slog.Error("falha ao gravar audit_log", ...)`, sem `meta` nem ids) e não derruba a operação. A métrica `audit_log_falhas_total` entra na Fase 8.
+
+**Alternativa descartada.** Fail-closed (falhar a leitura/escrita quando o audit falha): ganha rastreabilidade estrita, mas cria indisponibilidade clínica por defeito de uma tabela auxiliar — pior para a terapeuta do que uma lacuna pontual na trilha.
+
+**Fora de escopo.** O **portal do paciente** não passa pelo Pangolin; ações de paciente seguem `"sistema"` (R7.4 cobre só `/v1/app` e `/v1/admin`). O ator em **modo dev** (`pangolin.dev_identity`) é o valor configurado, **não** uma identidade verificada pela borda — documentado em `docs/deploy.md`.
+
+**Consequências.**
+- Novos: `internal/domain/actor.go`, `internal/api/httpx/actor.go`; `AuditService` com `SetLogger`; `ProntuarioService` com `SetAudit`; fiação em `wiring.go` (`audit.SetLogger(a.Logger())`, `prontuario.SetAudit(audit)`).
+- Removido o `// TODO Fase 5` em `sessions.go`: `CancelByTherapist` está correto em single-tenant (é o papel, não a identidade — esta vai pelo context).
+- Cobertura: unit do ator (`domain`), do `Record` (resolução + falha), do `PropagateActor` (`httpx`), do `ProntuarioService` (ações + não-vazamento + `audit==nil`); E2E real lendo `GET /v1/admin/audit-log` (trilha com ator real, sem texto clínico; 401 sem header não audita; `session.cancel` com ator real).
+
+---
+
 ## 2026-11-06 — `auditoria-profunda` Fase 1: golangci-lint v2 como gate obrigatório (fim do modo advisory)
 
 **Contexto.** O gate de lint estava desligado na prática: o `golangci-lint v1.64.8` (compilado com Go mais velho) não decodifica o export data do Go 1.27, então o `make lint` detectava a incompatibilidade por um probe e **pulava** o linter, engolindo qualquer falha com `|| echo` e `@true`. O `.golangci.yml` estava no formato v1 e o CI não instalava o linter. Resultado: fmt + vet eram o único gate estático real.

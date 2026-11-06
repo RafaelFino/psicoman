@@ -124,6 +124,7 @@ func buildServices(a core.App) (*service.Services, error) {
 
 	// Serviços.
 	audit := app.NewAuditService(auditRepo)
+	audit.SetLogger(a.Logger()) // falha de gravação cai no log do PocketBase (R1)
 	patients := app.NewPatientService(patientsRepo)
 
 	sessions := app.NewSessionService(sessionsRepo, patientsRepo)
@@ -143,6 +144,7 @@ func buildServices(a core.App) (*service.Services, error) {
 	dayfeed := app.NewDayFeedService(sessionsRepo, debtsRepo, paymentsRepo, gedRepo, appointmentsRepo, patientsRepo, audit)
 	history := app.NewHistoryService(patientsRepo, sessionsRepo, prontuarioRepo, debtsRepo, paymentsRepo, gedRepo, audit)
 	prontuario := app.NewProntuarioService(prontuarioRepo, nil)
+	prontuario.SetAudit(audit) // R1: audita leitura/escrita do prontuário (ator pelo context)
 
 	// Perfil do terapeuta (R3): serviço singleton 1:1 + injeção do cabeçalho na
 	// cobrança (nome/CRP no PDF quando o perfil está configurado).

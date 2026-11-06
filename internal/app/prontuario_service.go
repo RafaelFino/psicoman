@@ -22,6 +22,7 @@ import (
 type ProntuarioService struct {
 	repo  ProntuarioRepository
 	clock clock.Clock
+	audit *AuditService // opcional; nil = sem auditoria (best-effort)
 }
 
 // NewProntuarioService cria o serviço de prontuário.
@@ -31,6 +32,11 @@ func NewProntuarioService(repo ProntuarioRepository, clk clock.Clock) *Prontuari
 	}
 	return &ProntuarioService{repo: repo, clock: clk}
 }
+
+// SetAudit injeta o serviço de auditoria (mesmo padrão de SessionService). O
+// ator vem do context (domain.ActorFrom via AuditService.Record), então as
+// assinaturas de GetChart/AddNote/UpsertAnamnesis não mudam.
+func (s *ProntuarioService) SetAudit(a *AuditService) { s.audit = a }
 
 // AddNoteInput são os dados de uma nova nota de prontuário. Content é o CLARO
 // vindo do handler; o serviço monta o SealedText.
@@ -65,6 +71,11 @@ func (s *ProntuarioService) AddNote(ctx context.Context, in AddNoteInput) (*clin
 	if err := s.repo.CreateNote(ctx, n); err != nil {
 		return nil, err
 	}
+	// Auditoria best-effort, só após sucesso. meta sem texto clínico.
+	if s.audit != nil {
+		_ = s.audit.Record(ctx, "", domain.AuditActionCreate, "note", n.ID,
+			map[string]any{"patient_id": n.PatientID, "session_id": n.SessionID})
+	}
 	return n, nil
 }
 
@@ -78,6 +89,7 @@ func (s *ProntuarioService) UpsertAnamnesis(ctx context.Context, in UpsertAnamne
 		Content:   domain.NewSealedText(in.Content),
 		UpdatedAt: now,
 	}
+	created := false
 	existing, err := s.repo.GetAnamnesis(ctx, in.PatientID)
 	switch {
 	case err == nil && existing != nil:
@@ -86,6 +98,7 @@ func (s *ProntuarioService) UpsertAnamnesis(ctx context.Context, in UpsertAnamne
 	case errors.Is(err, ErrNotFound):
 		a.ID = ulid.New()
 		a.CreatedAt = now
+		created = true
 	default:
 		return nil, err
 	}
@@ -94,6 +107,15 @@ func (s *ProntuarioService) UpsertAnamnesis(ctx context.Context, in UpsertAnamne
 	}
 	if err := s.repo.UpsertAnamnesis(ctx, a); err != nil {
 		return nil, err
+	}
+	// Auditoria best-effort, só após sucesso. Criar vs atualizar; meta sem claro.
+	if s.audit != nil {
+		action := domain.AuditActionUpdate
+		if created {
+			action = domain.AuditActionCreate
+		}
+		_ = s.audit.Record(ctx, "", action, "anamnesis", a.ID,
+			map[string]any{"patient_id": a.PatientID})
 	}
 	return a, nil
 }
@@ -114,6 +136,13 @@ func (s *ProntuarioService) GetChart(ctx context.Context, patientID string) (*cl
 	notes, err := s.repo.ListNotes(ctx, patientID)
 	if err != nil {
 		return nil, nil, err
+	}
+	// Auditoria da leitura clínica (R1), best-effort, só após sucesso. meta
+	// carrega só a forma do prontuário (contagem de notas e presença de
+	// anamnese), nunca o texto.
+	if s.audit != nil {
+		_ = s.audit.Record(ctx, "", domain.AuditActionRead, "prontuario", patientID,
+			map[string]any{"patient_id": patientID, "notas": len(notes), "anamnese": anam != nil})
 	}
 	return anam, notes, nil
 }

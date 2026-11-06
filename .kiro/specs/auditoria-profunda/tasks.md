@@ -30,9 +30,9 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 | Fase | Estado | Commit | Observação |
 |------|--------|--------|------------|
 | 0 — Preparação (branch, baseline, specs) | ✅ concluída | `c7bb6a5` | branch criada; baseline `make check` verde (lint v1.64.8 advisory pulado, esperado); spec já versionada na `main` (b56d3a3), então 0.2 fechou só com o ADR da 0.3 |
-| 1 — R4: golangci-lint v2 reativado | 🔄 código pronto, commit junto da Fase 2 | — | spike ✅; `.golangci.yml` v2 + 4 exclusões (inclui ST1005, achado novo); Makefile (`tools`+`lint` obrigatório+`SKIP_LINT=1`) validado nos 4 cenários; CI com `make tools`; ADR+README+deploy. 36 achados pós-exclusão (<100, sem baseline) → gate só fica verde após a triagem (Fase 2); por isso o commit de fechamento da Fase 1 sai junto da Fase 2, todos com check verde |
-| 2 — R4: triagem dos achados do linter | ⬜ pendente | — | commits separados do trabalho funcional; ≈35 achados depois de desligar `misspell` PT-BR e 2 regras do `revive` |
-| 3 — R7.4 + R1 + R5: ator real e auditoria clínica | ⬜ pendente | — | `domain.WithActor`, `ProntuarioService.SetAudit`, E2E da trilha |
+| 1 — R4: golangci-lint v2 reativado | ✅ concluída | `af66a87` | spike ✅; `.golangci.yml` v2 + exclusões justificadas (misspell PT-BR, revive:error-strings/unused-parameter/exported/unexported-return/context-as-argument, **staticcheck:ST1005** — achado novo); Makefile (`tools`+`lint` obrigatório+`SKIP_LINT=1`) validado nos 4 cenários; CI com `make tools`; ADR R4 + README + deploy |
+| 2 — R4: triagem dos achados do linter | ✅ concluída | `66ca737` (bugs), `af66a87` (estilo/docs) | 195→36 (pós-exclusões) → **0 issues**. Bugs reais corrigidos (errcheck, QF, S1017, SA1019, SA9005 nolint, builtins sombreados); estilo de baixo valor desligado por regra justificada. `make check` verde com o **linter real** (v2.15.0, 0 issues) |
+| 3 — R7.4 + R1 + R5: ator real e auditoria clínica | ✅ concluída | `<fase3>` | `domain.WithActor`/`ActorFrom`; `AuditService` resolve ator + `SetLogger`; `httpx.PropagateActor` nos grupos app/admin; `ProntuarioService.SetAudit` (ler/criar/atualizar, sem texto no meta); unit (domain, Record, PropagateActor, prontuario) + E2E real da trilha (ator real, não-vazamento, 401 não audita, session.cancel). `make check` verde (lint 0). TODO Fase 5 removido. ADR + §0.22 arch + aviso dev no deploy |
 | 4 — R3: pasta de DR criada automaticamente | ⬜ pendente | — | spike `drive.file` (doc oficial confirma; só falta runtime e pai na lixeira); migration `0050`; `FolderResolver` |
 | 5 — R2: snapshot inteiro, retenção e degradação observável | ⬜ pendente | — | ADR, steering do Drive, `Syncer` novo, `/readyz` |
 | 6 — R7.1 + R7.2: rate limit e `state` do OAuth | ⬜ pendente | — | limitador em memória; store + cookie |
@@ -41,7 +41,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 | 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ⬜ pendente | — | Gmail fora do steering; checklist de segredos |
 | 10 — Fechamento (release notes + checklist + push) | ⬜ pendente | — | push só com OK do Rafael |
 
-**Agora:** Fase 0 concluída e commitada (`c7bb6a5`). Iniciando a Fase 1 — task 1.1 (spike: instalar o golangci-lint v2.15.0 compilado com o toolchain local e reconfirmar os achados). _(Nota: a linha de commit da Fase 0 nesta tabela entra no próximo commit que tocar o tasks.md — evita um commit só de bookkeeping e não reescreve o `c7bb6a5`.)_
+**Agora:** Fases 0–3 concluídas. Gate real verde em todas. Próxima ação: Fase 4 — pasta de DR criada automaticamente. A task 4.1 é um **spike manual** que exige credencial real do Google (vou implementar a fase assumindo o pré-verificado do design e deixar o spike marcado para o Rafael reconfirmar; registro o fallback).
 
 ---
 
@@ -110,7 +110,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
   - Arquivos: `.golangci.yml`, `README.md`, `docs/deploy.md`, `docs/decisions.md`.
   - **Pronto quando:** `make lint` roda o linter e sai 0 (com baseline, se aplicável); ADR e docs citam `make tools`.
   - **Refs:** R4.1, R4.2 · design §4.
-- [~] **Fechamento Fase 1:** config/Makefile/CI/docs prontos; fmt+vet+build+testes verdes (`/tmp/check-fase1-nolint.log`). **Sem baseline**, o linter real expõe 36 achados pré-existentes, então `make check` só fica verde após a triagem. Para respeitar "cada commit deixa a base consistente" (steering de processo), o commit de fechamento da Fase 1 (`reativa o golangci-lint v2 no gate e no CI`) é feito **junto da Fase 2**, após a triagem zerar os achados — reativação e correções em commits separados por natureza, todos com `make check` verde. Ver nota no topo da Fase 2.
+- [x] **Fechamento Fase 1:** commit `af66a87` `auditoria-profunda Fase 1: reativa o golangci-lint v2 no gate e no CI`. Para respeitar "cada commit deixa a base consistente" (steering), a ordem foi: (1) `66ca737` correções de bug — passam no gate antigo (advisory); (2) `af66a87` reativação v2 + exclusões de estilo + docs — com os bugs já corrigidos, `make check` fica verde com o linter real. Nenhum commit publicado deixou o gate quebrado.
 
 ---
 
@@ -122,7 +122,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 - [x] **2.1 Classificar os achados e corrigir os bugs reais** (dep: 1.5) — corrigidos: 8 `errcheck` de `Close()` (drivesync, gemini, calendar, drive, ged_store) → `defer func(){ _ = x.Close() }()`; 1 `S1017` (drivesync `encName`) → `strings.TrimSuffix`; 7 `QF1012` (pdf.go) → `fmt.Fprintf`; 1 `QF1001` (httpx_test) → De Morgan; 1 `SA9005` (sealed_text_test) → `//nolint` justificado (marshal de tipo opaco é o invariante); 5 `SA1019` → `ResetBootstrapState`→`ClearBootstrap` (3) e `go/parser.ParseDir`→helper `ParseFile` (2, leak_test, sem dep nova). Builtins sombreados: `clear`→`plain` (health.go), `func min` redundantes removidos (pdf_test, invoice_test). Testes unit+e2e verdes.
 - [x] **2.2 Tratar o estilo de baixo valor** (dep: 2.1) — desligadas por regra no `.golangci.yml`, com comentário justificando cada uma: `revive:exported` (stutters — renomear DTOs/tipos públicos é churn de API sem ganho), `revive:unexported-return` (construtor devolve concreto, consumido via interface — intencional), `revive:context-as-argument` (`resolvePatient(e, ctx)`, `e` é o portador do handler). `golangci-lint run ./...` → **0 issues**. O único `//nolint` (SA9005) tem justificativa na mesma linha.
-- [ ] **Fechamento Fase 2:** `make check` verde; ADR de R4 atualizado com o desfecho da triagem; commits em PT-BR separados por natureza (ex.: `auditoria-profunda Fase 2: corrige achados de errcheck e ineffassign`, `auditoria-profunda Fase 2: ajusta regras de estilo do revive`).
+- [x] **Fechamento Fase 2:** `make check` verde com o linter real (v2.15.0, 0 issues; `/tmp/check-fase2.log`); ADR de R4 atualizado com o desfecho da triagem; commits por natureza: `66ca737` (bugs: errcheck/staticcheck/builtins) e `af66a87` (reativação + estilo + docs). _Nota: as desativações de estilo e o ADR entraram no mesmo commit da reativação (`af66a87`), porque o `.golangci.yml` é indivisível; ambos os commits deixam o gate verde._
 
 ---
 
@@ -130,45 +130,45 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 > Dep. de fase: Fase 1 (lint no gate). Ordem interna: ator (3.1 a 3.3) → R1 (3.4 a 3.5) → testes (3.6 a 3.7).
 
-- [ ] **3.1 `domain.WithActor`/`ActorFrom` e `ActorSystem`** (dep: —)
+- [x] **3.1 `domain.WithActor`/`ActorFrom` e `ActorSystem`** (dep: —) — `internal/domain/actor.go` + teste (ctx sem/com ator, sobrescrita, valor vazio propagado). `domain` segue só stdlib.
   - Arquivos: `internal/domain/actor.go` (novo), `internal/domain/actor_test.go` (novo). Só stdlib; `domain` continua sem PocketBase.
   - **Pronto quando:** `go test ./internal/domain/...` passa cobrindo ctx sem ator (`""`), com ator e sobrescrita.
   - **Refs:** R7.4 · design §6.
-- [ ] **3.2 `AuditService.Record` resolve o ator; logger e métrica injetáveis** (dep: 3.1)
+- [x] **3.2 `AuditService.Record` resolve o ator; logger injetável** (dep: 3.1) — `Record` troca actor `""`/`sistema` por `ActorFrom(ctx)`, senão `sistema`; campo `log *slog.Logger` + `SetLogger` (default `slog.Default()`); falha de `Insert` logada (`slog.Error`, sem meta/ids). Métrica fica para a Fase 8 (8.4). Teste: ator do ctx, sistema explícito trocado, sem ator = sistema, falha não grava e é observável. `fakeAuditRepo.insertErr` adicionado.
   - `Record` troca `actor` `""` ou `domain.ActorSystem` por `domain.ActorFrom(ctx)`, e por `ActorSystem` se ainda vazio. `AuditService` ganha `log *slog.Logger` (default `slog.Default()`) e `metrics Metrics` com `SetLogger`/`SetMetrics`. **Como `app.Metrics` só nasce na Fase 7**, nesta task o campo `metrics` fica de fora e a falha de `repo.Insert` é apenas logada com `slog.Error("falha ao gravar audit_log", "acao", ..., "entidade", ...)`, sem `meta` nem ids; a Fase 8 (task 8.4) acrescenta `SetMetrics`. As 11 chamadas existentes com `"sistema"` (ai, payment, billing x3, invoice, history, session x3, dayfeed) **não** são editadas.
   - Arquivos: `internal/app/audit_service.go`, `internal/app/core_services_test.go` ou novo `internal/app/audit_service_test.go` (novo; usar `fakeAuditRepo` de `internal/app/fakes_test.go`).
   - **Pronto quando:** `go test ./internal/app/...` cobre: ctx com ator grava o ator; sem ator grava `"sistema"`; `"sistema"` explícito com ctx com ator troca pelo ator; erro do repo é logado e não propagado.
   - **Refs:** R7.4, R1 (falha observável) · design §1 e §6.
-- [ ] **3.3 Middleware `httpx.PropagateActor` e ligação nos grupos `/v1/app` e `/v1/admin`** (dep: 3.1)
+- [x] **3.3 Middleware `httpx.PropagateActor` e ligação nos grupos `/v1/app` e `/v1/admin`** (dep: 3.1) — `internal/api/httpx/actor.go` (`WithContext(domain.WithActor(...))`), ligado após `RequirePangolinIdentity` nos dois grupos em `api.go`. TODO Fase 5 de `sessions.go` removido (comentário explica que `CancelByTherapist` é o papel, não a identidade). Teste do `PropagateActor` (com/sem identidade). Build ok.
   - `PropagateActor` lê `ActorIdentity(e)` e faz `e.Request = e.Request.WithContext(domain.WithActor(...))`, ligado **depois** de `RequirePangolinIdentity`. Remover o `// TODO Fase 5` de `internal/api/app/sessions.go` (~l.127) e trocar por comentário explicando que `scheduling.CancelByTherapist` está correto em single-tenant. Confirmar em `internal/api/api.go` onde os grupos `app` e `admin` são montados.
   - Arquivos: `internal/api/httpx/auth.go` (ou novo `internal/api/httpx/actor.go`), `internal/api/httpx/auth_test.go` (padrão), `internal/api/api.go`, `internal/api/app/sessions.go`.
   - **Pronto quando:** unit do `PropagateActor` coloca o ator no ctx; `go test ./internal/api/...` verde; o TODO sumiu (`go build ./...` ok).
   - **Refs:** R7.4 · design §6.
-- [ ] **3.4 `ProntuarioService.SetAudit` e pontos de auditoria** (dep: 3.2)
+- [x] **3.4 `ProntuarioService.SetAudit` e pontos de auditoria** (dep: 3.2) — campo `audit` + `SetAudit`; auditoria best-effort só após sucesso: `GetChart`→`ler`/`prontuario` (`{patient_id, notas, anamnese}`), `AddNote`→`criar`/`note`, `UpsertAnamnesis`→`criar`(ErrNotFound)/`atualizar`/`anamnesis`. Nunca texto no meta. Fiação `prontuario.SetAudit(audit)` em `wiring.go`.
   - Campo `audit *AuditService`, `SetAudit(a *AuditService)`. Auditar **só após sucesso**, best-effort: `GetChart` → `AuditActionRead` em `prontuario`/`patientID` com `{patient_id, notas, anamnese}`; `AddNote` → `AuditActionCreate` em `note` com `{patient_id, session_id}`; `UpsertAnamnesis` → `Create` (ramo `ErrNotFound`) ou `Update` em `anamnesis` com `{patient_id}`. Nunca texto clínico no `meta`.
   - Arquivos: `internal/app/prontuario_service.go`, `internal/api/wiring.go` (após `app.NewProntuarioService(prontuarioRepo, nil)`: `prontuario.SetAudit(audit)`).
   - **Pronto quando:** `go build ./...` ok; os testes da 3.6 passam.
   - **Refs:** R1.1, R1.2, R1.3, R1.4 · design §1.
-- [ ] **3.5 Ligar logger do audit no wiring** (dep: 3.2)
+- [x] **3.5 Ligar logger do audit no wiring** (dep: 3.2) — `audit.SetLogger(a.Logger())` em `buildServices`. Build ok.
   - `audit.SetLogger(a.Logger())` em `buildServices`.
   - Arquivo: `internal/api/wiring.go`.
   - **Pronto quando:** `go build ./...` ok e uma falha forçada de `Insert` aparece no log do PocketBase em teste da 3.2.
   - **Refs:** R1 · design §1.
-- [ ] **3.6 Testes unit de R1 (R5.1)** (dep: 3.4)
+- [x] **3.6 Testes unit de R1 (R5.1)** (dep: 3.4) — `prontuario_service_test.go`: GetChart/AddNote/UpsertAnamnesis (criar+atualizar) gravam a ação certa; `metaContemTexto` varre valores string (incl. nested/Stringer) garantindo não-vazamento; falha da operação não audita; `audit==nil` não panica. `fakeProntuarioRepo` ganhou erros opcionais. Verde.
   - Novo arquivo com fake de `AuditRepository` reaproveitando `fakeAuditRepo` e o helper `newAudit()` de `internal/app/fakes_test.go` (**verificado em 2026-11-05**; o repositório de prontuário fake é `fakeProntuarioRepo`, no mesmo arquivo). Casos: `GetChart`, `AddNote`, `UpsertAnamnesis` (criar e atualizar) gravam a ação certa; `meta` não contém o texto enviado (varrer valores `string`); falha da operação não grava nada; `audit == nil` não panica.
   - Arquivo: `internal/app/prontuario_service_test.go` (novo).
   - **Pronto quando:** `go test ./internal/app/ -run Prontuario` passa.
   - **Refs:** R5.1, R1.4 · design §1 e §5.
-- [ ] **3.7 E2E da trilha de auditoria (R5.2)** (dep: 3.3, 3.4)
+- [x] **3.7 E2E da trilha de auditoria (R5.2)** (dep: 3.3, 3.4) — `test/e2e/audit_prontuario_test.go`: cria paciente, POST notes, PUT anamnesis, GET chart (todos com `X-Pangolin-User`), lê `GET /v1/admin/audit-log` conferindo ações/entidades, `actor==header` e ausência do texto clínico no JSON inteiro; **negado:** GET chart sem header → 401 e nenhuma leitura nova de prontuário na trilha; `TestAuditSessionCancel` confere ator real em `session.cancel`. Sem `t.Skip`. Ambos verdes.
   - `test/e2e/audit_prontuario_test.go` (novo), usando o helper de subida do binário já usado em `test/e2e/core_test.go`. Fluxo: cria paciente, `POST /patients/{id}/notes`, `PUT /patients/{id}/anamnesis`, `GET /patients/{id}`, todos com `X-Pangolin-User`; lê `GET /v1/admin/audit-log`; confere ações/entidades, `actor == X-Pangolin-User` e ausência do texto clínico no JSON inteiro. **Negado:** `GET /patients/{id}` sem header → `401` e nenhuma entrada de auditoria nova. Adicionar um `POST .../sessions/{id}/cancel` conferindo o ator no `audit_log` (`session.cancel`).
   - **Pronto quando:** `go test ./test/e2e/ -run AuditProntuario` passa; sem `t.Skip`.
   - **Refs:** R5.2, R7.4, R1 · design §1, §5 e §6.
-- [ ] **3.8 Docs e ADR da fase** (dep: 3.7)
+- [x] **3.8 Docs e ADR da fase** (dep: 3.7) — ADR "Auditoria no caminho clínico e ator real" em `docs/decisions.md`; §0.22 nova em `docs/architecture.md` (operações auditadas + ator propagado) e §0.7 atualizada (consumidor do ActorIdentity); aviso em `docs/deploy.md` de que `pangolin.dev_identity` não é identidade verificada.
   - ADR "Auditoria no caminho clínico" (best-effort com log e métrica, alternativa fail-closed descartada; ator por contexto; portal fora do escopo de R7.4) em `docs/decisions.md`; lista de operações auditadas e ator propagado em `docs/architecture.md`; aviso em `docs/deploy.md` de que o ator em modo dev não é identidade verificada.
   - Arquivos: `docs/decisions.md`, `docs/architecture.md`, `docs/deploy.md`.
   - **Pronto quando:** os três documentos citam as operações auditadas e o ator em modo dev.
   - **Refs:** R1, R7.4, R10 · design §1 e §6.
-- [ ] **Fechamento Fase 3:** `make check` verde; docs/ADR atualizados; commit `auditoria-profunda Fase 3: audita o prontuário e propaga o ator real no audit_log`.
+- [x] **Fechamento Fase 3:** `make check` verde (`/tmp/check-fase3.log`, lint 0 issues, unit+e2e verdes); docs/ADR atualizados; commit `<fase3>` `auditoria-profunda Fase 3: audita o prontuário e propaga o ator real no audit_log`.
 
 ---
 

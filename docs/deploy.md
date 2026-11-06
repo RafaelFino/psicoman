@@ -104,6 +104,11 @@ Campos (ver [`../config.example.yaml`](../config.example.yaml)):
   (chaves antigas ficam para decifrar o que foi gravado antes de uma rotação).
 - `pangolin.identity_header` — nome do header de identidade (default
   `X-Pangolin-User`). Não é segredo.
+- `pangolin.dev_identity` — **só para DEV** (vazio em produção, fail-closed). Quando
+  preenchido, relaxa o gate do Pangolin e usa esse valor como ator nas requisições
+  sem o header real. **Atenção:** esse ator **não é uma identidade verificada pela
+  borda** — é um valor de config. Por isso o `audit_log` em modo dev mostra a
+  identidade configurada, não uma autenticação real. Em produção, mantenha vazio.
 - `google.*` — `client_id`/`client_secret`/`calendar_id`/`drive_folder`. Vazios ⇒
   Calendar/Drive degradam (no-op, sem evento/espelho), sem derrubar o processo.
 - `llm.gemini.api_key` — opt-in da IA pela **presença** da chave. Vazio ⇒ IA off.
