@@ -32,7 +32,7 @@ func (s *gedBlobStore) Put(ctx context.Context, relPath, _ string, content []byt
 	if err != nil {
 		return fmt.Errorf("ged: abrir file storage: %w", err)
 	}
-	defer fs.Close()
+	defer func() { _ = fs.Close() }()
 	fs.SetContext(ctx)
 	if err := fs.Upload(content, relPath); err != nil {
 		return fmt.Errorf("ged: gravar arquivo: %w", err)
@@ -46,13 +46,13 @@ func (s *gedBlobStore) Get(ctx context.Context, relPath string) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("ged: abrir file storage: %w", err)
 	}
-	defer fs.Close()
+	defer func() { _ = fs.Close() }()
 	fs.SetContext(ctx)
 	r, err := fs.GetReader(relPath)
 	if err != nil {
 		return nil, fmt.Errorf("ged: ler arquivo: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("ged: ler conteúdo: %w", err)

@@ -48,10 +48,3 @@ func TestRender_EscapaParenteses(t *testing.T) {
 		t.Error("barra invertida não escapada")
 	}
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -75,11 +75,11 @@ func checkCipher(ctx context.Context, c domainCipher) error {
 	if err != nil {
 		return err
 	}
-	clear, err := c.Open(ctx, env)
+	plain, err := c.Open(ctx, env)
 	if err != nil {
 		return err
 	}
-	if clear != probe {
+	if plain != probe {
 		return errCipherMismatch
 	}
 	return nil

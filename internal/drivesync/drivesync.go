@@ -69,14 +69,14 @@ func (s *Syncer) mirror(ctx context.Context, app core.App, name string) error {
 	if err != nil {
 		return fmt.Errorf("drivesync: abrir backups filesystem: %w", err)
 	}
-	defer fsys.Close()
+	defer func() { _ = fsys.Close() }()
 	fsys.SetContext(ctx)
 
 	r, err := fsys.GetReader(name)
 	if err != nil {
 		return fmt.Errorf("drivesync: ler snapshot %q: %w", name, err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	raw, err := io.ReadAll(r)
 	if err != nil {
 		return fmt.Errorf("drivesync: carregar snapshot: %w", err)
@@ -107,8 +107,5 @@ func (s *Syncer) uploadSealed(ctx context.Context, name string, raw []byte) (str
 
 // encName deriva o nome do arquivo cifrado no Drive a partir do nome do backup.
 func encName(name string) string {
-	if strings.HasSuffix(name, ".zip") {
-		name = strings.TrimSuffix(name, ".zip")
-	}
-	return name + ".enc"
+	return strings.TrimSuffix(name, ".zip") + ".enc"
 }

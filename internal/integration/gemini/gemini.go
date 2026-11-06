@@ -94,7 +94,7 @@ func (c *restSummarizer) Summarize(ctx context.Context, in SummaryInput) (*Summa
 	if err != nil {
 		return nil, fmt.Errorf("gemini: chamada à API: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= http.StatusBadRequest {
 		return nil, fmt.Errorf("gemini: API respondeu %d", resp.StatusCode)

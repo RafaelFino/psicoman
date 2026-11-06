@@ -193,7 +193,7 @@ func (c *restCalendarClient) doJSON(ctx context.Context, method, endpoint string
 	if err != nil {
 		return fmt.Errorf("calendar: chamada ao Google: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= http.StatusBadRequest {
 		return fmt.Errorf("calendar: Google respondeu %d", resp.StatusCode)

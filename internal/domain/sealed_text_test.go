@@ -51,8 +51,10 @@ func TestSealedTextNaoVazaNoJSON(t *testing.T) {
 	const segredo = "paciente-relata-episodio-sensivel"
 	st := NewSealedText(segredo)
 
-	// Marshal direto do valor.
-	b, err := json.Marshal(st)
+	// Marshal direto do valor. O SA9005 ("struct sem campos exportados") é
+	// justamente o comportamento que este teste garante: SealedText é opaco e
+	// marshala para {} — nunca expõe o claro. Suprimido de propósito.
+	b, err := json.Marshal(st) //nolint:staticcheck // SA9005: marshal de tipo opaco é o invariante testado
 	if err != nil {
 		t.Fatalf("json.Marshal(SealedText): %v", err)
 	}
