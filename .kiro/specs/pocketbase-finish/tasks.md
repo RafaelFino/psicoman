@@ -34,12 +34,11 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 | 4 — R1 sub-fase 1: núcleo utilizável (locais + planos) | ✅ concluída | `5aa8960` | locais+disp.+origens+planos+comprovante; jornada ponta a ponta verde |
 | 5 — R1 sub-fase 2: telas iniciais (feed + história + métricas + calendário) | ✅ concluída | `bf49fa2` | handlers finos sobre serviços existentes; E2E não-vazamento |
 | 6 — R1 sub-fase 3: financeiro/custos | ✅ concluída | `723c4af` | CRUD custos + relatório de custos + session-report; reincluída por instrução do Rafael |
-| 7 — R1 sub-fase 4: agendamento pelo portal | ✅ concluída | _(a seguir)_ | pedidos portal→terapeuta; confirmar cria sessão; E2E com isolamento |
+| 7 — R1 sub-fase 4: agendamento pelo portal | ✅ concluída | `5aeeabe` (PR #4) | pedidos portal→terapeuta; confirmar cria sessão; E2E com isolamento |
 | 8 — Docs operacionais (R6) | ✅ concluída | `d644188` | deploy/stack-local reescritos + Dockerfile/compose/config.docker consertados (imagem validada) |
 | 9 — Verificação de email do portal (R4) | 🚫 fora de escopo | — | ⟨R4⟩ Opção A: gate de aprovação basta |
-| 10 — Fechamento (docs canônicos + release notes + push/PR) | ⬜ pendente | — | push/PR só com OK do Rafael |
-| 10 — Fechamento (docs canônicos + release notes + push/PR) | ✅ concluída | _(a seguir)_ | docs/README/release-notes atualizados; auditoria OK; push/PR só com OK do Rafael |
-**Agora:** onda COMPLETA e auditada (fases 1–8, +6/7 reincluídas, +10). `make check` e `go test -race` verdes. **PARADO aguardando OK do Rafael para push/PR.**
+| 10 — Fechamento (docs canônicos + release notes + push/PR) | ✅ concluída | `5aeeabe` | mergeada no PR #4; docs/README/release-notes atualizados; auditoria OK |
+**Agora:** onda COMPLETA, auditada e **mergeada na `main` pelo PR #4** (`5aeeabe Merge pull request #4 from RafaelFino/pocketbase-finish`). `make check` e `go test -race` verdes. _(Consolidação da tabela feita na onda `auditoria-profunda`, task 9.4.)_
 
 ---
 
@@ -138,6 +137,6 @@ Convenções: `[ ]` pendente · `[~]` em progresso · `[x]` concluído. Cada tas
 
 ## Fase 10 — Fechamento da onda
 
-- [ ] **10.1** Atualizar `docs/requirements.md`/`docs/architecture.md`/`README.md` com as novas rotas/capacidades; `docs/release-notes.md` com a entrada `pocketbase-finish` (orientada ao usuário).
-- [ ] **10.2** `docs/decisions.md` com as decisões tomadas; Swagger completo.
-- [ ] **10.3** `make check` verde na branch inteira → **PARAR e confirmar com o Rafael antes de push/PR**.
+- [x] **10.1** Atualizar `docs/requirements.md`/`docs/architecture.md`/`README.md` com as novas rotas/capacidades; `docs/release-notes.md` com a entrada `pocketbase-finish` (orientada ao usuário).
+- [x] **10.2** `docs/decisions.md` com as decisões tomadas; Swagger completo.
+- [x] **10.3** `make check` verde na branch inteira → push/PR confirmados pelo Rafael e **mergeados no PR #4** (`5aeeabe`).

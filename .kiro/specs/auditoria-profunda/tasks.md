@@ -36,12 +36,12 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 | 4 — R3: pasta de DR criada automaticamente | ✅ concluída (spike 4.1 pendente do Rafael) | `a59c98e` | DriveClient estendido (List/Trash/Find/Create/GetFolder/AppProps/ErrDriveNotFound); migration `0050_drive_dr` + repo; `FolderResolver` (config>persistido>busca>criação, não importa google/app); `wireDriveSync` sem exigir `drive_folder`; teste em processo do fluxo de backup. **Spike 4.1 (credencial Google) pendente**: implementei assumindo o pré-verificado, fallback registrado |
 | 5 — R2: snapshot inteiro, retenção e degradação observável | ✅ concluída | `604a82a` | ADR + steering do Drive; `drive_retention`; `Syncer` novo (retenção por lixeira, Observer, Status); adapter `List/Trash`; `/readyz` `checks.drive_dr`; 404 persistente sem laço. Retenção em runtime depende do spike 4.1 |
 | 6 — R7.1 + R7.2: rate limit e `state` do OAuth | ✅ concluída | `dea5247` | `httpx.Limiter` (5/h e-mail, 10/h paciente, 429+Retry-After); `OAuthStateStore` + cookie; `400 state_invalido`; testes unit/em processo/E2E; ADRs + deploy + arch §0.23 |
-| 7 — R8 base: dependência, registry, middleware e listener | ✅ concluída | `<fase7>` | `client_golang` v1.25.0 (tidy só acrescenta); `app.Metrics`; `platform/metrics` (registry próprio); `httpx.Instrument` (raiz, prio -5000); listener fail-closed `metrics.addr`; ADR R8.12; E2E de isolamento/HTTP/401-403/vazamento/fail-closed |
-| 8 — R8 famílias: negócio, integrações, auditoria, backup | ⬜ pendente | — | depende das Fases 3, 4, 5 e 6 |
-| 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ⬜ pendente | — | Gmail fora do steering; checklist de segredos |
+| 7 — R8 base: dependência, registry, middleware e listener | ✅ concluída | `b2cab83` | `client_golang` v1.25.0 (tidy só acrescenta); `app.Metrics`; `platform/metrics` (registry próprio); `httpx.Instrument` (raiz, prio -5000); listener fail-closed `metrics.addr`; ADR R8.12; E2E de isolamento/HTTP/401-403/vazamento/fail-closed |
+| 8 — R8 famílias: negócio, integrações, auditoria, backup | ✅ concluída | `e6d8e89` | negócio por `SetMetrics`; filas (coletor c/ cache); decoradores Calendar/Gemini/cifra; auditoria; backup/DR; rate limit; `google_oauth_ok`; docs + ADR (fecha OBS-1 e R5.2) |
+| 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ✅ concluída | `<fase9>` | steering sem Gmail + regras de E2E de métricas/429; coerência README/docs; tabela da `pocketbase-finish` consolidada (PR #4); checklist de rotação de segredos |
 | 10 — Fechamento (release notes + checklist + push) | ⬜ pendente | — | push só com OK do Rafael |
 
-**Agora:** Fases 0–7 concluídas (spike manual 4.1 pendente de credencial do Rafael). Gate real verde. Próxima ação: Fase 8 — R8 famílias (negócio, integrações, auditoria, backup/Drive, filas, rate limit ligado ao recorder).
+**Agora:** Fases 0–9 concluídas (spike manual 4.1 pendente de credencial do Rafael). Gate real verde. Próxima ação: Fase 10 — fechamento (release notes, verificação final com `-race`, checklist) e então **PARAR e pedir o OK do Rafael antes do push** (task 10.4).
 
 ---
 
@@ -342,7 +342,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
   - Arquivos: `docs/decisions.md`, `docs/architecture.md`, `docs/stack-local.md`, `config.example.yaml`, `deploy/config.docker.yaml`, `docker-compose.yml`, `Dockerfile`.
   - **Pronto quando:** o ADR cita o ADR de 2026-10-24 e o fim do adiamento; `docker compose config` (ou leitura do compose) mostra `expose` e nenhum `ports:` para 9091.
   - **Refs:** R8.12, R8.9.3 · design §10.5 e §10.6.
-- [x] **Fechamento Fase 7:** `make check` verde; `/metrics` e a ausência dele na porta da API provados por E2E; commit `<fase7>` `auditoria-profunda Fase 7: expõe métricas HTTP em listener interno dedicado`.
+- [x] **Fechamento Fase 7:** `make check` verde; `/metrics` e a ausência dele na porta da API provados por E2E; commit `b2cab83` `auditoria-profunda Fase 7: expõe métricas HTTP em listener interno dedicado`.
 
 ---
 
@@ -350,47 +350,47 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 > Dep. de fase: Fase 7 (base), Fase 3 (audit), Fases 4 e 5 (Drive e retenção), Fase 6 (limitador). Cada serviço ganha `SetMetrics` com default `NopMetrics{}`, então os testes existentes não mudam.
 
-- [ ] **8.1 Instrumentação de negócio nos serviços** (dep: 7.4)
+- [x] **8.1 Instrumentação de negócio nos serviços** (dep: 7.4) — `SetMetrics` (default `NopMetrics`, `nil` volta ao no-op) em `PatientService`, `SessionService`, `AppointmentService`, `BillingService`, `PaymentService`, `InvoiceService`; eventos só no sucesso e só na transição real (aprovar/recusar idempotente não conta; `Schedule` não tem evento próprio). Fiação em `buildServices` com `obs.App()`. Testes (`metrics_services_test.go`, fake `recMetrics`): cadastro admin/portal novo/vínculo, aprovação idempotente, recusa, ciclo da sessão (criada/confirmada/finalizada/cancelada/falta), falhas não contam, calendário degradado, pedido (criado/confirmado/recusado), débito idempotente, pagamento, PDF novo+reaproveitado.
   - `SetMetrics(Metrics)` em `PatientService` (cadastro/aprovação/recusa), `SessionService` (criada/confirmada/cancelada/finalizada/falta), `AppointmentService` (criado/confirmado/recusado), `BillingService` (débito gerado), `PaymentService` (pagamento), `InvoiceService` (PDF). Eventos contados só no caminho de sucesso. Fiação em `buildServices` com `obs.App()`.
   - Arquivos: `internal/app/patient_service.go`, `internal/app/session_service.go`, `internal/app/appointment_service.go`, `internal/app/billing_service.go`, `internal/app/payment_service.go`, `internal/app/invoice_service.go`, `internal/api/wiring.go`; testes: `internal/app/patient_service_test.go`, `session_service_test.go`, `appointment_service_test.go`, `billing_service_test.go`, `payment_service_test.go`, `invoice_service_test.go` e um fake `Metrics` em `internal/app/fakes_test.go`.
   - **Pronto quando:** `go test ./internal/app/...` cobre, com `Metrics` fake, os eventos certos nos caminhos ok e erro de cada serviço.
   - **Refs:** R8.4 · design §10.2.
-- [ ] **8.2 Famílias de negócio e gauges de fila (`QueueStats`)** (dep: 8.1)
+- [x] **8.2 Famílias de negócio e gauges de fila (`QueueStats`)** (dep: 8.1) — `platform/metrics/business.go` (`pacientes/sessoes/agendamentos_eventos_total`, `debitos_gerados`, `pagamentos_registrados`, `pdfs_gerados`); `queues.go` (coletor custom: timeout 2 s, cache 15 s, erro omite a amostra e conta `metrics_coleta_erros_total{fonte}` — emitido pelo próprio coletor para refletir no mesmo scrape); `pb.NewQueueStats` com `CountRecords` (`patient.approval_status=pendente`, `appointment_request.status=pendente`). `Obs.App()` agora é o recorder real. Testes: famílias, cache com relógio fake, erro omite+conta, fila real no SQLite.
   - Famílias `pacientes_eventos_total`, `sessoes_eventos_total`, `agendamentos_eventos_total`, `debitos_gerados_total`, `pagamentos_registrados_total`, `pdfs_gerados_total` em `platform/metrics`. `pb.NewQueueStats(a)` com `CountRecords("patient", dbx.HashExp{"approval_status":"pendente"})` e `CountRecords("appointment_request", dbx.HashExp{"status":"pendente"})` (nomes verificados em `0010_patient_scheduling.go`); `Collector` custom com `context.WithTimeout(2s)`, cache de 15 s, omissão da amostra em erro e `metrics_coleta_erros_total{fonte}`.
   - Arquivos: `internal/platform/metrics/business.go` (novo), `internal/platform/metrics/queues.go` (novo), `internal/platform/metrics/business_test.go` (novo), `internal/platform/pb/queue_stats.go` (novo), `internal/platform/pb/queue_stats_test.go` (novo), `internal/api/wiring.go`.
   - **Pronto quando:** `go test ./internal/platform/...` cobre a família com o rótulo esperado, a fonte que erra omitindo a amostra e contando o erro, e o cache de 15 s com relógio fake.
   - **Refs:** R8.4 · design §10.2 e §10.3.
-- [ ] **8.3 Decoradores de Calendar, Gemini e cifra; `CalendarDegraded`; OAuth e `gemini_ligada`** (dep: 7.5)
+- [x] **8.3 Decoradores de Calendar, Gemini e cifra; `CalendarDegraded`; OAuth e `gemini_ligada`** (dep: 7.5) — `decorators.go` (`WrapCipher`, `WrapAI` — `nil` continua `nil`, `WrapConflictChecker` com `ok|conflito|erro`, `WrapSessionCalendar`); aplicados em `buildServices` (cifra decorada; `SessionService.WrapCalendar` sobre o que o seam injetou, sem mudar a assinatura de `calendarWirer`; `NewAIService(WrapAI(aiSummarizerBuilder(a)))`); `CalendarDegraded()` no ramo `s.calendar == nil`; `google_oauth_ok` (mesmo critério do `/readyz`) e `gemini_ligada`. Variável local `metrics` renomeada p/ `sessionMetrics` (colidia com o pacote). Testes: valor/erro preservados, latência medida, opt-in da IA preservado; em processo com fakes nos seams.
   - `WrapCipher`, `WrapAI`, `WrapConflictChecker` (sobre `app.ConflictChecker`, op `freebusy`) e `WrapSessionCalendar` (sobre `app.SessionCalendar`, op `create_event`) aplicados no wiring (**verificado em 2026-11-05:** não existe `CalendarGateway`); famílias `calendar_*`, `gemini_*`, `cifra_operacoes_total`, `google_oauth_ok` (via `GoogleAuth.Status`, mesmo critério do `/readyz`), `gemini_ligada`. `SessionService` chama `CalendarDegraded()` no ramo `if s.calendar == nil` de `createCalendarEvent` (`session_service.go:293`, **verificado em 2026-11-05**; chamado por `Create` e `Schedule`), via `SetMetrics`. Rótulos sem segredo e sem texto livre.
   - Arquivos: `internal/platform/metrics/decorators.go` (novo), `internal/platform/metrics/decorators_test.go` (novo), `internal/app/session_service.go`, `internal/api/wiring.go`, `internal/api/calendar_test.go`.
   - **Pronto quando:** `go test ./internal/platform/metrics/... ./internal/api/...` cobrem: cada decorador conta ok/erro/conflito e latência; `google_oauth_ok` coerente com `/readyz`; Calendar/Gemini com os fakes reatribuídos nos seams `calendarWirer` e `aiSummarizerBuilder`.
   - **Refs:** R8.5, R8.7, R8.8 · design §10.2, §10.3 e §10.9.
-- [ ] **8.4 Auditoria: `AuditService.SetMetrics`, `audit_log_total`, `audit_log_falhas_total`** (dep: 3.2, 7.4)
+- [x] **8.4 Auditoria: `AuditService.SetMetrics`, `audit_log_total`, `audit_log_falhas_total`** (dep: 3.2, 7.4) — `SetMetrics`; `Record` conta sucesso e falha com a constante de ação; ação fora do enum vira `outro` no rótulo. Testes: sucesso e falha contam a ação certa; `nil` volta ao no-op.
   - `SetMetrics(Metrics)` em `AuditService`; `Record` chama `AuditRecorded(action)` em sucesso e `AuditFailed(action)` em falha; `action` sempre constante de `domain.AuditAction*`. Famílias em `platform/metrics`. Conecta a lacuna deixada na task 3.2.
   - Arquivos: `internal/app/audit_service.go`, `internal/app/audit_service_test.go`, `internal/platform/metrics/business.go`, `internal/api/wiring.go`.
   - **Pronto quando:** `go test ./internal/app/ ./internal/platform/metrics/` cobre sucesso e falha de gravação contando a ação certa.
   - **Refs:** R8.7, R1 · design §1 e §10.3.
-- [ ] **8.5 Backup e Drive: adapter `Obs.Drive()` ligado ao `Syncer`** (dep: 5.4, 7.5)
+- [x] **8.5 Backup e Drive: adapter `Obs.Drive()` ligado ao `Syncer`** (dep: 5.4, 7.5) — `DriveMetrics` real (`backup_total`, `backup_duracao_segundos`, `backup_tamanho_bytes`, `backup_ultimo_sucesso_timestamp_segundos{destino}` com série pré-criada em 0, `drive_espelhamento_total`, `drive_dr_pronto` derivado, `drive_snapshots_mantidos` ausente/removido quando a listagem falha, `drive_retencao_falhas_total{etapa}`); rótulos fora do enum viram `outro`. Já ligado ao `driveSyncWirer` desde a Fase 7. Item 7 do E2E de métricas migrado para cá: `TestMetricsBackupLocal` (backup real: `local ok`, tamanho e timestamp > 0, espelhamento `desativado`, sem destino drive). Em processo (`TestMetricsFamilias_BackupEDrive`): retenção, gauge some com `ListErr`, `dr_pronto` cai com `UploadErr`.
   - Implementar `drivesync.Observer` em `platform/metrics` (`backup_total`, `backup_duracao_segundos`, `backup_tamanho_bytes`, `backup_ultimo_sucesso_timestamp_segundos{destino}`, `drive_espelhamento_total`, `drive_dr_pronto`, `drive_snapshots_mantidos`, `drive_retencao_falhas_total`); `drive_dr_pronto` e o timestamp são **derivados** no adapter (sem acrescentar métodos ao `Observer`, regra do design §3.1). `wireDriveSync` recebe `obs.Drive()`. Incluir aqui o caso 7 do E2E de métricas (backup local) em `test/e2e/metrics_test.go`.
   - Arquivos: `internal/platform/metrics/drive.go` (novo), `internal/platform/metrics/drive_test.go` (novo), `internal/api/wiring.go`, `test/e2e/metrics_test.go`.
   - **Pronto quando:** `go test ./internal/platform/metrics/... ./internal/api/... ./test/e2e/ -run 'Metrics|DriveDR'` passam; `snapshots_mantidos` ausente quando a listagem falha.
   - **Refs:** R8.6 · design §3.1 e §10.3.
-- [ ] **8.6 Rate limit ligado ao recorder** (dep: 6.2, 7.6)
+- [x] **8.6 Rate limit ligado ao recorder** (dep: 6.2, 7.6) — `portal.Mount` liga `OnReject` a `svc.Obs.HTTP().RateLimited` (nil-safe p/ `Services` montado à mão). Teste em processo: 6º cadastro = 429 => `rate_limit_rejeicoes_total{escopo="cadastro"} 1`.
   - `portal.Mount` recebe o `HTTPRecorder` (ou `RateLimitHooks`) e monta os limitadores com `OnReject: obs.RateLimited`; família `rate_limit_rejeicoes_total{escopo}`.
   - Arquivos: `internal/api/portal/me.go`, `internal/api/wiring.go`, `internal/api/api.go`, `internal/platform/metrics/http.go`.
   - **Pronto quando:** teste em processo com 429 por estouro e por saturação incrementando `rate_limit_rejeicoes_total{escopo}`; `go test ./internal/api/...` verde.
   - **Refs:** R8.3, R7.1 · design §7 e §10.3.
-- [ ] **8.7 Testes em processo e E2E de vazamento ampliado** (dep: 8.1 a 8.6)
+- [x] **8.7 Testes em processo e E2E de vazamento ampliado** (dep: 8.1 a 8.6) — `internal/api/metrics_families_test.go`: negócio+auditoria+cifra+filas+degradado com tráfego real; Calendar com fakes (ok e conflito) e sem Google; Gemini ligada/desligada (api_key sentinela não vaza); Backup/Drive; rate limit; `google_oauth_ok` coerente com o `/readyz` (client_secret, client_id e refresh token sentinelas não vazam). `identidade_dev_ativa` e o vazamento base já cobertos na Fase 7 (em processo e E2E).
   - Gauge `identidade_dev_ativa` com o seam `configLoader` devolvendo `DevIdentity`; ampliar o caso de vazamento da task 7.8 para cobrir as novas famílias (sentinelas de segredo: client secret, refresh token, api key do Gemini, chave de cifra) e conferir que os rótulos novos usam só enums fechados.
   - Arquivos: `internal/api/metrics_test.go` (novo), `test/e2e/metrics_test.go`.
   - **Pronto quando:** `go test ./internal/api/ -run Metrics` e `go test ./test/e2e/ -run Metrics` passam.
   - **Refs:** R8.9.1, R8.9.4, R8.3 · design §10.8.
-- [ ] **8.8 Docs de R8: nomes, coleta e alertas** (dep: 8.7)
+- [x] **8.8 Docs de R8: nomes, coleta e alertas** (dep: 8.7) — `deploy.md` (tabela das famílias, como coletar, 8 alertas sugeridos, §8 sem "sem endpoint de métricas"); `architecture.md` (§0.24 com as famílias; §0.15 corrigida); `requirements.md` (§3.8 snapshot inteiro/pasta automática/retenção/`drive_dr`; §4.1 rastreabilidade LGPD, rate limit, `state`; §4.3 métricas entregues); `README.md`; ADR da Fase 8 em `decisions.md` (fecha OBS-1 e R5.2 da `pocketbase-finish`). `/metrics` fica fora de `/v1` e do Swagger.
   - `docs/deploy.md`: `metrics.addr`, tabela de famílias, como coletar, política de rede (firewall só do IP do coletor; TLS/mTLS como evolução), alertas sugeridos do design §10.6; `docs/architecture.md`; `docs/requirements.md` (requisito não funcional de observabilidade); `docs/decisions.md` (nota de fechamento do OBS-1 e do R5.2 da pocketbase-finish). `/metrics` fica fora de `/v1` e do Swagger.
   - Arquivos: `docs/deploy.md`, `docs/architecture.md`, `docs/requirements.md`, `docs/decisions.md`.
   - **Pronto quando:** os documentos listam as famílias e os alertas; `go test ./internal/api/swagger/...` continua verde.
   - **Refs:** R8, R10 · design §10.6 e §10.8.
-- [ ] **Fechamento Fase 8:** `make check` verde, incluindo `go test -race ./internal/...`; docs atualizados; commit `auditoria-profunda Fase 8: instrumenta negócio, integrações, auditoria e backup`.
+- [x] **Fechamento Fase 8:** `make check` verde, incluindo `go test -race ./internal/...`; docs atualizados; commit `e6d8e89` `auditoria-profunda Fase 8: instrumenta negócio, integrações, auditoria e backup`.
 
 ---
 
@@ -398,32 +398,32 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 > Dep. de fase: Fases 5 e 7 (os docs de Drive e métricas já foram escritos nelas; esta fase consolida e fecha as pendências documentais).
 
-- [ ] **9.1 Steering sem Gmail (R6.1)** (dep: 5.2)
+- [x] **9.1 Steering sem Gmail (R6.1)** (dep: 5.2) — `psicoman-google-api.md`: título `(Calendar, Meet, Drive)`, escopo `gmail.send` removido, seção Gmail vira "Envio de e-mail" só com "Gmail: fora de escopo", nota de IA e Testes ajustados (clientes em `internal/integration/google`, portas em `internal/app`, sem `GmailClient`); `psicoman-golang.md` (Calendar/Drive); `psicoman-testes-e2e.md` (binário único `cmd/psicoman`, sem `GmailClient`, fakes em processo). `grep -ri gmail .kiro/steering/` só devolve a linha "fora de escopo".
   - `psicoman-google-api.md`: título `Integração Google (Calendar, Meet, Drive)`; remover o escopo `gmail.send` e a seção `## Gmail`; ajustar a nota de IA ("Calendar/Gmail/Drive" → "Calendar/Drive") e a seção Testes (remover `GmailClient`; as interfaces vivem em `internal/integration/google`, não em `internal/app`/`internal/domain`); acrescentar a linha "Gmail: fora de escopo (ver `docs/requirements.md` §3.7/§5)". `psicoman-golang.md` (linha 33, "Calendar/Gmail/Drive"). `psicoman-testes-e2e.md` (linha 17: remover `GmailClient` e trocar o modelo de dois binários "`admin` ou `portal`" pelo binário único `cmd/psicoman`).
   - Arquivos: `.kiro/steering/psicoman-google-api.md`, `.kiro/steering/psicoman-golang.md`, `.kiro/steering/psicoman-testes-e2e.md`.
   - **Pronto quando:** `grep -ri gmail .kiro/steering/` devolve só a linha "fora de escopo".
   - **Refs:** R6.1 · design §9.
-- [ ] **9.2 Steering de testes: regra do E2E de métricas e de rate limit** (dep: 7.8, 6.3)
+- [x] **9.2 Steering de testes: regra do E2E de métricas e de rate limit** (dep: 7.8, 6.3) — seção "Métricas (Prometheus) e rate limit" em `psicoman-testes-e2e.md`: listener dedicado, isolamento, não-vazamento, permitido+negado; regra de 429; fluxo OAuth authorize→cookie→callback. Cita `test/e2e/metrics_test.go`.
   - Acrescentar em `psicoman-testes-e2e.md` a regra do E2E de métricas (listener dedicado, isolamento, vazamento) e a do E2E de 429, conforme o design §9 (R6.1).
   - Arquivo: `.kiro/steering/psicoman-testes-e2e.md`.
   - **Pronto quando:** o steering descreve os dois casos e cita `test/e2e/metrics_test.go`.
   - **Refs:** R6.1, R8 · design §9.
-- [ ] **9.3 Coerência de `docs/architecture.md`, `docs/deploy.md`, `README.md` e `docs/requirements.md` (R6.2)** (dep: 5.7, 7.9, 8.8)
+- [x] **9.3 Coerência de `docs/architecture.md`, `docs/deploy.md`, `README.md` e `docs/requirements.md` (R6.2)** (dep: 5.7, 7.9, 8.8) — revisão cruzada: `drive_folder` consistentemente "opcional" (nenhuma menção a obrigatório fora de contexto histórico); menções a "métricas adiadas" restantes são só ADRs/release-notes históricos (preservados). `README.md` ganhou a onda `auditoria-profunda` em Documentação e Status (make tools, metrics.addr, drive_folder opcional, OAuth state, rate limit). Docs de §0.10/§0.15/§0.21/§0.22/§0.23/§0.24, deploy (métricas+rede), requirements §3.8/§4.1/§4.3 já alinhados nas fases anteriores.
   - Revisão final de consistência: §0.10 (Drive DR real), §0.21, seção de auditoria, observabilidade, `google.*`, `metrics.addr`, instalação do linter, duas camadas de rate limit. `README.md` com o uso novo (`make tools`, `metrics.addr`, `drive_folder` opcional). Corrigir divergências entre o que cada fase escreveu.
   - Arquivos: `docs/architecture.md`, `docs/deploy.md`, `README.md`, `docs/requirements.md`.
   - **Pronto quando:** leitura cruzada não encontra contradição (ex.: `grep -n "drive_folder" docs/` não descreve mais a pasta como obrigatória).
   - **Refs:** R6.2, R10 · design §9.
-- [ ] **9.4 Consolidar a tabela "Status ao vivo" da `pocketbase-finish` (R6.3)** (dep: —)
+- [x] **9.4 Consolidar a tabela "Status ao vivo" da `pocketbase-finish` (R6.3)** (dep: —) — merge reconfirmado (`5aeeabe Merge pull request #4`, ancestral da `main`). Em `pocketbase-finish/tasks.md`: removida a linha duplicada `10 — Fechamento ⬜ pendente` (sobra 1, com "mergeada no PR #4"); `10.1/10.2/10.3` marcados `[x]`; Fase 7 e 10 com commit `5aeeabe`; "Agora" atualizado. `grep -c '| 10 — Fechamento'` = 1; Fase 10 sem `[ ]`.
   - **Pré-verificado em 2026-11-05:** `git log --oneline` mostra `5aeeabe Merge pull request #4 from RafaelFino/pocketbase-finish`. Antes de marcar, reconfirmar rapidamente com `git log --oneline main | head` / `gh pr view 4`. Em `.kiro/specs/pocketbase-finish/tasks.md`: remover a linha duplicada `10 — Fechamento ... ⬜ pendente`, manter a `✅ concluída` com a observação "mergeada no PR #4"; marcar `[x]` em `10.1`, `10.2` e `10.3`; atualizar a linha **Agora**.
   - Arquivo: `.kiro/specs/pocketbase-finish/tasks.md`.
   - **Pronto quando:** `grep -c "10 — Fechamento" .kiro/specs/pocketbase-finish/tasks.md` mostra uma única linha na tabela e a seção da Fase 10 não tem `[ ]`. Se o merge não puder ser confirmado, parar e perguntar ao Rafael.
   - **Refs:** R6.3 · design §9 e §11.5 item 7.
-- [ ] **9.5 Checklist de rotação de segredos para o Rafael (R7.3)** (dep: —)
+- [x] **9.5 Checklist de rotação de segredos para o Rafael (R7.3)** (dep: —) — §9.1 "Segurança: rotação de segredos" em `docs/deploy.md`: rotacionar `google.client_secret` + refazer refresh token pelo authorize, `llm.gemini.api_key`, chave de cifra (mantendo as antigas no mapa), `git check-ignore config.dev.yaml`, testes não leem o config dev. Operacional, sem valores. Repetido como item no checklist final (§10) e será marcável pelo Rafael na task 10.3.
   - Seção de segurança em `docs/deploy.md` com o checklist **operacional** (sem valores): rotacionar `google.client_secret` e refazer o refresh token por `/v1/admin/google/authorize`; rotacionar `llm.gemini.api_key`; confirmar `git check-ignore config.dev.yaml`; não ler nem copiar `config.dev.yaml` em testes. **Item de checklist a cargo do Rafael**, fora do código; a task só documenta, não rotaciona.
   - Arquivo: `docs/deploy.md`.
   - **Pronto quando:** a seção existe e a task 10.3 a repete como item de fechamento marcável pelo Rafael.
   - **Refs:** R7.3 · design §9.
-- [ ] **Fechamento Fase 9:** `make check` verde; steering e docs coerentes; commit `auditoria-profunda Fase 9: alinha steering e docs ao código e fecha pendências documentais`.
+- [x] **Fechamento Fase 9:** `make check` verde (docs-only: sem mudança de código); steering e docs coerentes; commit `<fase9>` `auditoria-profunda Fase 9: alinha steering e docs ao código e fecha pendências documentais`.
 
 ---
 
