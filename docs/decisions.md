@@ -6,6 +6,182 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-06 — `auditoria-profunda` Fase 8: famílias de métricas de negócio, integrações, auditoria e backup
+
+**Contexto.** A Fase 7 entregou a base (registry, middleware HTTP, listener). Faltava medir o que importa para operar: negócio, filas, integrações (Calendar/Gemini/cifra/OAuth), a trilha de auditoria e o backup/DR com retenção. Também fecha as pendências **OBS-1** (observabilidade ausente) e **R5.2 da `pocketbase-finish`** (métricas adiadas): ambas deixam de estar em aberto.
+
+**Decisão.**
+1. **Negócio pela porta `app.Metrics`**, injetada por `SetMetrics` (default `NopMetrics`, então nenhum teste existente mudou). Os eventos são contados **só no caminho de sucesso e só na transição real** (aprovar/recusar repetido, que é no-op idempotente, não conta; pedido recusado por validação não conta). `Schedule` (solicitada→agendada) não gera evento próprio: a sessão já foi contada em `criada`.
+2. **Integrações por decorador**, aplicado no wiring, sem tocar os serviços: `WrapCipher`, `WrapAI`, `WrapConflictChecker`, `WrapSessionCalendar`. O decorador **só mede** (resultado + duração) e devolve exatamente o valor e o erro originais. `WrapAI(nil)` devolve `nil`: o opt-in da IA (presença da chave) não pode ser alterado por observabilidade. O checker no-op (sem Google) e o Calendar ausente **não** são decorados (não há chamada real a medir); em vez disso, agendar sem Calendar conta `calendar_degradado_total` — a lacuna que antes só gerava um `Warn` no boot. Os seams `calendarWirer`/`aiSummarizerBuilder` não mudaram de assinatura: `SessionService.WrapCalendar` aplica os decoradores sobre o que o seam injetou.
+3. **Filas por coletor custom** (`COUNT` via `CountRecords`, timeout de 2 s, cache de 15 s). Erro **omite a amostra** (nunca reporta zero falso) e conta `metrics_coleta_erros_total{fonte}`; o contador é emitido pelo próprio coletor porque o registry coleta em paralelo e um contador externo incrementado dentro de `Collect` apareceria só no scrape seguinte.
+4. **Auditoria:** `audit_log_total{acao}` / `audit_log_falhas_total{acao}`; `acao` é sempre constante `domain.AuditAction*` e, por defesa, qualquer valor fora do enum vira `outro`.
+5. **Backup/DR (`drivesync.Observer`)**: `backup_total`, duração, tamanho do último snapshot, `drive_espelhamento_total`, `drive_retencao_falhas_total`. Derivados no adapter, sem métodos extras no `Observer`: `backup_ultimo_sucesso_timestamp_segundos{destino}` (**0 até o primeiro sucesso**, série pré-criada para o alerta funcionar desde o início) e `drive_dr_pronto` (1 só quando o último espelhamento foi `ok`). `drive_snapshots_mantidos` fica **ausente** enquanto a contagem não for confiável e **some** quando a listagem falha. Rótulos fora do enum (`destino`, `resultado`, `etapa`) viram `outro`.
+6. **Rate limit:** `Limiter.OnReject` ligado ao recorder (`rate_limit_rejeicoes_total{escopo}`).
+7. **`google_oauth_ok`** usa o **mesmo critério do `/readyz`** (`GoogleAuth.Status`), com timeout de 2 s; **`gemini_ligada`** vem de `cfg.Gemini.Enabled()`.
+
+**Consequências.** `Services.Obs` agora entrega o recorder real; a cifra do boot é decorada (o round-trip do `/readyz` também conta `cifra_operacoes_total`). A variável local `metrics` do `buildServices` foi renomeada para `sessionMetrics` (colidia com o pacote). Não há mudança de contrato da API (Swagger inalterado; `/metrics` fica fora de `/v1`). Cobertura: unit por serviço (eventos nos caminhos ok e de erro), por família/decorador/coletor (cache com relógio fake, erro omite), em processo (tráfego real, Calendar/Gemini/Drive com fakes, OAuth coerente com `/readyz`, vazamento de segredos) e E2E (backup local).
+
+---
+
+## 2026-11-06 — `auditoria-profunda` Fase 7: métricas Prometheus em listener dedicado e interno (fecha o adiamento de 2026-10-24)
+
+**Contexto.** Em 2026-10-24 o endpoint de métricas (⟨R5⟩) foi **adiado conscientemente** ("`pocketbase-finish`": o produto ainda não tinha observabilidade além de `/livez`/`/readyz`). A auditoria de 2026-11-05 pediu métricas ricas (HTTP, segurança, negócio, integrações, backup) para operar o DR, detectar abuso e alertar sem olhar logs. Um ADR anterior (**"Segregação de exposição na borda, Opção A"**, 2026-10-24) descartou **dois listeners no mesmo processo** — mas *para segregar atores* (portal × app/admin).
+
+**Decisão (do Rafael).**
+1. **Encerra o adiamento** do endpoint de métricas.
+2. **Reconcilia com a Opção A:** o listener de métricas **não segrega atores e não serve a API** — é uma superfície interna de observabilidade, com um único handler (`GET /metrics`). O invariante "um listener de API, três prefixos" e a segregação de exposição **na borda** ficam intactos; a API segue em `127.0.0.1:8090`.
+3. **`client_golang` v1.25.0** (versão exata), **registry próprio** (nunca o `DefaultRegisterer`), coletores Go/process, `build_info`, `uptime_segundos`, `identidade_dev_ativa`. A lib fica **confinada** a `internal/platform/metrics` e `internal/api/metricsserver.go`; `domain`/`app`/`config` só conhecem a porta `app.Metrics` (testado em `archtest`).
+4. **Listener dedicado, fail-closed:** só sobe com `metrics.addr` (env `PSICOMAN_METRICS_ADDR`, env > arquivo). Vazio = nenhum socket extra. Sugestão: `127.0.0.1:9091` em host/systemd; `0.0.0.0:9091` apenas dentro do container, com a porta **só em `expose`** (nunca `ports`). Falha de bind **aborta o boot** (a config foi pedida deliberadamente; um listener silenciosamente ausente esconde a falta de observabilidade). Mux próprio só com `GET /metrics`; sem envelope, sem gate do Pangolin; timeouts de servidor; `Shutdown` em `OnTerminate`; `Warn` se o host é `0.0.0.0`/`::`.
+5. **A API responde 404 a `/metrics` e `/v1/metrics`**; o listener responde 404 a tudo que não é `GET /metrics`.
+6. **Rótulos proibidos (R8.9):** id, e-mail, nome, telefone, CPF, texto clínico, valor do header de identidade, chave/segredo. Só enums fechados: `ator` (app|portal|admin|infra), `rota` = **padrão registrado** (`/v1/app/patients/{id}`; rota inexistente = `nao_encontrada`; nunca o `URL.Path`), `metodo` (7 + `OUTRO`), `status` numérico, `motivo` (sem_identidade|sem_sessao|nao_aprovado|pocketbase|outro).
+7. **Middleware no router raiz** (`Priority -5000`), para medir também o 404 de rota inexistente e as rotas `/api/*`. Falha de métrica **nunca** vira 500 (recover + o middleware jamais altera o `err` de `Next()`). O tamanho da resposta usa um `countingWriter` com `Unwrap()`, que mantém `Status()/Written()/Flush` (SSE) reconhecidos pelo PocketBase (provado em teste).
+
+**Política de rede.** O endpoint **nunca** entra no `portal.conf`, no Pangolin nem em `ports:`. Firewall: TCP 9091 **somente do IP do coletor**. Sem TLS/autenticação no listener nesta onda (o isolamento é de rede); **mTLS** (no listener ou num proxy) é a evolução se a coleta atravessar rede não confiável — **fora de escopo**.
+
+**Spikes (7.1/7.2) reconfirmados.** `Request.Pattern` chega populado (`GET /v1/app/patients/{id}`; catch-all = `/`) já para o 401 de `RequirePangolinIdentity`; `countingWriter` exercitado em runtime (Status/Written/Flush). `go get client_golang@v1.25.0` + `go mod tidy`: o `go.mod` só ganhou linhas (`client_golang` + transitivas `beorn7/perks`, `cespare/xxhash/v2`, `munnerz/goautoneg`, `client_model`, `common`, `procfs`, `protobuf`); nenhuma versão do PocketBase mudou; o `go.sum` só trocou entradas obsoletas de deps de teste. `govulncheck` **não está instalado** neste ambiente (não executado).
+
+**Consequências.** Novos `app.Metrics`/`QueueStats`/`NopMetrics`, `platform/metrics`, `httpx.Instrument`/`RouteLabels`/`SetDenyReason`, `api.StartMetricsServer`, `MetricsConfig`, `Services.Obs`. As famílias de negócio, integrações, auditoria e backup entram na Fase 8; nesta fase o `Obs.App()` e o `Obs.Drive()` são pontos de ligação sem famílias. Docs: `architecture.md §0.24`, `deploy.md`, `stack-local.md`, `config.example.yaml`, `deploy/config.docker.yaml`, `docker-compose.yml`, `Dockerfile`.
+
+---
+
+## 2026-11-06 — `auditoria-profunda` Fase 6: `state` do OAuth validado
+
+**Contexto.** O `GoogleAuthorize` gerava um `state` (ULID) e o `GoogleCallback` **nunca o conferia**: qualquer navegador autenticado no Pangolin podia concluir um fluxo OAuth forjado (CSRF / login CSRF), gravando um refresh token escolhido por terceiro. Um ULID também tem prefixo temporal previsível.
+
+**Decisão (do Rafael).** Dois mecanismos combinados, ambos obrigatórios:
+1. **Store em memória** (`app.OAuthStateStore`): `state` de **128 bits de `crypto/rand`** (base64url, não ULID), **uso único**, **TTL de 10 min**, teto de 100 pendentes (descarta expirados; cheio, remove o mais antigo). O processo é único, então memória basta; um restart no meio do consentimento só obriga a repetir o fluxo.
+2. **Cookie** `psicoman_oauth_state` com o mesmo valor — `HttpOnly`, `SameSite=Lax` (o callback é navegação top-level GET vinda do Google), `Path=/v1/admin/google`, `MaxAge=600`, `Secure` quando TLS/`X-Forwarded-Proto=https`. Amarra o fluxo ao **navegador** que iniciou; o store sozinho só prova "este state foi emitido".
+
+Ordem no callback: `error` do Google (422) → `state` da query vs cookie (`subtle.ConstantTimeCompare`; ausente ou diferente) → `Consume` (expirado/reusado) → `code` → `Configured()` → troca. Falha de state = **`400 state_invalido`**, mesma mensagem para todos os motivos ("Estado da autorização inválido ou expirado. Inicie a autorização novamente."). O cookie é expirado em **todos** os caminhos. A validação roda **antes** da troca: o Google real nunca é tocado com state inválido.
+
+**Alternativas descartadas.** Coleção PocketBase efêmera (migration e adapter para algo que vive 10 minutos num processo só); só cookie (sem uso único, reapresentável); só store (sem amarra ao navegador).
+
+**Consequências.**
+- O `Secure` do cookie é **só endurecimento**: a proteção real vem do uso único e do `SameSite`. Se o proxy não repassar `X-Forwarded-Proto`, o cookie sai sem `Secure` e o fluxo funciona igual — `docs/deploy.md` pede que o Pangolin repasse o header.
+- **Quem tinha um fluxo aberto antes do deploy reinicia o authorize.** O callback exige o MESMO navegador do authorize.
+- Os testes que chamavam o callback sem authorize (`state=abc`, `state=s`) foram atualizados para o fluxo authorize → `Set-Cookie`/`state` → callback com `Cookie`.
+- Swagger documenta `400 state_invalido` no callback.
+
+---
+
+## 2026-11-06 — `auditoria-profunda` Fase 6: rate limit em duas camadas (nginx por IP + app por identidade)
+
+**Contexto.** O portal só tinha o limite **por IP** do nginx (30 r/min). Um atacante com muitos IPs, ou um cliente atrás de NAT, escapa/atrapalha o limite por IP; faltava um limite **por identidade** (e-mail no cadastro, paciente no pedido de agendamento).
+
+**Decisão (do Rafael).** Manter o nginx por IP (inalterado) e somar um limitador **em memória, de janela fixa por chave**, em stdlib (sem `golang.org/x/time/rate` nem dependência nova): `httpx.Limiter`.
+- `POST /v1/portal/register`: **5 por hora por e-mail normalizado** (trim + minúsculas), decidido logo após o `BindBody` e **antes** da validação de senha e de qualquer consulta ao banco.
+- `POST /v1/portal/appointment-requests`: **10 por hora por paciente da sessão** (chave = hash do `patient_id`; nunca algo vindo do corpo).
+- Resposta `429 limite_excedido` no envelope PT-BR com `Retry-After`, idêntica para qualquer chave.
+- **Anti-enumeração e privacidade:** a chave é `sha256(escopo:valor)`; **toda tentativa conta**, exista ou não o e-mail; o valor original nunca é guardado nem logado (só 8 hex do hash no log de bloqueio).
+- **Memória limitada:** `maxKeys = 10000` por escopo (~1 MB). Com a tabela cheia, **chave nova é recusada com 429** (fail-closed de memória) e chave existente dentro do limite segue atendida. Limpeza sem goroutine (a cada 256 chamadas ou acima de metade da tabela). `Warn` de saturação no máximo 1/min, só com a contagem.
+
+**Riscos aceitos.**
+- **Saturação por botnet:** com o nginx a 30 r/min por IP, um IP gera no máximo 1800 chaves/h; é preciso sustentar mais de 5 IPs distintos por uma hora para encher a tabela, o que **nega cadastros novos por até 1 h** (sem perda de dados, sem afetar pacientes já cadastrados nem o agendamento, que usa outra tabela). Mitigação: o `Warn` e a métrica `rate_limit_rejeicoes_total{escopo}` (Fase 8) evidenciam o pico.
+- Limite em memória some num restart (janela recomeça): aceitável para abuso de baixa intensidade; o nginx segue de pé.
+
+**Achados registrados como backlog (não corrigidos aqui).** (1) **Enumeração por `409`** no `register` quando o e-mail já existe: o limite reduz a taxa de sondagem mas não fecha o canal; fechar exige decisão de produto (resposta uniforme `201`). (2) O **login nativo** do paciente (`/api/collections/patient_user/auth-with-password`) não passa por este limitador (e o `portal.conf` bloqueia `/api/` na borda pública).
+
+**Consequências.** `portal.Mount` cria um limitador por escopo (constantes nomeadas); Swagger declara `429` nas duas rotas; `OnReject` fica nulo até a Fase 8 ligá-lo ao recorder de métricas. Cobertura: unit do `Limiter` (limite, expiração, limpeza, saturação, `Warn` 1/min, `OnReject`), E2E do cadastro (5 + 429 com `Retry-After`, outro e-mail passa, corpo sem e-mail) e em processo do agendamento (11º = 429, outro paciente livre, sem sessão = 401).
+
+---
+
+## 2026-11-06 — `auditoria-profunda` Fase 5: backup ao Drive é snapshot inteiro, com retenção por contagem e degradação observável
+
+**Contexto.** O steering do Drive prometia "backup incremental por hash (manifesto no Drive)", mas o código sempre subiu o snapshot inteiro a cada backup; o acervo no Drive crescia sem limite e não havia sinal quando o espelhamento falhava (o `Syncer` só logava).
+
+**Decisão (do Rafael).**
+1. **Snapshot inteiro, sem incremental** (R2.3). Cada backup sobe o zip do PocketBase inteiro, cifrado (AES-256-GCM) como `<backup>.enc`; o código não recompacta. O steering foi corrigido para dizer isso. *Consequências:* crescimento linear do acervo, banda proporcional ao tamanho do banco, restauração em um único arquivo (baixar `.enc`, decifrar com o `BlobSealer`/chave, descompactar). Incremental/manifesto fica descartado (complexidade sem ganho para o porte atual).
+2. **Retenção por contagem** (R2.4): `google.drive_retention` (default **14**; `0` = nunca apagar, retenção manual; negativo = erro de config no boot). Roda no mesmo hook, **só após upload ok**, e mantém os N mais recentes **garantindo que o recém-enviado esteja entre eles** (a listagem do Drive é eventualmente consistente). Os excedentes vão para a **lixeira** (`trashed`, reversível por 30 dias), nunca `delete`. Contagem (não idade) protege contra o caso "backup parou e a limpeza apaga tudo". Travas: o `List` do adapter só devolve arquivos na pasta de DR com `appProperties psicoman_kind=snapshot`, e `selectToTrash` só considera nomes `.enc`. Snapshots anteriores a esta onda (sem `appProperties`) ficam **fora** da retenção (limpeza manual).
+3. **Degradação observável** (R3.3): falha de espelhamento/retenção deixa de ser silenciosa — log `Error` com `etapa` (cifra/upload/retencao), `Observer` para métricas (R8) e `drivesync.Status`, exposto em `/readyz` como `checks.drive_dr` (`desativado|ok|degradado`). Informativo: **não** altera `ready` (a app opera sem DR), como o `google`.
+
+**Spike `drive.file` (4.1) em aberto.** A retenção depende de `files.list`/`files.update` sob `drive.file`, confirmados pela documentação oficial mas **não em runtime** (credencial real do Rafael). Fallback: se o Drive negar a listagem, a retenção não roda, o erro é contado (`RetentionFailure("listar")`) e logado; o upload segue funcionando; a limpeza vira manual (equivalente a `drive_retention: 0`).
+
+**Consequências.** `drivesync.New(store, sealer, retention, obs, status)`; novos `SnapshotStore`, `Observer`, `Status`, `selectToTrash`; `Services.DriveStatus`; `/readyz` com `checks.drive_dr`. Docs: `architecture.md §0.10`, `deploy.md`, `config.example.yaml`. As métricas (Observer ligado ao Prometheus) entram na Fase 8.
+
+---
+
+## 2026-11-06 — `auditoria-profunda` Fase 4: pasta de DR do Drive criada automaticamente
+
+**Contexto.** O espelho de DR no Drive dependia de `google.drive_folder` configurado à mão; vazio, o DR ficava desativado em silêncio mesmo com credenciais válidas. Além disso, perder o estado local (instância nova restaurada de um snapshot) deixava o app sem saber qual pasta usar, arriscando duplicar pastas.
+
+**Decisão.** A pasta de DR é resolvida de forma **lazy** no primeiro backup, parando no primeiro sucesso: (1) `google.drive_folder` do config, se informado (usado como está, nunca recriado nem persistido); (2) id persistido na coleção singleton `drive_dr` (migration 0050), revalidado **uma vez por processo** via `files.get` (se na lixeira/404, descartado); (3) busca por nome+`appProperties` (`name='Psicoman DR'`, `psicoman_role=dr_folder`) — só enxerga o que o app criou; (4) criação via `files.create`, persistindo o id. `google.drive_folder` passa a ser **opcional**.
+
+- **Onde persistir.** Coleção dedicada `drive_dr` (não um campo em `google_token`, cujo replace na reautorização apagaria o id; nem uma coleção genérica de settings). Id em claro (não é segredo).
+- **Pasta obsoleta.** Com id **persistido**, um 404 no upload invalida o resolver e refaz a resolução **uma única vez** (busca/criação). Com id **do config**, o 404 vira erro observável (o operador definiu a pasta; não recriamos). A detecção não depende do comportamento do Drive com pai na lixeira: a revalidação `trashed` do resolver cobre o caso comum de "apagar à mão".
+- **Fronteira de pacote.** `drivesync` não importa `integration/google` nem `app`: sentinelas locais `ErrFolderNotFound`/`ErrNoStoredFolder`; o adapter do wiring traduz `google.ErrDriveNotFound` e `app.ErrNotFound`.
+
+**Spike `drive.file` (task 4.1) — MANUAL, pendente de credencial real do Rafael.** A documentação oficial do Google confirma que `drive.file` permite `files.list`/`files.update`(trashed)/`files.create` de pasta sobre o que o app criou. Observação empírica (conta do Rafael, 2026-11-05): upload com `parents:[<pasta criada à mão>]` funciona sob `drive.file`, mas a **busca** só enxerga o que o app criou — logo uma pasta manual só vale via `google.drive_folder` (passo 1). **Em aberto, não verificável localmente:** o status de upload com pai na **lixeira** ou **apagado** (exige credencial real). O design é robusto nos dois desfechos (revalidação `trashed` + retry único). **Fallback:** se a listagem/update for negada em runtime, a retenção (Fase 5) desativa com aviso único e a métrica de snapshots fica ausente; o resolver segue funcionando. A reconfirmação em runtime fica a cargo do Rafael.
+
+**Consequências.**
+- `google.DriveClient` ganhou `List`/`Trash`/`FindFolder`/`CreateFolder`/`GetFolder`/`AppProps`/`ErrDriveNotFound`; `FakeDriveClient` estendido.
+- Migration `0050_drive_dr`; porta `app.DriveFolderRepository` + adapter `pb.NewDriveFolderRepository`; `drivesync.FolderResolver` + interfaces `FolderClient`/`FolderStore`.
+- `wireDriveSync` deixou de exigir `drive_folder`; seam `driveSyncWirer` ganhou o parâmetro `folders`. Config de exemplo/docker comentam `drive_folder` como opcional.
+- Cobertura: unit do DriveClient (httptest), do FolderResolver (todos os ramos), do adapter `drive_dr` (round-trip, singleton); teste em processo do fluxo de backup (cria pasta, reusa, recria uma vez em 404). Docs de §0.10/deploy e restauração ficam na Fase 5 (task 5.7).
+
+---
+
+## 2026-11-06 — `auditoria-profunda` Fase 3: auditoria no caminho clínico e ator real no audit_log
+
+**Contexto.** Dois achados da auditoria: (R1) leitura e escrita do prontuário (anamnese, notas) não deixavam trilha no `audit_log`, exigência LGPD de rastreabilidade de acesso a dado clínico; (R7.4) o `audit_log` gravava o ator fixo `"sistema"` em todas as operações, mesmo quando disparadas por um request autenticado — a identidade real do terapeuta não chegava à trilha.
+
+**Decisão.**
+1. **Ator por context, não por parâmetro.** `domain.WithActor(ctx, actor)` / `domain.ActorFrom(ctx)` (stdlib; `domain` segue sem PocketBase). Um middleware `httpx.PropagateActor`, ligado **depois** de `RequirePangolinIdentity` em `/v1/app` e `/v1/admin`, injeta a identidade resolvida no context do request. `AuditService.Record` resolve o ator efetivo: se recebe `""` ou `"sistema"`, usa `ActorFrom(ctx)`; se ainda vazio, `"sistema"`. Assim as 11 chamadas que passam `"sistema"` literal passam a gravar a identidade real quando há request, **sem editar cada ponto de chamada**, e as assinaturas de `GetChart`/`AddNote`/`UpsertAnamnesis` não mudam.
+2. **Auditoria no service, best-effort, só após sucesso.** `ProntuarioService.SetAudit` (padrão de `SessionService`). `GetChart` → `ler` em `prontuario`; `AddNote` → `criar` em `note`; `UpsertAnamnesis` → `criar`/`atualizar` em `anamnesis`. O `meta` carrega só a forma (`patient_id`, contagem de notas, presença de anamnese, `session_id`), **nunca o texto clínico**.
+3. **Falha observável.** Uma falha de `Insert` é logada (`slog.Error("falha ao gravar audit_log", ...)`, sem `meta` nem ids) e não derruba a operação. A métrica `audit_log_falhas_total` entra na Fase 8.
+
+**Alternativa descartada.** Fail-closed (falhar a leitura/escrita quando o audit falha): ganha rastreabilidade estrita, mas cria indisponibilidade clínica por defeito de uma tabela auxiliar — pior para a terapeuta do que uma lacuna pontual na trilha.
+
+**Fora de escopo.** O **portal do paciente** não passa pelo Pangolin; ações de paciente seguem `"sistema"` (R7.4 cobre só `/v1/app` e `/v1/admin`). O ator em **modo dev** (`pangolin.dev_identity`) é o valor configurado, **não** uma identidade verificada pela borda — documentado em `docs/deploy.md`.
+
+**Consequências.**
+- Novos: `internal/domain/actor.go`, `internal/api/httpx/actor.go`; `AuditService` com `SetLogger`; `ProntuarioService` com `SetAudit`; fiação em `wiring.go` (`audit.SetLogger(a.Logger())`, `prontuario.SetAudit(audit)`).
+- Removido o `// TODO Fase 5` em `sessions.go`: `CancelByTherapist` está correto em single-tenant (é o papel, não a identidade — esta vai pelo context).
+- Cobertura: unit do ator (`domain`), do `Record` (resolução + falha), do `PropagateActor` (`httpx`), do `ProntuarioService` (ações + não-vazamento + `audit==nil`); E2E real lendo `GET /v1/admin/audit-log` (trilha com ator real, sem texto clínico; 401 sem header não audita; `session.cancel` com ator real).
+
+---
+
+## 2026-11-06 — `auditoria-profunda` Fase 1: golangci-lint v2 como gate obrigatório (fim do modo advisory)
+
+**Contexto.** O gate de lint estava desligado na prática: o `golangci-lint v1.64.8` (compilado com Go mais velho) não decodifica o export data do Go 1.27, então o `make lint` detectava a incompatibilidade por um probe e **pulava** o linter, engolindo qualquer falha com `|| echo` e `@true`. O `.golangci.yml` estava no formato v1 e o CI não instalava o linter. Resultado: fmt + vet eram o único gate estático real.
+
+**Decisão.**
+1. Adotar o **golangci-lint v2.15.0** (última v2), instalado via `go install .../v2/cmd/golangci-lint@v2.15.0` — **compilado com o toolchain local** (`make tools`). Binários pré-compilados (inclusive a `golangci-lint-action` em modo binário) repetem o erro de export data; por isso o CI roda `make tools` em vez da action.
+2. Migrar o `.golangci.yml` para o formato v2 (rascunho explícito: `version: "2"`, `linters.default: none`, enable de `errcheck/govet/ineffassign/staticcheck/unused/revive`, `gofmt` em `formatters`, exclusão de `errcheck` em `_test.go`).
+3. Reescrever o alvo `lint`: **falha de verdade** (sem `|| echo`, sem `@true`, sem probe, sem `timeout` externo). Guardas: linter ausente → `exit 1` pedindo `make tools`; versão diferente da fixada → `exit 1`; senão `golangci-lint run ./...`. Escape explícito e barulhento `make check SKIP_LINT=1`.
+4. CI: passo `make tools` + `$(go env GOPATH)/bin` no PATH, antes do `make check`.
+
+**Exclusões justificadas (com comentário no YAML).**
+- `misspell` desligado inteiro: o dicionário trata palavras em PT-BR (operacional, autor, independente) como erro de inglês — 43 falsos positivos, zero sinal.
+- `revive:error-strings` e `revive:unused-parameter`: ruído de alto volume (≈60 e ≈56) e baixo valor num projeto PT-BR com assinaturas de interface.
+- `staticcheck:ST1005`: **achado não previsto no design**. Na v2 o staticcheck absorve o stylecheck e passa a reportar ST1005, que é o **mesmo** check de capitalização de mensagens de erro que `revive:error-strings` (≈60 ocorrências de mensagens PT-BR). Desligado pela mesma justificativa, para manter coerência com a exclusão do revive.
+
+**Baseline (regra da task 1.5).** A triagem pré-exclusões achou 195; após as quatro exclusões acima, **36 achados** (staticcheck 15, revive 13, errcheck 8). Como 36 < ~100, **não há baseline `new-from-rev`**: a Fase 2 corrige/trata os 36 sem registrar dívida. (Se tivesse passado de 100, o gate cobriria só código novo via `issues.new-from-rev`.)
+
+**Consequências.**
+- Todo código novo das fases seguintes nasce sob o gate real.
+- `README.md` e `docs/deploy.md` passam a instruir `make tools`.
+
+**Desfecho da triagem (Fase 2).** Os 36 achados foram zerados sem baseline:
+- **Bugs reais / correções mecânicas (commit de triagem 1):** 8 `errcheck` de `Close()` → `defer func() { _ = x.Close() }()`; 1 `S1017` → `strings.TrimSuffix`; 7 `QF1012` → `fmt.Fprintf`; 1 `QF1001` → De Morgan; 1 `SA9005` → `//nolint:staticcheck` justificado (marshal de tipo opaco é o invariante do teste `SealedText`); 5 `SA1019` → `ResetBootstrapState`→`ClearBootstrap` (3) e `go/parser.ParseDir`→helper `ParseFile` sem dependência externa (2).
+- **Sombra de builtin corrigida:** variável `clear` renomeada para `plain` (health.go); helpers locais `func min` redundantes removidos (o builtin do Go 1.21+ cobre) em `pdf_test.go` e `invoice_test.go`.
+- **Estilo de baixo valor desligado por regra (commit de triagem 2), com justificativa no YAML:** `revive:exported` (stutters — renomear DTOs/tipos públicos é churn sem ganho), `revive:unexported-return` (construtor devolve concreto, consumido via interface — padrão intencional), `revive:context-as-argument` (`resolvePatient(e, ctx)` — `e` é o portador do handler).
+- Resultado: `golangci-lint run ./...` → **0 issues**; `make check` verde (fmt+vet+build+unit+e2e+lint). Nenhuma dívida de lint registrada.
+
+---
+
+## 2026-11-05 — Onda `auditoria-profunda` (correção dos achados da auditoria profunda)
+
+**Contexto.** Auditoria profunda de 2026-11-05 sobre o Psicoman levantou achados de conformidade, robustez e operação: ausência de trilha de auditoria LGPD no caminho clínico (prontuário), ator fixo `"sistema"` no `audit_log` em vez da identidade real, backup ao Drive sem retenção e dependente de pasta configurada à mão, `golangci-lint` em modo advisory (gate real desligado por incompatibilidade do v1 com o Go 1.27), falta de rate limit no portal e de validação do `state` do OAuth, e ausência de métricas operacionais. Evidências e requisitos em [`.kiro/specs/auditoria-profunda/requirements.md`](../.kiro/specs/auditoria-profunda/requirements.md) (R1–R10, Anexo A).
+
+**Decisão.** Abrir a onda `auditoria-profunda` (branch dedicada homônima a partir da `main`), com spec completa em [`.kiro/specs/auditoria-profunda/`](../.kiro/specs/auditoria-profunda/) (`requirements.md`, `design.md`, `tasks.md`). Decisões fechadas pelo Rafael em 2026-11-05: R2 snapshot inteiro (sem incremental) com retenção de 14 snapshots por lixeira; R3 pasta de DR criada automaticamente, `google.drive_folder` opcional, id persistido na coleção `drive_dr` (migration 0050); R7.1 rate limit em memória (5 cadastros/h por e-mail, 10 pedidos/h por paciente) somado ao limite por IP do nginx; R7.2 validação do `state` do OAuth (store de uso único + cookie); R8 `client_golang` v1.25.0 em listener dedicado interno, fail-closed, só quando `metrics.addr` está configurado; R4 `golangci-lint` v2.15.0 instalado via `make tools` (fora do `go.mod`); auditoria best-effort (falha loga e conta métrica, sem derrubar a requisição).
+
+**Consequências.**
+- Decisões detalhadas (ADRs específicos) serão registradas ao longo das fases desta mesma onda (auditoria clínica, pasta de DR, snapshot/retenção, `state` do OAuth, rate limit em duas camadas, listener de métricas).
+- Ponteiro canônico da onda: `.kiro/specs/auditoria-profunda/`. Progresso rastreado na tabela "Status ao vivo" de `tasks.md`.
+- Sem push antes do fim da onda e só com OK do Rafael.
+
+---
+
 ## 2026-11-05 — Modo dev de identidade (bypass do gate do Pangolin) reintroduzido
 
 **Contexto.** Rodando a API localmente (fora do Pangolin), o callback OAuth do Google pelo navegador (`GET /v1/admin/google/callback`) e qualquer rota `/v1/app/*` / `/v1/admin/*` batem no middleware `RequirePangolinIdentity` e recebem `401 nao_autenticado`, porque o navegador não injeta o header de identidade (`X-Pangolin-User`) que só existe atrás do gateway em produção. A arquitetura de dois binários tinha um `dev_mode` para isso, removido na migração para o binário único (ver entradas de 2026-10-24). Faltava uma forma de relaxar o gate só em dev para concluir o consentimento do Google e exercitar E2E de ponta a ponta.

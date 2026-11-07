@@ -30,7 +30,7 @@ Complementa o steering global de Go (idiomas, estilo, concorrência). Aqui ficam
 ## Contexto e cancelamento
 
 - Toda função de `app`/`platform/pb`/`integration` que faz I/O recebe `context.Context` como primeiro parâmetro.
-- Chamadas à API do Google (Calendar/Gmail/Drive) sempre com timeout via `context.WithTimeout` — nunca sem timeout, para não travar o handler HTTP esperando uma API externa.
+- Chamadas à API do Google (Calendar/Drive) sempre com timeout via `context.WithTimeout` — nunca sem timeout, para não travar o handler HTTP esperando uma API externa.
 
 ## Testes
 

@@ -2,6 +2,9 @@ package portal
 
 import (
 	"context"
+	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -15,14 +18,39 @@ import (
 
 const handlerTimeout = 5 * time.Second
 
+// Limites de tentativas do portal (R7.1), somados ao limite por IP do nginx.
+const (
+	maxLimiterKeys          = 10000 // teto de chaves por escopo (~1 MB no pior caso)
+	registerLimitPerHour    = 5     // cadastros/h por e-mail normalizado
+	appointmentLimitPerHour = 10    // pedidos/h por paciente da sessão
+)
+
 // Handlers agrupa os serviços usados pelos handlers do ator portal.
 type Handlers struct {
-	svc *service.Services
+	svc             *service.Services
+	registerLimiter *httpx.Limiter
+	apptLimiter     *httpx.Limiter
 }
 
-// Mount registra as rotas /v1/portal/* no grupo informado.
+// Mount registra as rotas /v1/portal/* no grupo informado. Cria um limitador
+// em memória por escopo (R7.1); toda rejeição (429, por estouro ou saturação) é
+// contada em rate_limit_rejeicoes_total{escopo} via o recorder de métricas.
 func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
-	h := &Handlers{svc: svc}
+	var onReject func(scope string)
+	if svc.Obs != nil { // nil em testes que montam Services à mão
+		onReject = svc.Obs.HTTP().RateLimited
+	}
+	h := &Handlers{
+		svc: svc,
+		registerLimiter: httpx.NewLimiter(httpx.LimiterOptions{
+			Limit: registerLimitPerHour, Window: time.Hour, MaxKeys: maxLimiterKeys,
+			Scope: httpx.ScopeCadastro, OnReject: onReject,
+		}),
+		apptLimiter: httpx.NewLimiter(httpx.LimiterOptions{
+			Limit: appointmentLimitPerHour, Window: time.Hour, MaxKeys: maxLimiterKeys,
+			Scope: httpx.ScopeAgendamento, OnReject: onReject,
+		}),
+	}
 	g.GET("/me", h.Me)
 	g.GET("/sessions", h.Sessions)
 	g.POST("/register", h.Register)
@@ -30,6 +58,21 @@ func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
 	// Pedidos de agendamento (R1.8): dentro do gate de aprovação.
 	g.POST("/appointment-requests", h.CreateAppointment)
 	g.GET("/appointment-requests", h.ListAppointments)
+}
+
+// tooManyRequests responde 429 com envelope PT-BR e Retry-After (segundos,
+// arredondado para cima). Mensagem igual para qualquer chave (anti-enumeração).
+func tooManyRequests(e *core.RequestEvent, retryAfter time.Duration) error {
+	secs := int(retryAfter.Seconds())
+	if retryAfter > 0 && time.Duration(secs)*time.Second < retryAfter {
+		secs++ // arredonda para cima
+	}
+	if secs < 1 {
+		secs = 1
+	}
+	e.Response.Header().Set("Retry-After", strconv.Itoa(secs))
+	return httpx.RespondError(e, http.StatusTooManyRequests, "limite_excedido",
+		"Muitas tentativas. Tente novamente mais tarde.", nil)
 }
 
 // Me GET /v1/portal/me — fora do gate de aprovação (o paciente vê o próprio
@@ -51,6 +94,7 @@ func (h *Handlers) Me(e *core.RequestEvent) error {
 func (h *Handlers) resolvePatient(e *core.RequestEvent, ctx context.Context) (*patient.Patient, error) {
 	authID := httpx.PortalAuthRecordID(e)
 	if authID == "" {
+		httpx.SetDenyReason(e, httpx.DenySemSessao)
 		return nil, httpx.RespondError(e, 401, "nao_autenticado", "Autenticação necessária.", nil)
 	}
 	pid, err := h.svc.PortalAuth.PatientIDByAuthID(ctx, authID)
@@ -99,6 +143,18 @@ func (h *Handlers) Register(e *core.RequestEvent) error {
 	var body registerBody
 	if err := e.BindBody(&body); err != nil {
 		return httpx.FailBadRequest(e, err)
+	}
+	// Rate limit por e-mail normalizado (R7.1). Decidido ANTES da validação de
+	// senha e de qualquer consulta ao banco: toda tentativa conta, exista ou não
+	// o e-mail (anti-enumeração) e a resposta 429 é idêntica. E-mail vazio não
+	// tem chave: segue para a validação normal (422). O e-mail nunca é guardado
+	// nem logado — só o hash truncado (8 hex) no log de bloqueio.
+	if strings.TrimSpace(body.Email) != "" {
+		key := httpx.EmailKey(h.registerLimiter.Scope(), body.Email)
+		if ok, retry := h.registerLimiter.Allow(key); !ok {
+			e.App.Logger().Warn("rate limit: cadastro bloqueado", "escopo", h.registerLimiter.Scope(), "chave", key[:8])
+			return tooManyRequests(e, retry)
+		}
 	}
 	if len(body.Password) < minPortalPassword {
 		return httpx.RespondError(e, 422, "senha_fraca",

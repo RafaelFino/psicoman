@@ -22,11 +22,21 @@ type PaymentService struct {
 	meta     GEDMetaRepository // opcional: comprovante de pagamento (R1.9)
 	blobs    GEDBlobStore      // opcional: bytes do comprovante no GED
 	clock    clock.Clock
+	metrics  Metrics
 }
 
 // NewPaymentService cria o serviço de pagamentos.
 func NewPaymentService(payments PaymentRepository, debts DebtRepository, audit *AuditService) *PaymentService {
-	return &PaymentService{payments: payments, debts: debts, audit: audit, clock: clock.System{}}
+	return &PaymentService{payments: payments, debts: debts, audit: audit, clock: clock.System{}, metrics: NopMetrics{}}
+}
+
+// SetMetrics injeta a porta de observabilidade (default NopMetrics). Os eventos
+// são contados SÓ no caminho de sucesso e nunca bloqueiam a operação.
+func (s *PaymentService) SetMetrics(m Metrics) {
+	if m == nil {
+		m = NopMetrics{}
+	}
+	s.metrics = m
 }
 
 // SetGED injeta as portas do GED para anexar comprovantes de pagamento (R1.9).
@@ -82,6 +92,7 @@ func (s *PaymentService) Pay(ctx context.Context, debtID string, in PayInput) (*
 		_ = s.audit.Record(ctx, "sistema", domain.AuditActionDebtPay, "debt", debtID,
 			map[string]any{"payment_id": pay.ID, "amount": in.Amount, "status": status})
 	}
+	s.metrics.PaymentRecorded()
 	return debt, pay, nil
 }
 

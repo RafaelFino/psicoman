@@ -47,13 +47,13 @@ func (d *Document) Render() []byte {
 	// Título (Helvetica-Bold 16) no topo.
 	content.WriteString("/F2 16 Tf\n")
 	content.WriteString("72 770 Td\n")
-	content.WriteString(fmt.Sprintf("(%s) Tj\n", escapeText(d.title)))
+	fmt.Fprintf(&content, "(%s) Tj\n", escapeText(d.title))
 	// Corpo (Helvetica 11), avançando 18pt por linha.
 	content.WriteString("/F1 11 Tf\n")
 	content.WriteString("0 -30 Td\n")
 	content.WriteString("18 TL\n")
 	for _, line := range d.lines {
-		content.WriteString(fmt.Sprintf("(%s) Tj\n", escapeText(line)))
+		fmt.Fprintf(&content, "(%s) Tj\n", escapeText(line))
 		content.WriteString("T*\n")
 	}
 	content.WriteString("ET\n")
@@ -73,15 +73,15 @@ func (d *Document) Render() []byte {
 	offsets := make([]int, len(objects)+1)
 	for i, obj := range objects {
 		offsets[i+1] = buf.Len()
-		buf.WriteString(fmt.Sprintf("%d 0 obj\n%s\nendobj\n", i+1, obj))
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", i+1, obj)
 	}
 	xrefStart := buf.Len()
-	buf.WriteString(fmt.Sprintf("xref\n0 %d\n", len(objects)+1))
+	fmt.Fprintf(&buf, "xref\n0 %d\n", len(objects)+1)
 	buf.WriteString("0000000000 65535 f \n")
 	for i := 1; i <= len(objects); i++ {
-		buf.WriteString(fmt.Sprintf("%010d 00000 n \n", offsets[i]))
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
 	}
-	buf.WriteString(fmt.Sprintf("trailer\n<< /Size %d /Root 1 0 R >>\n", len(objects)+1))
-	buf.WriteString(fmt.Sprintf("startxref\n%d\n%%%%EOF\n", xrefStart))
+	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\n", len(objects)+1)
+	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF\n", xrefStart)
 	return buf.Bytes()
 }

@@ -23,9 +23,10 @@ func livez(e *core.RequestEvent) error {
 
 // readyz devolve o handler de readiness (/v1/readyz). Checa, em ordem: cifra
 // montada (round-trip seal/open), DB acessível (lookup de coleção) e o estado
-// do OAuth do Google (ok|degraded). Pronto quando cifra+DB ok; o Google
-// degradado NÃO torna a instância "não-pronta" (a app opera sem Google, só
-// sinaliza), mas é reportado no corpo. Falha de cifra ou DB → 503 (R5.1).
+// do OAuth do Google (ok|degraded) e o do espelhamento de DR (drive_dr:
+// desativado|ok|degradado). Pronto quando cifra+DB ok; o Google ou o DR
+// degradados NÃO tornam a instância "não-pronta" (a app opera sem eles, só
+// sinaliza), mas são reportados no corpo. Falha de cifra ou DB → 503 (R5.1).
 func readyz(svc *service.Services) func(*core.RequestEvent) error {
 	return func(e *core.RequestEvent) error {
 		ctx, cancel := context.WithTimeout(e.Request.Context(), readyzTimeout)
@@ -58,6 +59,13 @@ func readyz(svc *service.Services) func(*core.RequestEvent) error {
 			checks["google_reason"] = reason
 		}
 
+		// 4. Espelhamento de DR no Drive (desativado|ok|degradado). Informativo:
+		// NÃO altera `ready` (a app opera sem DR), como o google. Omitido quando
+		// o Status não foi montado (testes que montam Services à mão).
+		if svc.DriveStatus != nil {
+			checks["drive_dr"] = svc.DriveStatus.State()
+		}
+
 		data := map[string]any{"ready": ready, "checks": checks}
 		if !ready {
 			return httpx.RespondError(e, http.StatusServiceUnavailable, "nao_pronto",
@@ -75,11 +83,11 @@ func checkCipher(ctx context.Context, c domainCipher) error {
 	if err != nil {
 		return err
 	}
-	clear, err := c.Open(ctx, env)
+	plain, err := c.Open(ctx, env)
 	if err != nil {
 		return err
 	}
-	if clear != probe {
+	if plain != probe {
 		return errCipherMismatch
 	}
 	return nil

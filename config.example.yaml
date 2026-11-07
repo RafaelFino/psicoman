@@ -44,12 +44,25 @@ pangolin:
 #   drive.file → Drive como fallback/DR (hook de backup, fora do request)
 # Gmail está FORA de escopo (cobrança é PDF no GED; envio pela terapeuta via WhatsApp).
 # Sem client_id/client_secret/calendar_id o Calendar degrada (no-op, sem evento).
-# Sem client_id/client_secret/drive_folder o DR do Drive degrada (no-op, backup local segue).
+# Sem client_id/client_secret o DR do Drive degrada (no-op, backup local segue).
 google:
   client_id: ""
   client_secret: ""
   calendar_id: "" # ex.: "primary"
-  drive_folder: "" # pasta fria de DR no Drive
+  # drive_folder é OPCIONAL (R3): se informado, essa pasta é usada; se vazio, o
+  # Psicoman cria/descobre automaticamente uma pasta "Psicoman DR" no Drive e
+  # persiste o id. Informe um id só se quiser reusar uma pasta específica.
+  drive_folder: ""
+  # drive_retention (R2.4): quantos snapshots manter no Drive (default 14). Os
+  # excedentes vão para a LIXEIRA (não são apagados de vez). 0 = retenção manual.
+  drive_retention: 14
+
+# Métricas Prometheus (R8): listener DEDICADO e interno, separado da API. Vazio
+# (default) = NÃO sobe (fail-closed). Em host/systemd use "127.0.0.1:9091"; dentro
+# do container "0.0.0.0:9091" (porta não publicada). Env: PSICOMAN_METRICS_ADDR.
+# Nunca exponha esta porta na borda (nginx/Pangolin): só o coletor deve alcançá-la.
+metrics:
+  addr: ""
 
 # IA (Gemini) — OPT-IN pela PRESENÇA da chave: com api_key, a IA liga; sem, desliga.
 # Env equivalente: PSICOMAN_GEMINI_API_KEY. Lida da config, NUNCA logada.

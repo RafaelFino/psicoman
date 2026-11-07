@@ -30,7 +30,7 @@ func newEvent(t *testing.T) (*core.RequestEvent, *httptest.ResponseRecorder) {
 	if err := a.RunAllMigrations(); err != nil {
 		t.Fatalf("RunAllMigrations: %v", err)
 	}
-	t.Cleanup(func() { _ = a.ResetBootstrapState() })
+	t.Cleanup(func() { _ = a.ClearBootstrap() })
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/x", nil)
@@ -57,7 +57,7 @@ func TestEnvelopeOrdemSucesso(t *testing.T) {
 	if iMsg < 0 || iElapsed < 0 || iData < 0 || iErr < 0 {
 		t.Fatalf("chaves ausentes no corpo: %s", body)
 	}
-	if !(iMsg < iElapsed && iElapsed < iData && iData < iErr) {
+	if iMsg >= iElapsed || iElapsed >= iData || iData >= iErr {
 		t.Errorf("ordem das chaves do envelope incorreta: %s", body)
 	}
 	if !strings.Contains(body, `"error":null`) {

@@ -30,10 +30,17 @@ services:
     # rede interna do compose (expose documenta a porta interna).
     expose:
       - "8090"
+      # 9091 = listener DEDICADO de métricas (Prometheus). Só documental: o
+      # listener NÃO sobe sem metrics.addr (fail-closed) e esta porta NUNCA vai em
+      # `ports:` (não publicar no host/borda). O coletor acessa psicoman:9091 pela
+      # rede interna. Para ligar: PSICOMAN_METRICS_ADDR=0.0.0.0:9091 abaixo.
+      - "9091"
     environment:
       # Chave de cifra de TESTE (base64 de 32 bytes). Só para o ambiente local.
       PSICOMAN_CIPHER_KEY_ID: "k1"
       PSICOMAN_CIPHER_KEYS: "k1:wPb6Yex4abAI5VpFY6SIonnjtPOmtuGP2MJVnezqUKY="
+      # Métricas Prometheus (opcional; descomente para ligar o listener interno):
+      # PSICOMAN_METRICS_ADDR: "0.0.0.0:9091"
     volumes:
       - psicoman-data:/data
     healthcheck:

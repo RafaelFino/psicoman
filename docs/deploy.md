@@ -78,8 +78,15 @@ Mantenha o relógio da VM sincronizado (NTP). O sistema opera internamente em
 ### 3.1 Compilar o binário único
 
 ```bash
+make tools        # uma vez: instala o golangci-lint v2 (compilado com o Go local)
 make build        # gera bin/psicoman (go build -o bin/psicoman ./cmd/psicoman)
+make check        # gate completo: fmt + vet + build + testes + lint (obrigatório)
 ```
+
+> O `make check` roda o `golangci-lint` v2 como **gate obrigatório** (não é mais
+> advisory). O `make tools` o instala compilando a versão fixada com o toolchain
+> Go local — binários pré-compilados não decodificam o export data do Go 1.27.
+> Para pular o lint pontualmente: `make check SKIP_LINT=1` (desaconselhado).
 
 ### 3.2 Gerar o `config.yaml`
 
@@ -97,8 +104,22 @@ Campos (ver [`../config.example.yaml`](../config.example.yaml)):
   (chaves antigas ficam para decifrar o que foi gravado antes de uma rotação).
 - `pangolin.identity_header` — nome do header de identidade (default
   `X-Pangolin-User`). Não é segredo.
-- `google.*` — `client_id`/`client_secret`/`calendar_id`/`drive_folder`. Vazios ⇒
-  Calendar/Drive degradam (no-op, sem evento/espelho), sem derrubar o processo.
+- `pangolin.dev_identity` — **só para DEV** (vazio em produção, fail-closed). Quando
+  preenchido, relaxa o gate do Pangolin e usa esse valor como ator nas requisições
+  sem o header real. **Atenção:** esse ator **não é uma identidade verificada pela
+  borda** — é um valor de config. Por isso o `audit_log` em modo dev mostra a
+  identidade configurada, não uma autenticação real. Em produção, mantenha vazio.
+- `google.*` — `client_id`/`client_secret`/`calendar_id`/`drive_folder`/`drive_retention`.
+  Sem `client_id`/`client_secret` (ou sem refresh token) o Drive degrada (no-op, sem
+  espelho); sem `calendar_id` o Calendar degrada (sem evento) — nunca derruba o processo.
+  - `drive_folder` é **opcional**: se informado, essa pasta é usada; se vazio, o
+    Psicoman cria (ou reencontra) uma pasta **"Psicoman DR"** no Drive e guarda o id
+    (coleção `drive_dr`). Renomear ou mover a pasta é seguro; **apagá-la** faz o app
+    recriá-la no próximo backup. Uma pasta criada à mão só vale se você informar o id
+    em `drive_folder` (a busca automática só enxerga o que o app criou).
+  - `drive_retention` (default **14**): quantos snapshots manter no Drive. Os excedentes
+    vão para a **lixeira** do Drive (recuperáveis por 30 dias), nunca são apagados
+    de vez. `0` desliga a limpeza (retenção manual). Valor negativo aborta o boot.
 - `llm.gemini.api_key` — opt-in da IA pela **presença** da chave. Vazio ⇒ IA off.
 
 > Alternativa a arquivo: toda chave tem env equivalente e **env sobrescreve o
@@ -161,6 +182,15 @@ consentimento do Google e volta no callback):
    `curl https://psicoman.seudominio.com.br/v1/admin/google/status`
    → `{"state":"ok"}` quando autorizado; `degraded` se pendente.
 
+**Proteção do fluxo (`state`).** O authorize emite um `state` de uso único (validade
+de 10 min) e grava o cookie `psicoman_oauth_state` (`HttpOnly`, `SameSite=Lax`). O
+callback exige os dois e responde `400 state_invalido` se faltar, divergir, expirar
+ou for reutilizado — **conclua o consentimento no MESMO navegador** em que abriu o
+authorize, dentro de 10 minutos. Se o fluxo ficou aberto durante um deploy/restart,
+basta repetir o passo 1. O cookie só leva o atributo `Secure` quando o request chega
+como HTTPS: **configure o Pangolin/proxy para repassar `X-Forwarded-Proto`** (sem
+isso o fluxo funciona igual, só sem o endurecimento).
+
 A partir daí o access token é renovado automaticamente. Se a renovação falhar no
 futuro, `/v1/readyz` passa a reportar `google: degraded` (reautorização
 necessária) — basta repetir este passo. O refresh token nunca aparece em resposta
@@ -181,7 +211,13 @@ mais (`/v1/app`, `/v1/admin`, `/api/`, `/_/`, `/v1/swagger`). A config de
 referência está em [`../deploy/nginx/portal.conf`](../deploy/nginx/portal.conf)
 e é a mesma usada na stack local (`docker-compose.yml`). Ela aplica:
 
-- **rate limit** por IP nas rotas do portal (ex.: 30 req/min, burst 20 → 429);
+- **rate limit** por IP nas rotas do portal (ex.: 30 req/min, burst 20 → 429) —
+  é a **1ª camada**. O app soma uma **2ª camada, por identidade**, em memória:
+  `POST /v1/portal/register` limita **5 cadastros/h por e-mail** e
+  `POST /v1/portal/appointment-requests` limita **10 pedidos/h por paciente**
+  (resposta `429 limite_excedido` com `Retry-After`). Os contadores vivem na memória do
+  processo: um restart zera as janelas. Não há configuração para esses valores nesta
+  versão;
 - **limite de corpo** (2 MB) e **timeouts curtos** (mitiga slowloris);
 - **limite de conexões** por IP;
 - limpeza do header de identidade do Pangolin vindo de fora (anti-spoofing);
@@ -350,11 +386,91 @@ Observabilidade (fora da auth, para probes):
 
 - `/v1/livez` — o processo está vivo (200 fixo).
 - `/v1/readyz` — cifra montada + DB acessível + estado do OAuth Google
-  (`google: ok|degraded`). 503 se cifra ou DB falham.
+  (`google: ok|degraded`) + espelhamento de DR (`drive_dr: desativado|ok|degradado`).
+  503 se cifra ou DB falham. `drive_dr: degradado` (último espelhamento falhou) **não**
+  derruba o `ready`: o backup local segue válido, mas o DR precisa de atenção — veja o
+  log (`falha ao espelhar backup no Drive`, campo `etapa`).
 - `/v1/health` — smoke simples no envelope.
 
-O timing por rota é logado (não há endpoint de métricas dedicado nesta versão —
-decisão registrada em [`decisions.md`](./decisions.md)).
+O timing por rota é logado e, opcionalmente, exposto como métricas Prometheus em um
+listener dedicado e interno (`metrics.addr`; ver "Métricas (Prometheus)" na seção 3 e
+[`decisions.md`](./decisions.md)).
+
+### Métricas (Prometheus)
+
+O Psicoman expõe métricas no formato Prometheus em um **listener dedicado**, separado
+da API. É **opt-in e fail-closed**: sem `metrics.addr` (ou `PSICOMAN_METRICS_ADDR`)
+**nenhum socket extra é aberto**.
+
+```yaml
+metrics:
+  addr: "127.0.0.1:9091"   # host/systemd; no container: "0.0.0.0:9091"
+```
+
+- A API (`:8090`) **nunca** serve `/metrics` (responde 404); o listener de métricas
+  serve **somente** `GET /metrics` (o resto é 404) e não exige o header do Pangolin —
+  por isso o **isolamento é de rede**. Falha de bind (porta em uso) **aborta o boot**.
+- **Política de rede:** não coloque a porta de métricas no nginx do portal nem no
+  Pangolin e **não a publique** (`ports:`) no compose. Libere TCP 9091 no firewall
+  **somente do IP do coletor** (ou deixe em `127.0.0.1` com agente local/túnel SSH).
+  Sem TLS/autenticação nesta versão; se a coleta atravessar rede não confiável, o
+  próximo passo é mTLS no listener (fora de escopo).
+- Os rótulos usam só valores de conjuntos fechados (ator, rota-padrão, método, status,
+  motivo): **nenhum dado de paciente, id, e-mail ou identidade** aparece nas séries.
+
+**Famílias expostas (prefixo `psicoman_`):**
+
+| Família | O que mede |
+|---------|------------|
+| `http_requisicoes_total`, `http_duracao_segundos`, `http_em_andamento`, `http_resposta_bytes` | tráfego HTTP por ator/rota/método/status |
+| `seguranca_negados_total{motivo}`, `rate_limit_rejeicoes_total{escopo}`, `identidade_dev_ativa` | 401/403, 429 e modo dev ativo |
+| `pacientes_eventos_total`, `sessoes_eventos_total`, `agendamentos_eventos_total` | ciclo de vida de paciente/sessão/pedido |
+| `debitos_gerados_total`, `pagamentos_registrados_total`, `pdfs_gerados_total` | financeiro |
+| `fila_pacientes_pendentes`, `fila_agendamentos_pendentes` | filas de aprovação/agendamento |
+| `calendar_chamadas_total`, `calendar_duracao_segundos`, `calendar_degradado_total` | Google Calendar (freebusy/evento; agendamento sem credencial) |
+| `gemini_chamadas_total`, `gemini_duracao_segundos`, `gemini_ligada` | IA |
+| `google_oauth_ok`, `cifra_operacoes_total` | estado do OAuth, cifra de campo |
+| `audit_log_total{acao}`, `audit_log_falhas_total{acao}` | trilha de auditoria |
+| `backup_total`, `backup_duracao_segundos`, `backup_tamanho_bytes`, `backup_ultimo_sucesso_timestamp_segundos{destino}` | backup local e Drive |
+| `drive_espelhamento_total`, `drive_dr_pronto`, `drive_snapshots_mantidos`, `drive_retencao_falhas_total{etapa}` | DR no Drive e retenção |
+| `metrics_coleta_erros_total{fonte}`, `go_*`, `process_*`, `build_info`, `uptime_segundos` | saúde da coleta e runtime |
+
+**Como coletar:** aponte um Prometheus na mesma rede interna para `psicoman:9091/metrics`
+(scrape a cada 30–60 s). A porta não é publicada; o firewall libera só o IP do coletor.
+
+**Alertas sugeridos:**
+
+```
+# Backup do Drive velho (mais de 2 dias sem sucesso)
+time() - psicoman_backup_ultimo_sucesso_timestamp_segundos{destino="drive"} > 2*86400
+# OAuth do Google degradado (reautorizar)
+psicoman_google_oauth_ok == 0
+# Modo dev de identidade ligado em produção
+psicoman_identidade_dev_ativa == 1
+# Erros 5xx
+rate(psicoman_http_requisicoes_total{status=~"5.."}[5m]) > 0
+# Retenção do Drive acumulando (lixeira não esvaziada?)
+psicoman_drive_snapshots_mantidos > 17
+# Falha ao gravar a trilha de auditoria
+increase(psicoman_audit_log_falhas_total[1h]) > 0
+# Erros de cifra
+increase(psicoman_cifra_operacoes_total{resultado="erro"}[5m]) > 0
+# Pico de rate limit (possível saturação do limitador)
+increase(psicoman_rate_limit_rejeicoes_total[10m]) > 100
+```
+
+### Backup no Drive: snapshot inteiro e restauração
+
+Cada backup do PocketBase é espelhado no Drive como **snapshot inteiro, cifrado**
+(`<backup>.enc`, AES-256-GCM com a chave de `crypto.keys`). Não há backup incremental:
+o espaço usado cresce linearmente com o tamanho do banco × `drive_retention`.
+Snapshots anteriores à onda `auditoria-profunda` (sem a marca do app) ficam **fora**
+da retenção — limpe-os à mão se quiser.
+
+Para restaurar: baixe o `.enc` mais recente do Drive, **decifre** com a mesma chave
+(`BlobSealer`; guarde `crypto.keys` fora da VM — sem ela o snapshot é irrecuperável),
+descompacte o zip resultante e restaure o `data dir` (SQLite + storage) com o serviço
+parado.
 
 ---
 
@@ -364,15 +480,34 @@ decisão registrada em [`decisions.md`](./decisions.md)).
 |--------|----------------|-------------|
 | Boot aborta na partida | cifra ausente/inválida (fail-closed) | Defina `crypto.key_id`+`crypto.keys` no config ou `PSICOMAN_CIPHER_*` |
 | `/v1/readyz` com `google: degraded` | refresh token do Google ausente/expirado | Autorize/reautorize (passo 4.4) |
+| `/v1/readyz` com `drive_dr: degradado` | último espelhamento no Drive falhou (cota, rede, pasta, permissão) | Veja o log `falha ao espelhar backup no Drive` (`etapa`); o backup local continua válido |
 | `/v1/app/*` responde `401` sempre | header de identidade do Pangolin não chega | Confira o `identity_header` e a injeção no Pangolin |
 | Portal responde `401` em `/v1/portal/*` | sessão ausente/expirada | Faça login de novo (auth-with-password) |
 | Sessão não vira evento no Calendar | Google não autorizado ou `calendar_id` vazio | Autorize o Google e preencha `google.calendar_id` |
 
 ---
 
+## 9.1 Segurança: rotação de segredos (operacional)
+
+Checklist **operacional** (sem valores; nunca cole segredos em log, PR ou ticket). É
+responsabilidade do operador — o sistema não rotaciona nada sozinho.
+
+- [ ] **OAuth do Google:** rotacione `google.client_secret` no Google Cloud Console e
+  **refaça o refresh token** autorizando de novo em `GET /v1/admin/google/authorize`
+  (o novo token é persistido cifrado em `google_token`). Revogue o consentimento antigo.
+- [ ] **Gemini:** rotacione `llm.gemini.api_key` no Google AI Studio e atualize o config/env.
+- [ ] **Chave de cifra:** `crypto.keys` suporta várias chaves por id — ao rotacionar,
+  gere uma nova (`openssl rand -base64 32`), aponte `crypto.key_id` para ela e **mantenha
+  as antigas** no mapa para decifrar o que foi gravado antes. Guarde todas num cofre fora da VM.
+- [ ] Confirme que o config com segredos segue git-ignored: `git check-ignore config.dev.yaml`
+  (e `config.yaml` em produção) deve imprimir o caminho.
+- [ ] Testes **nunca** leem nem copiam `config.dev.yaml`: usam a chave de cifra fixa de teste por env.
+- [ ] Após rotacionar, confira `/v1/readyz` (`google: ok`) e um backup com espelhamento ok.
+
 ## 10. Checklist final
 
 - [ ] VM provisionada, Go 1.27+, relógio sincronizado.
+- [ ] Segredos rotacionados conforme §9.1 ao fim de testes que os expuseram.
 - [ ] `config.yaml` com a chave de cifra (nunca versionada) — cópia da chave num cofre fora da VM.
 - [ ] Projeto Google: Calendar + Drive habilitados; consentimento com escopos mínimos; Client ID/Secret no config; redirect `/v1/admin/google/callback` cadastrado.
 - [ ] Pangolin: upstream `127.0.0.1:8090`, identidade injetada em `/v1/app` e `/v1/admin`, DNS apontado.

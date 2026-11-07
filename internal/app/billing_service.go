@@ -17,15 +17,25 @@ import (
 // orquestra plano vigente, idempotência e auditoria.
 // Portado de c3ab585:internal/service/billing.go.
 type BillingService struct {
-	debts DebtRepository
-	plans PlanRepository
-	audit *AuditService
-	clock clock.Clock
+	debts   DebtRepository
+	plans   PlanRepository
+	audit   *AuditService
+	clock   clock.Clock
+	metrics Metrics
 }
 
 // NewBillingService cria o serviço de cobrança.
 func NewBillingService(debts DebtRepository, plans PlanRepository, audit *AuditService) *BillingService {
-	return &BillingService{debts: debts, plans: plans, audit: audit, clock: clock.System{}}
+	return &BillingService{debts: debts, plans: plans, audit: audit, clock: clock.System{}, metrics: NopMetrics{}}
+}
+
+// SetMetrics injeta a porta de observabilidade (default NopMetrics). Os eventos
+// são contados SÓ no caminho de sucesso e nunca bloqueiam a operação.
+func (s *BillingService) SetMetrics(m Metrics) {
+	if m == nil {
+		m = NopMetrics{}
+	}
+	s.metrics = m
 }
 
 var _ SessionFinishedHook = (*BillingService)(nil)
@@ -62,6 +72,7 @@ func (s *BillingService) OnSessionFinished(ctx context.Context, sess *scheduling
 		return err
 	}
 	if created {
+		s.metrics.DebtGenerated()
 		_ = s.audit.Record(ctx, "sistema", domain.AuditActionDebtGenerate, "debt", d.ID,
 			map[string]any{"session_id": sess.ID, "plan_type": plan.Type})
 	}
@@ -96,6 +107,7 @@ func (s *BillingService) CloseCycles(ctx context.Context, ref time.Time) (int, e
 		}
 		if ok {
 			created++
+			s.metrics.DebtGenerated()
 			_ = s.audit.Record(ctx, "sistema", domain.AuditActionDebtGenerate, "debt", d.ID,
 				map[string]any{"plan_id": plan.ID, "billing_period": period, "plan_type": plan.Type})
 		}

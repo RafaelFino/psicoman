@@ -61,6 +61,13 @@ func (h *Handlers) CreateAppointment(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
+	// Rate limit por paciente da SESSÃO (R7.1): a chave é o hash do patient_id,
+	// nunca algo vindo do corpo. Responde 429 antes de qualquer escrita.
+	key := httpx.EmailKey(h.apptLimiter.Scope(), p.ID)
+	if ok, retry := h.apptLimiter.Allow(key); !ok {
+		e.App.Logger().Warn("rate limit: pedido de agendamento bloqueado", "escopo", h.apptLimiter.Scope(), "chave", key[:8])
+		return tooManyRequests(e, retry)
+	}
 	a, err := h.svc.Appts.Request(ctx, p.ID, app.AppointmentInput{
 		LocationID: body.LocationID, SlotStart: start, SlotEnd: end, Note: body.Note,
 	})

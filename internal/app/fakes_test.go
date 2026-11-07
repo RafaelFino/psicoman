@@ -20,10 +20,14 @@ import (
 // --- audit ---
 
 type fakeAuditRepo struct {
-	entries []*domain.AuditLog
+	entries   []*domain.AuditLog
+	insertErr error // quando != nil, Insert falha e nada é gravado
 }
 
 func (f *fakeAuditRepo) Insert(_ context.Context, e *domain.AuditLog) error {
+	if f.insertErr != nil {
+		return f.insertErr
+	}
 	f.entries = append(f.entries, e)
 	return nil
 }
@@ -516,6 +520,10 @@ func (f *fakeCostSessionSource) CountRealizadasNoLocalNoPeriodo(context.Context,
 type fakeProntuarioRepo struct {
 	notes map[string][]*clinical.Note
 	anam  map[string]*clinical.Anamnesis
+	// erros opcionais para exercitar o caminho de falha (auditoria não roda).
+	createNoteErr error
+	upsertErr     error
+	listNotesErr  error
 }
 
 func newProntuarioRepo() *fakeProntuarioRepo {
@@ -530,14 +538,23 @@ func (f *fakeProntuarioRepo) GetAnamnesis(_ context.Context, patientID string) (
 	return a, nil
 }
 func (f *fakeProntuarioRepo) UpsertAnamnesis(_ context.Context, a *clinical.Anamnesis) error {
+	if f.upsertErr != nil {
+		return f.upsertErr
+	}
 	f.anam[a.PatientID] = a
 	return nil
 }
 func (f *fakeProntuarioRepo) CreateNote(_ context.Context, n *clinical.Note) error {
+	if f.createNoteErr != nil {
+		return f.createNoteErr
+	}
 	f.notes[n.PatientID] = append(f.notes[n.PatientID], n)
 	return nil
 }
 func (f *fakeProntuarioRepo) ListNotes(_ context.Context, patientID string) ([]*clinical.Note, error) {
+	if f.listNotesErr != nil {
+		return nil, f.listNotesErr
+	}
 	return f.notes[patientID], nil
 }
 func (f *fakeProntuarioRepo) DeleteNote(context.Context, string) error { return nil }

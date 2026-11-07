@@ -112,3 +112,7 @@ A admin UI fica em <http://127.0.0.1:8090/_/> e o contrato em `/v1/*`.
 - As migrations do MER são aplicadas **no boot** (`RunAllMigrations`), não há passo
   manual.
 - A porta `8090` precisa estar livre no host.
+- **Métricas (Prometheus):** o listener dedicado (`metrics.addr`, ex.:
+  `PSICOMAN_METRICS_ADDR=0.0.0.0:9091`) fica só em `expose` no compose — **nunca**
+  em `ports`. Sem a env ele nem sobe. Para ver as métricas localmente, rode um
+  coletor na mesma rede do compose ou use `docker compose exec psicoman wget -qO- http://127.0.0.1:9091/metrics`.

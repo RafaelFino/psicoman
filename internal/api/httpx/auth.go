@@ -55,6 +55,7 @@ func RequirePangolinIdentity(headerName, devIdentity string) func(*core.RequestE
 			id = devIdentity
 		}
 		if id == "" {
+			SetDenyReason(e, DenySemIdentidade)
 			return RespondError(e, http.StatusUnauthorized, "nao_autenticado",
 				"Autenticação necessária.", nil)
 		}

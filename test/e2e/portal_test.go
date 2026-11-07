@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,5 +105,61 @@ func TestPortalSemSessao401(t *testing.T) {
 	// sessão é inexistente → 401.
 	if status != http.StatusUnauthorized {
 		t.Fatalf("sem sessão: quero 401, veio %d", status)
+	}
+}
+
+// registerRaw faz POST /v1/portal/register e devolve status, header Retry-After e corpo.
+func registerRaw(t *testing.T, base, email string) (int, string, string) {
+	t.Helper()
+	body := `{"name":"Limite","phone":"11999990000","email":"` + email + `","password":"senha-forte-123"}`
+	req, _ := http.NewRequest(http.MethodPost, base+"/v1/portal/register", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("POST register: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, resp.Header.Get("Retry-After"), string(raw)
+}
+
+// TestPortalRegisterRateLimit429 (R7.1): 5 cadastros/h por e-mail normalizado.
+// O 6º recebe 429 com envelope e Retry-After; outro e-mail segue normal
+// (permitido E negado no mesmo teste); o corpo do 429 não ecoa o e-mail.
+func TestPortalRegisterRateLimit429(t *testing.T) {
+	base := startServer(t)
+
+	// 5 tentativas com o MESMO e-mail variando caixa e espaços: a normalização
+	// faz todas caírem na mesma chave. A 1ª cria (201); as demais conflitam
+	// (409) — importa que NENHUMA seja 429 até o limite.
+	variantes := []string{
+		"limite@exemplo.com", "Limite@Exemplo.com", " limite@exemplo.com",
+		"LIMITE@EXEMPLO.COM", "limite@exemplo.com ",
+	}
+	for i, em := range variantes {
+		st, _, body := registerRaw(t, base, em)
+		if st == http.StatusTooManyRequests {
+			t.Fatalf("tentativa %d (dentro do limite) não pode ser 429: %s", i+1, body)
+		}
+	}
+
+	// 6ª tentativa: 429.
+	st, retry, body := registerRaw(t, base, "Limite@exemplo.com")
+	if st != http.StatusTooManyRequests {
+		t.Fatalf("6ª tentativa: quero 429, veio %d (%s)", st, body)
+	}
+	if n, err := strconv.Atoi(retry); err != nil || n < 1 {
+		t.Errorf("Retry-After deveria ser segundos >= 1, veio %q", retry)
+	}
+	if !strings.Contains(body, `"code":"limite_excedido"`) {
+		t.Errorf("envelope sem code limite_excedido: %s", body)
+	}
+	if strings.Contains(strings.ToLower(body), "limite@exemplo.com") {
+		t.Errorf("o 429 não pode ecoar o e-mail: %s", body)
+	}
+
+	// PERMITIDO: outro e-mail segue o fluxo normal (cria 201).
+	if st, _, body := registerRaw(t, base, "outro@exemplo.com"); st != http.StatusCreated {
+		t.Errorf("outro e-mail deveria cadastrar (201), veio %d (%s)", st, body)
 	}
 }

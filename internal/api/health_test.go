@@ -57,7 +57,7 @@ func TestReadyzGoogleOKAposAutorizacao(t *testing.T) {
 	}
 
 	// Autoriza (callback persiste o token).
-	cb := c.do(http.MethodGet, "/v1/admin/google/callback?code=fake&state=s", "", appHeaders())
+	cb := autorizarGoogle(t, c)
 	if cb.status != http.StatusOK {
 		t.Fatalf("callback: quero 200, veio %d (%s)", cb.status, cb.body)
 	}

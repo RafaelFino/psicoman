@@ -36,7 +36,7 @@ func newTestApp(t *testing.T) core.App {
 	if err := a.RunAllMigrations(); err != nil {
 		t.Fatalf("RunAllMigrations: %v", err)
 	}
-	t.Cleanup(func() { _ = a.ResetBootstrapState() })
+	t.Cleanup(func() { _ = a.ClearBootstrap() })
 	return a
 }
 

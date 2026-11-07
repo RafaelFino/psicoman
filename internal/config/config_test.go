@@ -231,3 +231,97 @@ func TestResolvePathDescobreCandidatoNoCwd(t *testing.T) {
 		t.Errorf("deveria ter carregado config.dev.yaml do cwd: %+v", cfg.Crypto)
 	}
 }
+
+// TestLoadDriveRetention cobre google.drive_retention: ausente => 14 (default),
+// "0" => 0 (retenção manual), positivo => valor, negativo => erro de config.
+func TestLoadDriveRetention(t *testing.T) {
+	casos := []struct {
+		nome    string
+		yaml    string
+		want    int
+		origem  string
+		wantErr bool
+	}{
+		{"ausente", "google:\n  client_id: x\n", DefaultDriveRetention, SourceDefault, false},
+		{"zero", "google:\n  drive_retention: 0\n", 0, SourceFile, false},
+		{"positivo", "google:\n  drive_retention: 30\n", 30, SourceFile, false},
+		{"negativo", "google:\n  drive_retention: -1\n", 0, "", true},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			cfg, origins, err := Load(Options{Path: writeFixture(t, c.yaml)})
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("valor negativo deveria ser erro de config")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Google.DriveRetention != c.want {
+				t.Errorf("retention: quero %d, veio %d", c.want, cfg.Google.DriveRetention)
+			}
+			if got := originOf(origins, "google.drive_retention"); got != c.origem {
+				t.Errorf("origem: quero %q, veio %q", c.origem, got)
+			}
+		})
+	}
+}
+
+// TestLoadSemArquivoRetentionDefault: sem arquivo, o default 14 vale.
+func TestLoadSemArquivoRetentionDefault(t *testing.T) {
+	cfg, _, err := Load(Options{Path: filepath.Join(t.TempDir(), "nao-existe.yaml")})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Google.DriveRetention != DefaultDriveRetention {
+		t.Errorf("sem arquivo: quero %d, veio %d", DefaultDriveRetention, cfg.Google.DriveRetention)
+	}
+}
+
+// TestLoadMetricsAddr cobre metrics.addr: ausente (listener desligado), válido,
+// inválido (sem porta / porta fora de faixa / não numérica) e env > arquivo.
+func TestLoadMetricsAddr(t *testing.T) {
+	t.Run("ausente => vazio", func(t *testing.T) {
+		t.Setenv(EnvMetricsAddr, "")
+		cfg, _, err := Load(Options{Path: writeFixture(t, "google:\n  client_id: x\n")})
+		if err != nil || cfg.Metrics.Addr != "" {
+			t.Fatalf("quero addr vazio sem erro, veio %q err=%v", cfg.Metrics.Addr, err)
+		}
+	})
+	t.Run("válido do arquivo", func(t *testing.T) {
+		t.Setenv(EnvMetricsAddr, "")
+		cfg, origins, err := Load(Options{Path: writeFixture(t, "metrics:\n  addr: \"127.0.0.1:9091\"\n")})
+		if err != nil || cfg.Metrics.Addr != "127.0.0.1:9091" {
+			t.Fatalf("quero 127.0.0.1:9091, veio %q err=%v", cfg.Metrics.Addr, err)
+		}
+		if got := originOf(origins, "metrics.addr"); got != SourceFile {
+			t.Errorf("origem: quero arquivo, veio %q", got)
+		}
+	})
+	t.Run("env sobrescreve arquivo", func(t *testing.T) {
+		t.Setenv(EnvMetricsAddr, "0.0.0.0:9191")
+		cfg, origins, err := Load(Options{Path: writeFixture(t, "metrics:\n  addr: \"127.0.0.1:9091\"\n")})
+		if err != nil || cfg.Metrics.Addr != "0.0.0.0:9191" {
+			t.Fatalf("env deveria vencer, veio %q err=%v", cfg.Metrics.Addr, err)
+		}
+		if got := originOf(origins, "metrics.addr"); got != SourceEnv {
+			t.Errorf("origem: quero env, veio %q", got)
+		}
+	})
+	t.Run("só porta é válido", func(t *testing.T) {
+		t.Setenv(EnvMetricsAddr, ":9091")
+		if _, _, err := Load(Options{Path: writeFixture(t, "")}); err != nil {
+			t.Errorf(":9091 deveria ser válido: %v", err)
+		}
+	})
+	for _, ruim := range []string{"9091", "localhost", "127.0.0.1:0", "127.0.0.1:70000", "127.0.0.1:abc"} {
+		t.Run("inválido "+ruim, func(t *testing.T) {
+			t.Setenv(EnvMetricsAddr, ruim)
+			if _, _, err := Load(Options{Path: writeFixture(t, "")}); err == nil {
+				t.Errorf("metrics.addr %q deveria ser erro de config", ruim)
+			}
+		})
+	}
+}

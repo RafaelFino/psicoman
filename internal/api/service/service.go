@@ -7,6 +7,8 @@ package service
 import (
 	"github.com/RafaelFino/psicoman/internal/app"
 	"github.com/RafaelFino/psicoman/internal/domain"
+	"github.com/RafaelFino/psicoman/internal/drivesync"
+	"github.com/RafaelFino/psicoman/internal/platform/metrics"
 )
 
 // Services agrega os serviços de aplicação usados pelos handlers /v1/*. É
@@ -37,6 +39,20 @@ type Services struct {
 	// Cipher é a cifra montada no boot, exposta para o readiness check (/readyz)
 	// fazer um round-trip seal/open de verificação. Nunca cifra dado real aqui.
 	Cipher domain.Cipher
+
+	// DriveStatus é o estado do espelhamento de DR no Drive (desativado|ok|
+	// degradado), exposto em /readyz (checks.drive_dr). Nil em testes que montam
+	// Services à mão: o readyz omite a chave nesse caso.
+	DriveStatus *drivesync.Status
+
+	// Obs é a observabilidade Prometheus (R8), criada SEMPRE (o registry é barato);
+	// só o listener depende de metrics.addr. Atenção: o campo `Metrics` acima é
+	// outra coisa (métricas de sessão do produto).
+	Obs *metrics.Obs
+
+	// OAuthState emite/consome o `state` do fluxo OAuth do Google (R7.2): uso
+	// único, TTL de 10 min, em memória.
+	OAuthState app.OAuthStateStore
 
 	// GoogleOAuth carrega as credenciais do app (client_id/secret) para o fluxo
 	// de autorização 3-legged (rotas admin). Vazio quando não configurado — o

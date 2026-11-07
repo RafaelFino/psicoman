@@ -171,7 +171,10 @@ Assistência opcional da IA (Gemini) ao registro clínico, respeitando a privaci
 ### 3.8 Backup e Restore
 
 - **Backup** da base pelo mecanismo nativo do PocketBase (`CreateBackup`), disparável pela operação (`POST /v1/admin/backup`).
-- **Fallback/DR no Google Drive:** um hook no ciclo de backup envia o snapshot **cifrado** (AES-256-GCM) a uma pasta fria no Drive. O Drive **não** é fonte da verdade nem está no caminho de request; é só espelho de recuperação de desastre. Sem credenciais do Google, o backup local segue (o espelho é best-effort).
+- **Fallback/DR no Google Drive:** um hook no ciclo de backup envia o **snapshot inteiro**, **cifrado** (AES-256-GCM), a uma pasta de DR no Drive (sem backup incremental). O Drive **não** é fonte da verdade nem está no caminho de request; é só espelho de recuperação de desastre. Sem credenciais do Google, o backup local segue (o espelho é best-effort).
+- **Pasta de DR automática:** `google.drive_folder` é opcional; sem ele, o sistema cria (ou reencontra) a pasta "Psicoman DR" e guarda o id. Se a pasta for apagada, é recriada no próximo backup.
+- **Retenção:** mantém os N snapshots mais recentes (`google.drive_retention`, padrão 14; 0 = manual); os excedentes vão para a **lixeira** do Drive (recuperáveis), nunca são apagados de vez.
+- **Falha visível:** se o espelhamento falhar, o estado `drive_dr: degradado` aparece em `/v1/readyz`, no log e nas métricas — o backup local continua válido.
 - O file storage do PocketBase (GED) é parte do `pb_data` coberto pelo backup.
 
 > Realização técnica (hook `OnBackupCreate`, cifra de blob, `drive.file`): `architecture.md §0.10`.
@@ -198,6 +201,9 @@ O terapeuta tem uma tela para inserir e editar seus próprios dados. Como cada i
 
 - Infra segregada e permissionada por instância (uma VM por terapeuta), acesso por chaves seguras.
 - Prontuário é dado sensível de saúde: **cifra por campo em repouso** (`SealedText`, AES-256-GCM), **audit log** de operações sensíveis (prontuário, débitos, config, backup, IA) sem conteúdo clínico, snapshot de backup cifrado.
+- **Rastreabilidade LGPD do prontuário:** toda **leitura** e **escrita** do prontuário (anamnese e notas) é registrada no `audit_log` com a **identidade real** do terapeuta (vinda do Pangolin) e sem o texto clínico. A falha de gravação da trilha não derruba a operação, mas é logada e contada.
+- **Abuso no portal:** além do limite por IP da borda, o servidor limita **5 cadastros/h por e-mail** e **10 pedidos de agendamento/h por paciente** (`429` com `Retry-After`).
+- **Autorização do Google:** o fluxo OAuth valida um `state` de uso único (10 min) amarrado ao navegador por cookie.
 - **Não-vazamento clínico:** nenhuma resposta serializa o campo clínico direto; o claro só sai pelo DTO do ator terapeuta (`Reveal()`). Nem o superuser vê clínico em claro pela REST nativa do PocketBase (envelope cifrado em repouso). O portal **nunca** recebe campo clínico.
 - **Todo tráfego externo é HTTPS**, com TLS terminado no Pangolin. `/v1/app/*` e `/v1/admin/*` ficam **com** controle de acesso (identidade no header do Pangolin); `/v1/portal/*` fica **sem** controle de acesso no gateway — a autenticação do paciente é da própria aplicação (sessão do PocketBase) + gate de aprovação imposto no servidor.
 - Toda regra sensível é imposta no servidor (defesa em profundidade), mesmo com o Pangolin na frente; a UI só reflete.
@@ -213,7 +219,7 @@ O terapeuta tem uma tela para inserir e editar seus próprios dados. Como cada i
 ### 4.3 Observabilidade e Operação
 
 - **Logs** com níveis (debug/warn/info/error) e **rotação diária**.
-- Endpoints de **healthcheck, readiness, liveness**: `/v1/health`, `/v1/readyz` (cifra + DB + estado do Google) e `/v1/livez`. **Métricas (endpoint dedicado): adiadas** por decisão registrada em `decisions.md` — o timing por rota já é logado.
+- Endpoints de **healthcheck, readiness, liveness**: `/v1/health`, `/v1/readyz` (cifra + DB + estado do Google) e `/v1/livez`. **Métricas Prometheus** em um **listener dedicado e interno** (`metrics.addr`; opt-in, desligado por padrão), separado da API, que nunca serve `/metrics`. As séries usam só valores de conjuntos fechados (ator, rota-padrão, método, status, motivo): **nenhum dado de paciente, id, e-mail, identidade ou segredo**. Cobrem HTTP, acessos negados, rate limit, eventos de negócio, filas, Calendar/Gemini/cifra, auditoria e backup/DR (decisão em `decisions.md`; operação em `deploy.md`).
 - **Config por arquivo YAML** (`config.yaml`), com **env sobrescrevendo** o arquivo e a origem de cada chave logada no boot (sem vazar segredo), para deploy seguro e segregação de ambientes.
 - **Makefile** capaz de gerar o binário único (`make build` → `bin/psicoman`).
 - **Testes E2E** cobrindo a solução sobre o binário único (Google/Gemini mockados), garantindo não-regressão.

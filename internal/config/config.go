@@ -18,7 +18,9 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -32,6 +34,15 @@ type Config struct {
 	Pangolin PangolinConfig
 	Google   GoogleConfig
 	Gemini   GeminiConfig
+	Metrics  MetricsConfig
+}
+
+// MetricsConfig espelha o bloco `metrics` (R8). Addr é o endereço host:porta do
+// listener DEDICADO de métricas, separado da API. Vazio (default) = o listener
+// NÃO sobe (fail-closed): nenhum socket extra é aberto. Sugestão: 127.0.0.1:9091
+// em host/systemd; 0.0.0.0:9091 só dentro do container (porta não publicada).
+type MetricsConfig struct {
+	Addr string
 }
 
 // LogConfig espelha o bloco `log`.
@@ -62,7 +73,13 @@ type GoogleConfig struct {
 	ClientSecret string
 	CalendarID   string
 	DriveFolder  string
+	// DriveRetention é quantos snapshots do Drive manter (default 14; 0 = nunca
+	// apagar, retenção manual). Negativo é inválido (erro de config no Load).
+	DriveRetention int
 }
+
+// DefaultDriveRetention é o número de snapshots mantidos quando a chave é omitida.
+const DefaultDriveRetention = 14
 
 // GeminiConfig espelha o bloco `llm.gemini`.
 type GeminiConfig struct {
@@ -94,6 +111,7 @@ const (
 	EnvCipherKeys     = "PSICOMAN_CIPHER_KEYS"
 	EnvPangolinHeader = "PSICOMAN_PANGOLIN_IDENTITY_HEADER"
 	EnvGeminiAPIKey   = "PSICOMAN_GEMINI_API_KEY"
+	EnvMetricsAddr    = "PSICOMAN_METRICS_ADDR"
 )
 
 // Options parametriza a descoberta do arquivo de config.
@@ -126,12 +144,17 @@ type yamlDoc struct {
 		ClientSecret string `yaml:"client_secret"`
 		CalendarID   string `yaml:"calendar_id"`
 		DriveFolder  string `yaml:"drive_folder"`
+		// Ponteiro distingue "ausente" (default 14) de "0" (retenção manual).
+		DriveRetention *int `yaml:"drive_retention"`
 	} `yaml:"google"`
 	LLM struct {
 		Gemini struct {
 			APIKey string `yaml:"api_key"`
 		} `yaml:"gemini"`
 	} `yaml:"llm"`
+	Metrics struct {
+		Addr string `yaml:"addr"`
+	} `yaml:"metrics"`
 }
 
 // Load lê a config do arquivo descoberto e aplica a precedência env > arquivo.
@@ -182,6 +205,16 @@ func Load(opts Options) (Config, []OriginEvent, error) {
 		return fileVal
 	}
 
+	retention, err := resolveDriveRetention(&origins, doc.Google.DriveRetention, fileLoaded)
+	if err != nil {
+		return Config{}, nil, err
+	}
+
+	metricsAddr := resolve("metrics.addr", EnvMetricsAddr, doc.Metrics.Addr)
+	if err := validateMetricsAddr(metricsAddr); err != nil {
+		return Config{}, nil, err
+	}
+
 	cfg := Config{
 		DataDir: resolve("data_dir", "", doc.DataDir), // informativo: --dir do PB vence.
 		Log:     LogConfig{Level: resolve("log.level", "", doc.Log.Level)},
@@ -197,16 +230,51 @@ func Load(opts Options) (Config, []OriginEvent, error) {
 		},
 		Google: GoogleConfig{
 			// google.* sem env por ora (decisão Fase 6): origem é sempre arquivo/default.
-			ClientID:     resolve("google.client_id", "", doc.Google.ClientID),
-			ClientSecret: resolve("google.client_secret", "", doc.Google.ClientSecret),
-			CalendarID:   resolve("google.calendar_id", "", doc.Google.CalendarID),
-			DriveFolder:  resolve("google.drive_folder", "", doc.Google.DriveFolder),
+			ClientID:       resolve("google.client_id", "", doc.Google.ClientID),
+			ClientSecret:   resolve("google.client_secret", "", doc.Google.ClientSecret),
+			CalendarID:     resolve("google.calendar_id", "", doc.Google.CalendarID),
+			DriveFolder:    resolve("google.drive_folder", "", doc.Google.DriveFolder),
+			DriveRetention: retention,
 		},
 		Gemini: GeminiConfig{
 			APIKey: resolve("llm.gemini.api_key", EnvGeminiAPIKey, doc.LLM.Gemini.APIKey),
 		},
+		Metrics: MetricsConfig{Addr: strings.TrimSpace(metricsAddr)},
 	}
 	return cfg, origins, nil
+}
+
+// validateMetricsAddr valida metrics.addr: vazio é válido (listener desligado);
+// senão deve ser host:porta com porta 1..65535 (host pode ser vazio, ex.: ":9091").
+func validateMetricsAddr(addr string) error {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("config: metrics.addr inválido %q (esperado host:porta): %w", addr, err)
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("config: metrics.addr %q com porta inválida (esperado 1..65535)", addr)
+	}
+	return nil
+}
+
+// resolveDriveRetention resolve google.drive_retention (sem env): ausente =>
+// DefaultDriveRetention (origem default); presente => valor do arquivo. Valor
+// negativo aborta o boot com erro claro.
+func resolveDriveRetention(origins *[]OriginEvent, v *int, fileLoaded bool) (int, error) {
+	if v == nil || !fileLoaded {
+		*origins = append(*origins, OriginEvent{Key: "google.drive_retention", Source: SourceDefault})
+		return DefaultDriveRetention, nil
+	}
+	if *v < 0 {
+		return 0, fmt.Errorf("config: google.drive_retention deve ser >= 0 (veio %d)", *v)
+	}
+	*origins = append(*origins, OriginEvent{Key: "google.drive_retention", Source: SourceFile})
+	return *v, nil
 }
 
 // resolvePath aplica a ordem de descoberta do arquivo e devolve o caminho a

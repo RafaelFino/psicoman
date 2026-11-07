@@ -203,9 +203,9 @@
     "/v1/readyz": {
       "get": {
         "tags": ["admin"],
-        "summary": "Readiness: cifra montada + DB acessível + estado do OAuth Google. 200 pronto (Google degradado não bloqueia); 503 se cifra ou DB falham.",
+        "summary": "Readiness: cifra montada + DB acessível + estado do OAuth Google + espelhamento de DR. 200 pronto (Google e DR degradados não bloqueiam); 503 se cifra ou DB falham.",
         "responses": {
-          "200": { "description": "Pronto (checks no corpo: cipher/db/google)" },
+          "200": { "description": "Pronto (checks no corpo: cipher/db/google/drive_dr; drive_dr = desativado|ok|degradado)" },
           "503": { "description": "Não pronto (cifra ou DB indisponível)" }
         }
       }
@@ -551,7 +551,7 @@
       "post": {
         "tags": ["portal"], "summary": "Pede um horário (paciente APROVADO). A identidade vem da sessão.", "security": [{ "portalSession": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["slot_start", "slot_end"], "properties": { "location_id": { "type": "string" }, "slot_start": { "type": "string", "format": "date-time" }, "slot_end": { "type": "string", "format": "date-time" }, "note": { "type": "string", "maxLength": 500 } } } } } },
-        "responses": { "201": { "description": "Pedido enviado" }, "401": { "description": "Autenticação necessária" }, "403": { "description": "Cadastro não aprovado" }, "422": { "description": "Validação" } }
+        "responses": { "201": { "description": "Pedido enviado" }, "401": { "description": "Autenticação necessária" }, "403": { "description": "Cadastro não aprovado" }, "422": { "description": "Validação" }, "429": { "description": "Limite de tentativas excedido (limite_excedido, 10/h por paciente); header Retry-After" } }
       }
     },
     "/v1/portal/me": {
@@ -564,7 +564,7 @@
       "post": {
         "tags": ["portal"], "summary": "Auto-cadastro do paciente (nasce pendente).",
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "phone", "email", "password"], "properties": { "name": { "type": "string" }, "phone": { "type": "string" }, "email": { "type": "string" }, "cpf": { "type": "string" }, "password": { "type": "string", "minLength": 8, "description": "Senha do login do paciente (coleção de auth patient_user)." } } } } } },
-        "responses": { "201": { "description": "Criado (aguarda aprovação)" }, "422": { "description": "Senha fraca ou dados inválidos" } }
+        "responses": { "201": { "description": "Criado (aguarda aprovação)" }, "422": { "description": "Senha fraca ou dados inválidos" }, "429": { "description": "Limite de tentativas excedido (limite_excedido, 5/h por e-mail); header Retry-After" } }
       }
     },
     "/v1/admin/backup": {
@@ -591,7 +591,7 @@
           { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } },
           { "name": "error", "in": "query", "required": false, "schema": { "type": "string" } }
         ],
-        "responses": { "200": { "description": "Autorização concluída" }, "400": { "description": "Callback sem código" }, "422": { "description": "Autorização negada ou app não configurado" }, "502": { "description": "Falha ao trocar o código com o Google" } }
+        "responses": { "200": { "description": "Autorização concluída" }, "400": { "description": "Callback sem código, ou state ausente/inválido/expirado/reutilizado (state_invalido): o navegador do callback deve ser o mesmo do authorize" }, "422": { "description": "Autorização negada ou app não configurado" }, "502": { "description": "Falha ao trocar o código com o Google" } }
       }
     },
     "/v1/admin/google/status": {

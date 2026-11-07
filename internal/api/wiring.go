@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -16,7 +19,9 @@ import (
 	"github.com/RafaelFino/psicoman/internal/drivesync"
 	"github.com/RafaelFino/psicoman/internal/integration/gemini"
 	"github.com/RafaelFino/psicoman/internal/integration/google"
+	"github.com/RafaelFino/psicoman/internal/platform/clock"
 	"github.com/RafaelFino/psicoman/internal/platform/crypto"
+	"github.com/RafaelFino/psicoman/internal/platform/metrics"
 	"github.com/RafaelFino/psicoman/internal/platform/pb"
 )
 
@@ -89,19 +94,52 @@ func buildServices(a core.App) (*service.Services, error) {
 	if err != nil {
 		return nil, err
 	}
-	cipher := crypto.New(kp)
+
+	// Observabilidade Prometheus (R8): registry próprio, criado SEMPRE e ANTES da
+	// cifra (que é decorada para contar seal/open). O listener só sobe com
+	// metrics.addr (api.go). DevIdentity alimenta identidade_dev_ativa (alerta:
+	// deve ser 0 em produção); AIEnabled alimenta gemini_ligada; GoogleOK usa o
+	// MESMO critério do /readyz (late-binding: googleAuth é criado logo abaixo).
+	devActive, aiEnabled := false, false
+	if c, _, cerr := configLoader(); cerr == nil {
+		devActive = strings.TrimSpace(c.Pangolin.DevIdentity) != ""
+		aiEnabled = c.Gemini.Enabled()
+	}
+	var googleAuth *app.GoogleAuthService
+	obs := metrics.New(metrics.Config{
+		Build:       buildInfo(),
+		DevIdentity: devActive,
+		AIEnabled:   aiEnabled,
+		Queues:      pb.NewQueueStats(a),
+		GoogleOK: func() bool {
+			if googleAuth == nil {
+				return false
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			state, _ := googleAuth.Status(ctx)
+			return state == app.GoogleAuthOK
+		},
+	})
+	cipher := metrics.WrapCipher(crypto.New(kp), obs.App())
 
 	// Serviço de autorização OAuth do Google (R2): fonte única do refresh token
 	// (repo cifrado com precedência sobre o env de dev) e do estado de
 	// reautorização exposto em /readyz. Construído cedo para alimentar o wiring
 	// de Calendar/Drive abaixo.
 	googleTokenRepo := pb.NewGoogleTokenRepository(a, cipher)
-	googleAuth := app.NewGoogleAuthService(googleTokenRepo)
+	googleAuth = app.NewGoogleAuthService(googleTokenRepo)
+
+	// Repositório da pasta de DR (R3): persiste o id da pasta criada/descoberta
+	// automaticamente (singleton drive_dr). Id em claro (não é segredo).
+	driveFolderRepo := pb.NewDriveFolderRepository(a)
 
 	// Hook de DR no ciclo de backup (Fase 7): espelha o snapshot cifrado no
 	// Drive (fallback/DR, fora do caminho de request). Degrada para no-op sem
-	// credenciais Google — o backup local segue.
-	driveSyncWirer(a, kp, googleAuth)
+	// credenciais Google — o backup local segue. A pasta é resolvida
+	// automaticamente (R3): drive_folder deixou de ser obrigatório.
+	driveStatus := &drivesync.Status{}
+	driveSyncWirer(a, kp, googleAuth, driveFolderRepo, obs.Drive(), driveStatus)
 
 	// Repositórios (adapter platform/pb).
 	patientsRepo := pb.NewPatientRepository(a)
@@ -124,25 +162,37 @@ func buildServices(a core.App) (*service.Services, error) {
 
 	// Serviços.
 	audit := app.NewAuditService(auditRepo)
+	audit.SetLogger(a.Logger()) // falha de gravação cai no log do PocketBase (R1)
+	audit.SetMetrics(obs.App())
 	patients := app.NewPatientService(patientsRepo)
+	patients.SetMetrics(obs.App())
 
 	sessions := app.NewSessionService(sessionsRepo, patientsRepo)
 	sessions.SetAudit(audit)
+	sessions.SetMetrics(obs.App())
 	calendarWirer(a, sessions, googleAuth)
+	// Mede freebusy/create_event das integrações JÁ injetadas (se houver Google).
+	sessions.WrapCalendar(
+		func(c app.ConflictChecker) app.ConflictChecker { return metrics.WrapConflictChecker(c, obs.App()) },
+		func(c app.SessionCalendar) app.SessionCalendar { return metrics.WrapSessionCalendar(c, obs.App()) },
+	)
 
 	billing := app.NewBillingService(debtsRepo, plansRepo, audit)
+	billing.SetMetrics(obs.App())
 	sessions.AddFinishedHook(billing)
 
 	costSvc := app.NewCostService(costsRepo, locationsRepo, sessionsRepo)
 	sessions.AddFinishedHook(costSvc)
 
 	payments := app.NewPaymentService(paymentsRepo, debtsRepo, audit)
+	payments.SetMetrics(obs.App())
 	payments.SetGED(gedRepo, pb.NewGEDBlobStore(a)) // comprovante de pagamento (R1.9)
 	reports := app.NewReportService(reportsRepo, originsRepo, costsRepo)
-	metrics := app.NewSessionMetricsService(sessionsRepo, debtsRepo, locationsRepo)
+	sessionMetrics := app.NewSessionMetricsService(sessionsRepo, debtsRepo, locationsRepo)
 	dayfeed := app.NewDayFeedService(sessionsRepo, debtsRepo, paymentsRepo, gedRepo, appointmentsRepo, patientsRepo, audit)
 	history := app.NewHistoryService(patientsRepo, sessionsRepo, prontuarioRepo, debtsRepo, paymentsRepo, gedRepo, audit)
 	prontuario := app.NewProntuarioService(prontuarioRepo, nil)
+	prontuario.SetAudit(audit) // R1: audita leitura/escrita do prontuário (ator pelo context)
 
 	// Perfil do terapeuta (R3): serviço singleton 1:1 + injeção do cabeçalho na
 	// cobrança (nome/CRP no PDF quando o perfil está configurado).
@@ -157,17 +207,19 @@ func buildServices(a core.App) (*service.Services, error) {
 	// Pedidos de agendamento (R1.8): confirmar cria a sessão agendada (conflito
 	// + evento de Calendar via SessionService).
 	appts := app.NewAppointmentService(appointmentsRepo, patientsRepo, locationsRepo, sessions)
+	appts.SetMetrics(obs.App())
 
 	// PDF de cobrança no GED (file storage do PocketBase, D9b): o blob store
 	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256). O perfil
 	// do terapeuta alimenta o cabeçalho do PDF (R3.3).
 	invoice := app.NewInvoiceService(debtsRepo, patientsRepo, gedRepo, pb.NewGEDBlobStore(a), audit)
+	invoice.SetMetrics(obs.App())
 	invoice.SetTherapist(therapistRepo)
 
 	// IA Gemini (Fase 8): opt-in pela presença de llm.gemini.api_key. Sem chave,
 	// aiSummarizerBuilder devolve nil e o AIService fica desligado (Enabled()
 	// false). Resumo revisável + índice invertido de tags por paciente/ano.
-	ai := app.NewAIService(aiSummarizerBuilder(a), aiSummaryRepo, tagIndexRepo, sessionsRepo, audit)
+	ai := app.NewAIService(metrics.WrapAI(aiSummarizerBuilder(a), obs.App()), aiSummaryRepo, tagIndexRepo, sessionsRepo, audit)
 
 	// Credenciais do app Google para o fluxo de autorização OAuth (rotas admin).
 	// Origem é o internal/config (arquivo); vazio => fluxo indisponível (422).
@@ -183,7 +235,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		Payments:    payments,
 		Costs:       costSvc,
 		Reports:     reports,
-		Metrics:     metrics,
+		Metrics:     sessionMetrics,
 		DayFeed:     dayfeed,
 		History:     history,
 		Audit:       audit,
@@ -198,6 +250,9 @@ func buildServices(a core.App) (*service.Services, error) {
 		Appts:       appts,
 		PortalAuth:  portalAuth,
 		Cipher:      cipher,
+		DriveStatus: driveStatus,
+		Obs:         obs,
+		OAuthState:  app.NewMemoryOAuthStateStore(oauthStateClock, app.OAuthStateTTL, app.OAuthStateMaxPending),
 		GoogleOAuth: oauthCfg,
 	}, nil
 }
@@ -233,26 +288,149 @@ var calendarWirer = wireCalendar
 // para injetar um uploader fake ou desativar, sem tocar a rede (Fase 7).
 var driveSyncWirer = wireDriveSync
 
+// buildInfo lê a versão do módulo e do Go para o gauge build_info.
+func buildInfo() metrics.BuildInfo {
+	bi := metrics.BuildInfo{Version: "desconhecida", GoVersion: runtime.Version()}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		bi.Version = info.Main.Version
+	}
+	return bi
+}
+
+// oauthStateClock é o relógio do store de `state` do OAuth. nil = relógio do
+// sistema. Seam de teste: permite expirar um state sem esperar o TTL.
+var oauthStateClock clock.Clock
+
+// snapshotAppProps marca os snapshots de DR no Drive (usado no upload e como
+// filtro da listagem de retenção).
+var snapshotAppProps = map[string]string{"psicoman_kind": "snapshot"}
+
 // driveUploaderAdapter adapta um google.DriveClient à porta
-// drivesync.SnapshotUploader (upload do snapshot cifrado na pasta fria de DR).
+// drivesync.SnapshotUploader. A pasta de DR é resolvida pelo FolderResolver
+// (config > persistido > busca > criação), não mais por um folderID fixo. A
+// conversão de tipos/erros google<->drivesync mora aqui (o drivesync não
+// importa integration/google).
 type driveUploaderAdapter struct {
 	client   google.DriveClient
-	folderID string
+	resolver *drivesync.FolderResolver
 }
 
 var _ drivesync.SnapshotUploader = (*driveUploaderAdapter)(nil)
 
+// Upload resolve a pasta de DR e envia o snapshot cifrado com as appProperties
+// de snapshot. Se o Drive responde 404 na pasta (pasta persistida obsoleta),
+// invalida o resolver e refaz a resolução UMA única vez (busca/criação) e o
+// upload. Com a pasta vinda do config, o Invalidate é no-op: o 404 vira erro
+// observável (o operador definiu a pasta; não recriamos).
 func (a *driveUploaderAdapter) Upload(ctx context.Context, name string, content []byte) (string, error) {
-	res, err := a.client.Upload(ctx, google.DriveUploadInput{
-		Name:     name,
-		FolderID: a.folderID,
-		MIME:     "application/octet-stream",
-		Content:  content,
-	})
+	id, err := a.resolver.ID(ctx)
 	if err != nil {
 		return "", err
 	}
+	fileID, err := a.uploadTo(ctx, id, name, content)
+	if err == nil {
+		return fileID, nil
+	}
+	if !errors.Is(err, drivesync.ErrFolderNotFound) {
+		return "", err
+	}
+	// Pasta obsoleta: invalida e refaz UMA vez.
+	a.resolver.Invalidate(id)
+	id2, rerr := a.resolver.ID(ctx)
+	if rerr != nil {
+		return "", rerr
+	}
+	return a.uploadTo(ctx, id2, name, content)
+}
+
+var _ drivesync.SnapshotStore = (*driveUploaderAdapter)(nil)
+
+// List devolve só os snapshots do app (appProperties psicoman_kind=snapshot) na
+// pasta de DR resolvida, mais recentes primeiro. A conversão
+// google.DriveFile -> drivesync.File mora aqui (o drivesync não importa google).
+func (a *driveUploaderAdapter) List(ctx context.Context) ([]drivesync.File, error) {
+	id, err := a.resolver.ID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	files, err := a.client.List(ctx, google.DriveListInput{FolderID: id, AppProps: snapshotAppProps})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]drivesync.File, 0, len(files))
+	for _, f := range files {
+		out = append(out, drivesync.File{ID: f.ID, Name: f.Name, Created: f.CreatedTime})
+	}
+	return out, nil
+}
+
+// Trash move o snapshot para a lixeira (reversível). Delega ao cliente.
+func (a *driveUploaderAdapter) Trash(ctx context.Context, fileID string) error {
+	return a.client.Trash(ctx, fileID)
+}
+
+// uploadTo faz o upload na pasta folderID e traduz google.ErrDriveNotFound em
+// drivesync.ErrFolderNotFound (fronteira de pacote).
+func (a *driveUploaderAdapter) uploadTo(ctx context.Context, folderID, name string, content []byte) (string, error) {
+	res, err := a.client.Upload(ctx, google.DriveUploadInput{
+		Name:     name,
+		FolderID: folderID,
+		MIME:     "application/octet-stream",
+		Content:  content,
+		AppProps: snapshotAppProps,
+	})
+	if err != nil {
+		if errors.Is(err, google.ErrDriveNotFound) {
+			return "", fmt.Errorf("%w: %v", drivesync.ErrFolderNotFound, err)
+		}
+		return "", err
+	}
 	return res.FileID, nil
+}
+
+// driveFolderClientAdapter adapta google.DriveClient à drivesync.FolderClient,
+// traduzindo google.ErrDriveNotFound em drivesync.ErrFolderNotFound no GetFolder.
+type driveFolderClientAdapter struct {
+	client google.DriveClient
+}
+
+var _ drivesync.FolderClient = (*driveFolderClientAdapter)(nil)
+
+func (a *driveFolderClientAdapter) FindFolder(ctx context.Context, name string, appProps map[string]string) (string, bool, error) {
+	return a.client.FindFolder(ctx, name, appProps)
+}
+
+func (a *driveFolderClientAdapter) CreateFolder(ctx context.Context, name string, appProps map[string]string) (string, error) {
+	return a.client.CreateFolder(ctx, name, appProps)
+}
+
+func (a *driveFolderClientAdapter) GetFolder(ctx context.Context, id string) (bool, error) {
+	trashed, err := a.client.GetFolder(ctx, id)
+	if errors.Is(err, google.ErrDriveNotFound) {
+		return false, fmt.Errorf("%w: %v", drivesync.ErrFolderNotFound, err)
+	}
+	return trashed, err
+}
+
+// driveFolderStoreAdapter adapta app.DriveFolderRepository à drivesync.FolderStore,
+// convertendo app.ErrNotFound em drivesync.ErrNoStoredFolder (o drivesync não
+// importa app).
+type driveFolderStoreAdapter struct {
+	repo app.DriveFolderRepository
+}
+
+var _ drivesync.FolderStore = (*driveFolderStoreAdapter)(nil)
+
+func (a *driveFolderStoreAdapter) Load(ctx context.Context) (string, error) {
+	id, err := a.repo.Load(ctx)
+	if errors.Is(err, app.ErrNotFound) {
+		return "", drivesync.ErrNoStoredFolder
+	}
+	return id, err
+}
+
+func (a *driveFolderStoreAdapter) Save(ctx context.Context, id string) error {
+	return a.repo.Save(ctx, id)
 }
 
 // geminiSummarizerAdapter adapta um gemini.Summarizer à porta app.AISummarizer
@@ -303,20 +481,22 @@ func buildAISummarizer(a core.App) app.AISummarizer {
 // Syncer com uploader nil — o hook roda como no-op observável (backup local
 // segue, sem 500, com aviso logado). O snapshot é cifrado com o BlobSealer
 // (mesmas chaves da cifra de campo) antes do upload (drive.file, D9).
-func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.GoogleAuthService) {
+func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.GoogleAuthService, folders app.DriveFolderRepository, obs drivesync.Observer, st *drivesync.Status) {
 	sealer := crypto.NewBlobSealer(kp)
 	cfg, _, err := configLoader()
 	if err != nil {
 		a.Logger().Warn("Drive DR desativado: falha ao ler config", "erro", err.Error())
-		drivesync.New(nil, sealer).Register(a)
+		drivesync.New(nil, sealer, 0, obs, st).Register(a)
 		return
 	}
 	g := cfg.Google
+	// drive_folder NÃO é mais exigido (R3): sem config, a pasta é criada/descoberta
+	// automaticamente pelo FolderResolver. Só client_id/secret + refresh token são
+	// obrigatórios para ativar o espelho.
 	if strings.TrimSpace(g.ClientID) == "" ||
-		strings.TrimSpace(g.ClientSecret) == "" ||
-		strings.TrimSpace(g.DriveFolder) == "" {
-		a.Logger().Warn("Drive DR desativado: credenciais ausentes (client_id/client_secret/drive_folder) — backup não espelhado")
-		drivesync.New(nil, sealer).Register(a)
+		strings.TrimSpace(g.ClientSecret) == "" {
+		a.Logger().Warn("Drive DR desativado: credenciais ausentes (client_id/client_secret) — backup não espelhado")
+		drivesync.New(nil, sealer, 0, obs, st).Register(a)
 		return
 	}
 	// Refresh token com precedência do repo (⟨R2⟩); env é fallback de dev.
@@ -325,13 +505,21 @@ func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.Google
 	if !ok || !creds.Valid() {
 		googleAuth.FlagReauthorization("Sem refresh token OAuth do Google (reautorização necessária).")
 		a.Logger().Warn("Drive DR desativado: sem refresh token OAuth (reautorização necessária) — backup não espelhado")
-		drivesync.New(nil, sealer).Register(a)
+		drivesync.New(nil, sealer, 0, obs, st).Register(a)
 		return
 	}
 	httpClient := google.NewOAuthHTTPClientWithScopes(context.Background(), creds, google.DriveScope)
-	uploader := &driveUploaderAdapter{client: google.NewRESTDriveClient(httpClient), folderID: g.DriveFolder}
-	drivesync.New(uploader, sealer).Register(a)
-	a.Logger().Info("Drive DR ativado (hook de backup)", "drive_folder", g.DriveFolder)
+	client := google.NewRESTDriveClient(httpClient)
+	resolver := drivesync.NewFolderResolver(
+		strings.TrimSpace(g.DriveFolder),
+		&driveFolderClientAdapter{client: client},
+		&driveFolderStoreAdapter{repo: folders},
+	)
+	uploader := &driveUploaderAdapter{client: client, resolver: resolver}
+	drivesync.New(uploader, sealer, g.DriveRetention, obs, st).Register(a)
+	a.Logger().Info("Drive DR ativado (hook de backup)",
+		"drive_folder_configurado", strings.TrimSpace(g.DriveFolder) != "",
+		"retencao", g.DriveRetention)
 }
 
 // wireCalendar liga o Google Calendar síncrono ao SessionService a partir do

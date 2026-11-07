@@ -124,7 +124,10 @@ func (h *Handlers) CancelSession(e *core.RequestEvent) error {
 	if err := e.BindBody(&body); err != nil {
 		return httpx.FailBadRequest(e, err)
 	}
-	// TODO Fase 5: extrair o autor do AuthAppStub; por ora é a terapeuta.
+	// Single-tenant: /v1/app tem uma única identidade (a terapeuta), então o
+	// cancelamento é sempre CancelByTherapist. O ator real (quem) é propagado ao
+	// audit_log pelo context (httpx.PropagateActor); este campo é só o PAPEL de
+	// quem cancelou, usado pela regra de agenda, não a identidade.
 	by := scheduling.CancelByTherapist
 	ctx, cancel := reqCtx(e)
 	defer cancel()
