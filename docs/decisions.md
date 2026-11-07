@@ -6,6 +6,26 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-06 — `auditoria-profunda` Fase 4: pasta de DR do Drive criada automaticamente
+
+**Contexto.** O espelho de DR no Drive dependia de `google.drive_folder` configurado à mão; vazio, o DR ficava desativado em silêncio mesmo com credenciais válidas. Além disso, perder o estado local (instância nova restaurada de um snapshot) deixava o app sem saber qual pasta usar, arriscando duplicar pastas.
+
+**Decisão.** A pasta de DR é resolvida de forma **lazy** no primeiro backup, parando no primeiro sucesso: (1) `google.drive_folder` do config, se informado (usado como está, nunca recriado nem persistido); (2) id persistido na coleção singleton `drive_dr` (migration 0050), revalidado **uma vez por processo** via `files.get` (se na lixeira/404, descartado); (3) busca por nome+`appProperties` (`name='Psicoman DR'`, `psicoman_role=dr_folder`) — só enxerga o que o app criou; (4) criação via `files.create`, persistindo o id. `google.drive_folder` passa a ser **opcional**.
+
+- **Onde persistir.** Coleção dedicada `drive_dr` (não um campo em `google_token`, cujo replace na reautorização apagaria o id; nem uma coleção genérica de settings). Id em claro (não é segredo).
+- **Pasta obsoleta.** Com id **persistido**, um 404 no upload invalida o resolver e refaz a resolução **uma única vez** (busca/criação). Com id **do config**, o 404 vira erro observável (o operador definiu a pasta; não recriamos). A detecção não depende do comportamento do Drive com pai na lixeira: a revalidação `trashed` do resolver cobre o caso comum de "apagar à mão".
+- **Fronteira de pacote.** `drivesync` não importa `integration/google` nem `app`: sentinelas locais `ErrFolderNotFound`/`ErrNoStoredFolder`; o adapter do wiring traduz `google.ErrDriveNotFound` e `app.ErrNotFound`.
+
+**Spike `drive.file` (task 4.1) — MANUAL, pendente de credencial real do Rafael.** A documentação oficial do Google confirma que `drive.file` permite `files.list`/`files.update`(trashed)/`files.create` de pasta sobre o que o app criou. Observação empírica (conta do Rafael, 2026-11-05): upload com `parents:[<pasta criada à mão>]` funciona sob `drive.file`, mas a **busca** só enxerga o que o app criou — logo uma pasta manual só vale via `google.drive_folder` (passo 1). **Em aberto, não verificável localmente:** o status de upload com pai na **lixeira** ou **apagado** (exige credencial real). O design é robusto nos dois desfechos (revalidação `trashed` + retry único). **Fallback:** se a listagem/update for negada em runtime, a retenção (Fase 5) desativa com aviso único e a métrica de snapshots fica ausente; o resolver segue funcionando. A reconfirmação em runtime fica a cargo do Rafael.
+
+**Consequências.**
+- `google.DriveClient` ganhou `List`/`Trash`/`FindFolder`/`CreateFolder`/`GetFolder`/`AppProps`/`ErrDriveNotFound`; `FakeDriveClient` estendido.
+- Migration `0050_drive_dr`; porta `app.DriveFolderRepository` + adapter `pb.NewDriveFolderRepository`; `drivesync.FolderResolver` + interfaces `FolderClient`/`FolderStore`.
+- `wireDriveSync` deixou de exigir `drive_folder`; seam `driveSyncWirer` ganhou o parâmetro `folders`. Config de exemplo/docker comentam `drive_folder` como opcional.
+- Cobertura: unit do DriveClient (httptest), do FolderResolver (todos os ramos), do adapter `drive_dr` (round-trip, singleton); teste em processo do fluxo de backup (cria pasta, reusa, recria uma vez em 404). Docs de §0.10/deploy e restauração ficam na Fase 5 (task 5.7).
+
+---
+
 ## 2026-11-06 — `auditoria-profunda` Fase 3: auditoria no caminho clínico e ator real no audit_log
 
 **Contexto.** Dois achados da auditoria: (R1) leitura e escrita do prontuário (anamnese, notas) não deixavam trilha no `audit_log`, exigência LGPD de rastreabilidade de acesso a dado clínico; (R7.4) o `audit_log` gravava o ator fixo `"sistema"` em todas as operações, mesmo quando disparadas por um request autenticado — a identidade real do terapeuta não chegava à trilha.

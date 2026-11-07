@@ -290,6 +290,21 @@ func TestGrupoCColecoesExistem(t *testing.T) {
 // grupoD são as coleções criadas pela migration 0040 (auth do portal).
 var grupoD = []string{"patient_user"}
 
+// grupoE são as coleções criadas pela migration 0050 (pasta de DR do Drive).
+var grupoE = []string{"drive_dr"}
+
+// TestDriveDRColecaoExiste confere que drive_dr existe com o campo folder_id.
+func TestDriveDRColecaoExiste(t *testing.T) {
+	app := newTestApp(t)
+	col, err := app.FindCollectionByNameOrId("drive_dr")
+	if err != nil {
+		t.Fatalf("drive_dr deveria existir: %v", err)
+	}
+	if col.Fields.GetByName("folder_id") == nil {
+		t.Error("drive_dr deveria ter o campo folder_id")
+	}
+}
+
 // TestPatientUserEhAuthCollection confere que patient_user existe e é uma
 // coleção de AUTH (email+senha nativos), com a relation ao patient (Fase 9).
 func TestPatientUserEhAuthCollection(t *testing.T) {
@@ -393,7 +408,7 @@ func TestTagIndexTagEmClaro(t *testing.T) {
 func TestMigracaoIdempotente(t *testing.T) {
 	app := newTestApp(t)
 
-	todas := append(append(append(append([]string{}, grupoA...), grupoB...), grupoC...), grupoD...)
+	todas := append(append(append(append(append([]string{}, grupoA...), grupoB...), grupoC...), grupoD...), grupoE...)
 	antes := make(map[string]string, len(todas))
 	for _, name := range todas {
 		col, err := app.FindCollectionByNameOrId(name)

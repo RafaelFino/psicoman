@@ -28,7 +28,7 @@ google:
   client_id: ""
   client_secret: ""
   calendar_id: ""
-  drive_folder: ""
+  drive_folder: "" # opcional (R3): vazio = pasta "Psicoman DR" criada automaticamente
 
 llm:
   gemini:

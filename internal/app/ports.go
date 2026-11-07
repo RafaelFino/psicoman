@@ -247,6 +247,17 @@ type GoogleTokenRepository interface {
 	Save(ctx context.Context, t *domain.GoogleToken) error
 }
 
+// DriveFolderRepository persiste o id da pasta de DR do Drive (onda
+// auditoria-profunda, R3). Singleton por instância: Load devolve o id
+// persistido (ErrNotFound se ainda não resolvido); Save cria-ou-atualiza. O id
+// NÃO é segredo (fica em claro).
+type DriveFolderRepository interface {
+	// Load devolve o id da pasta persistida (ErrNotFound se ainda não há).
+	Load(ctx context.Context) (folderID string, err error)
+	// Save grava o id (cria se ausente, senão atualiza) — singleton lógico.
+	Save(ctx context.Context, folderID string) error
+}
+
 // AuditRepository persiste registros de auditoria.
 type AuditRepository interface {
 	Insert(ctx context.Context, entry *domain.AuditLog) error
