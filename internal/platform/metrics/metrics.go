@@ -35,7 +35,15 @@ type Config struct {
 	// DevIdentity alimenta identidade_dev_ativa (1 se pangolin.dev_identity não
 	// vazio): em produção deve ser 0 — vira alerta.
 	DevIdentity bool
-	// Clock é a fonte de tempo do uptime; nil = relógio real.
+	// Queues alimenta os gauges de fila (pacientes e pedidos pendentes), lidos
+	// por COUNT com timeout e cache de 15 s. nil = omite as famílias de fila.
+	Queues app.QueueStats
+	// AIEnabled alimenta gemini_ligada (1 se há api_key).
+	AIEnabled bool
+	// GoogleOK é a fonte de google_oauth_ok (mesmo critério do /readyz). nil =
+	// omite a família.
+	GoogleOK func() bool
+	// Clock é a fonte de tempo do uptime e do cache das filas; nil = relógio real.
 	Clock clock.Clock
 }
 
@@ -61,12 +69,40 @@ func New(c Config) *Obs {
 	)
 
 	registerRuntime(reg, c)
+	registerIntegrationGauges(reg, c)
+	if c.Queues != nil {
+		newQueueCollector(reg, c.Queues, c.Clock)
+	}
 
 	return &Obs{
 		registry: reg,
 		http:     newHTTPMetrics(reg),
-		drive:    newDriveMetrics(reg),
-		app:      app.NopMetrics{}, // famílias de negócio entram na Fase 8
+		drive:    newDriveMetrics(reg, c.Clock),
+		app:      newAppMetrics(reg),
+	}
+}
+
+// registerIntegrationGauges registra gemini_ligada e google_oauth_ok.
+func registerIntegrationGauges(reg *prometheus.Registry, c Config) {
+	ai := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "gemini_ligada",
+		Help: "1 se a IA (Gemini) está ligada (há api_key).",
+	})
+	if c.AIEnabled {
+		ai.Set(1)
+	}
+	reg.MustRegister(ai)
+
+	if c.GoogleOK != nil {
+		reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: namespace, Name: "google_oauth_ok",
+			Help: "1 se a autorização OAuth do Google está ok; 0 se degradada (mesmo critério do /readyz).",
+		}, func() float64 {
+			if c.GoogleOK() {
+				return 1
+			}
+			return 0
+		}))
 	}
 }
 

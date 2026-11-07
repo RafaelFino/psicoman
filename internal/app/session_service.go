@@ -31,6 +31,7 @@ type SessionService struct {
 	hooks     []SessionFinishedHook
 	audit     *AuditService
 	clock     clock.Clock
+	metrics   Metrics
 }
 
 // NewSessionService cria o serviço. Sem Google, usa o checker no-op.
@@ -40,7 +41,17 @@ func NewSessionService(repo SessionRepository, patients PatientRepository) *Sess
 		patients: patients,
 		conflict: noopConflictChecker{},
 		clock:    clock.System{},
+		metrics:  NopMetrics{},
 	}
+}
+
+// SetMetrics injeta a porta de observabilidade (default NopMetrics). Os eventos
+// são contados SÓ no caminho de sucesso e nunca bloqueiam a operação.
+func (s *SessionService) SetMetrics(m Metrics) {
+	if m == nil {
+		m = NopMetrics{}
+	}
+	s.metrics = m
 }
 
 // SetAudit injeta o serviço de auditoria para registrar operações sensíveis de
@@ -59,6 +70,19 @@ func (s *SessionService) SetConflictChecker(c ConflictChecker) {
 func (s *SessionService) SetCalendar(cal SessionCalendar, reminderMinutes []int) {
 	s.calendar = cal
 	s.reminders = reminderMinutes
+}
+
+// WrapCalendar aplica decoradores (ex.: métricas) às integrações de Calendar JÁ
+// injetadas, sem alterar o contrato. O checker no-op (sem Google) e o Calendar
+// ausente NÃO são decorados: não há chamada real a medir. Qualquer wrapper nil é
+// ignorado.
+func (s *SessionService) WrapCalendar(wrapChecker func(ConflictChecker) ConflictChecker, wrapCal func(SessionCalendar) SessionCalendar) {
+	if _, noop := s.conflict.(noopConflictChecker); !noop && s.conflict != nil && wrapChecker != nil {
+		s.conflict = wrapChecker(s.conflict)
+	}
+	if s.calendar != nil && wrapCal != nil {
+		s.calendar = wrapCal(s.calendar)
+	}
 }
 
 // AddFinishedHook registra um hook de finalização (financeiro/custos).
@@ -115,6 +139,7 @@ func (s *SessionService) Create(ctx context.Context, in SessionCreateInput) (*sc
 	if err := s.repo.Create(ctx, sess); err != nil {
 		return nil, err
 	}
+	s.metrics.Session(SessionCreated)
 	return sess, nil
 }
 
@@ -195,6 +220,7 @@ func (s *SessionService) Confirm(ctx context.Context, id string) (*scheduling.Se
 	if err := s.repo.Update(ctx, sess); err != nil {
 		return nil, err
 	}
+	s.metrics.Session(SessionConfirmed)
 	if s.audit != nil {
 		_ = s.audit.Record(ctx, "sistema", domain.AuditActionSessionConfirm, "session", sess.ID,
 			map[string]any{"confirmed_at": clock.Format(sess.ConfirmedAt)})
@@ -216,6 +242,7 @@ func (s *SessionService) Cancel(ctx context.Context, id, by, reason string) (*sc
 	if err := s.repo.Update(ctx, sess); err != nil {
 		return nil, err
 	}
+	s.metrics.Session(SessionCanceled)
 	if s.audit != nil {
 		_ = s.audit.Record(ctx, "sistema", domain.AuditActionSessionCancel, "session", sess.ID,
 			map[string]any{"canceled_by": by})
@@ -235,6 +262,7 @@ func (s *SessionService) MarkNoShow(ctx context.Context, id string) (*scheduling
 	if err := s.repo.Update(ctx, sess); err != nil {
 		return nil, err
 	}
+	s.metrics.Session(SessionNoShow)
 	return sess, nil
 }
 
@@ -264,6 +292,7 @@ func (s *SessionService) Finish(ctx context.Context, id string, in FinishInput) 
 			return nil, err
 		}
 	}
+	s.metrics.Session(SessionFinished)
 	return sess, nil
 }
 
@@ -291,6 +320,8 @@ func (s *SessionService) ListByRange(ctx context.Context, from, to time.Time) ([
 // reminders) e grava o event_id/meet_url na sessão. No-op se sem Calendar.
 func (s *SessionService) createCalendarEvent(ctx context.Context, sess *scheduling.Session) error {
 	if s.calendar == nil {
+		// Agendou SEM evento por falta de credencial do Google (R8.5).
+		s.metrics.CalendarDegraded()
 		return nil
 	}
 	p, err := s.patients.Get(ctx, sess.PatientID)

@@ -60,3 +60,31 @@ func TestAuditRecord_FalhaDoRepoNaoGravaEhObservavel(t *testing.T) {
 	// O log da falha acontece dentro de Record; aqui garantimos que não panica
 	// e que o default logger não é nil (SetLogger não foi chamado).
 }
+
+// TestAuditRecord_Metricas: gravação ok conta audit_log_total{acao}; falha de
+// gravação conta audit_log_falhas_total{acao} — sempre com a constante de ação.
+func TestAuditRecord_Metricas(t *testing.T) {
+	audit, repo := newAudit()
+	m := &recMetrics{}
+	audit.SetMetrics(m)
+
+	if err := audit.Record(context.Background(), "a@x", domain.AuditActionRead, "prontuario", "p1", nil); err != nil {
+		t.Fatal(err)
+	}
+	repo.insertErr = errors.New("db down")
+	_ = audit.Record(context.Background(), "a@x", domain.AuditActionCreate, "note", "n1", nil)
+
+	if len(m.auditOK) != 1 || m.auditOK[0] != domain.AuditActionRead {
+		t.Errorf("AuditRecorded esperado [%s], veio %v", domain.AuditActionRead, m.auditOK)
+	}
+	if len(m.auditBad) != 1 || m.auditBad[0] != domain.AuditActionCreate {
+		t.Errorf("AuditFailed esperado [%s], veio %v", domain.AuditActionCreate, m.auditBad)
+	}
+
+	// SetMetrics(nil) volta ao no-op e não panica.
+	audit.SetMetrics(nil)
+	repo.insertErr = nil
+	if err := audit.Record(context.Background(), "a@x", domain.AuditActionRead, "prontuario", "p1", nil); err != nil {
+		t.Fatal(err)
+	}
+}

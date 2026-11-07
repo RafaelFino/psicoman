@@ -21,11 +21,21 @@ type AppointmentService struct {
 	locations LocationRepository
 	sessions  *SessionService
 	clock     clock.Clock
+	metrics   Metrics
 }
 
 // NewAppointmentService cria o serviço de pedidos de agendamento.
 func NewAppointmentService(repo AppointmentRepository, patients PatientRepository, locations LocationRepository, sessions *SessionService) *AppointmentService {
-	return &AppointmentService{repo: repo, patients: patients, locations: locations, sessions: sessions, clock: clock.System{}}
+	return &AppointmentService{repo: repo, patients: patients, locations: locations, sessions: sessions, clock: clock.System{}, metrics: NopMetrics{}}
+}
+
+// SetMetrics injeta a porta de observabilidade (default NopMetrics). Os eventos
+// são contados SÓ no caminho de sucesso e nunca bloqueiam a operação.
+func (s *AppointmentService) SetMetrics(m Metrics) {
+	if m == nil {
+		m = NopMetrics{}
+	}
+	s.metrics = m
 }
 
 // AppointmentInput são os dados de um pedido de agendamento.
@@ -73,6 +83,7 @@ func (s *AppointmentService) Request(ctx context.Context, patientID string, in A
 	if err := s.repo.Create(ctx, a); err != nil {
 		return nil, err
 	}
+	s.metrics.Appointment(ApptCreated)
 	return a, nil
 }
 
@@ -119,6 +130,7 @@ func (s *AppointmentService) Confirm(ctx context.Context, id string) (*schedulin
 	if err := s.repo.UpdateStatus(ctx, a.ID, scheduling.ApptConfirmado); err != nil {
 		return nil, err
 	}
+	s.metrics.Appointment(ApptConfirmed)
 	return sess, nil
 }
 
@@ -131,5 +143,9 @@ func (s *AppointmentService) Refuse(ctx context.Context, id string) error {
 	if a.Status != scheduling.ApptPendente {
 		return NewConflict("O pedido já foi respondido.")
 	}
-	return s.repo.UpdateStatus(ctx, a.ID, scheduling.ApptRecusado)
+	if err := s.repo.UpdateStatus(ctx, a.ID, scheduling.ApptRecusado); err != nil {
+		return err
+	}
+	s.metrics.Appointment(ApptRefused)
+	return nil
 }

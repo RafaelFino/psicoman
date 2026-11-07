@@ -6,6 +6,23 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-06 — `auditoria-profunda` Fase 8: famílias de métricas de negócio, integrações, auditoria e backup
+
+**Contexto.** A Fase 7 entregou a base (registry, middleware HTTP, listener). Faltava medir o que importa para operar: negócio, filas, integrações (Calendar/Gemini/cifra/OAuth), a trilha de auditoria e o backup/DR com retenção. Também fecha as pendências **OBS-1** (observabilidade ausente) e **R5.2 da `pocketbase-finish`** (métricas adiadas): ambas deixam de estar em aberto.
+
+**Decisão.**
+1. **Negócio pela porta `app.Metrics`**, injetada por `SetMetrics` (default `NopMetrics`, então nenhum teste existente mudou). Os eventos são contados **só no caminho de sucesso e só na transição real** (aprovar/recusar repetido, que é no-op idempotente, não conta; pedido recusado por validação não conta). `Schedule` (solicitada→agendada) não gera evento próprio: a sessão já foi contada em `criada`.
+2. **Integrações por decorador**, aplicado no wiring, sem tocar os serviços: `WrapCipher`, `WrapAI`, `WrapConflictChecker`, `WrapSessionCalendar`. O decorador **só mede** (resultado + duração) e devolve exatamente o valor e o erro originais. `WrapAI(nil)` devolve `nil`: o opt-in da IA (presença da chave) não pode ser alterado por observabilidade. O checker no-op (sem Google) e o Calendar ausente **não** são decorados (não há chamada real a medir); em vez disso, agendar sem Calendar conta `calendar_degradado_total` — a lacuna que antes só gerava um `Warn` no boot. Os seams `calendarWirer`/`aiSummarizerBuilder` não mudaram de assinatura: `SessionService.WrapCalendar` aplica os decoradores sobre o que o seam injetou.
+3. **Filas por coletor custom** (`COUNT` via `CountRecords`, timeout de 2 s, cache de 15 s). Erro **omite a amostra** (nunca reporta zero falso) e conta `metrics_coleta_erros_total{fonte}`; o contador é emitido pelo próprio coletor porque o registry coleta em paralelo e um contador externo incrementado dentro de `Collect` apareceria só no scrape seguinte.
+4. **Auditoria:** `audit_log_total{acao}` / `audit_log_falhas_total{acao}`; `acao` é sempre constante `domain.AuditAction*` e, por defesa, qualquer valor fora do enum vira `outro`.
+5. **Backup/DR (`drivesync.Observer`)**: `backup_total`, duração, tamanho do último snapshot, `drive_espelhamento_total`, `drive_retencao_falhas_total`. Derivados no adapter, sem métodos extras no `Observer`: `backup_ultimo_sucesso_timestamp_segundos{destino}` (**0 até o primeiro sucesso**, série pré-criada para o alerta funcionar desde o início) e `drive_dr_pronto` (1 só quando o último espelhamento foi `ok`). `drive_snapshots_mantidos` fica **ausente** enquanto a contagem não for confiável e **some** quando a listagem falha. Rótulos fora do enum (`destino`, `resultado`, `etapa`) viram `outro`.
+6. **Rate limit:** `Limiter.OnReject` ligado ao recorder (`rate_limit_rejeicoes_total{escopo}`).
+7. **`google_oauth_ok`** usa o **mesmo critério do `/readyz`** (`GoogleAuth.Status`), com timeout de 2 s; **`gemini_ligada`** vem de `cfg.Gemini.Enabled()`.
+
+**Consequências.** `Services.Obs` agora entrega o recorder real; a cifra do boot é decorada (o round-trip do `/readyz` também conta `cifra_operacoes_total`). A variável local `metrics` do `buildServices` foi renomeada para `sessionMetrics` (colidia com o pacote). Não há mudança de contrato da API (Swagger inalterado; `/metrics` fica fora de `/v1`). Cobertura: unit por serviço (eventos nos caminhos ok e de erro), por família/decorador/coletor (cache com relógio fake, erro omite), em processo (tráfego real, Calendar/Gemini/Drive com fakes, OAuth coerente com `/readyz`, vazamento de segredos) e E2E (backup local).
+
+---
+
 ## 2026-11-06 — `auditoria-profunda` Fase 7: métricas Prometheus em listener dedicado e interno (fecha o adiamento de 2026-10-24)
 
 **Contexto.** Em 2026-10-24 o endpoint de métricas (⟨R5⟩) foi **adiado conscientemente** ("`pocketbase-finish`": o produto ainda não tinha observabilidade além de `/livez`/`/readyz`). A auditoria de 2026-11-05 pediu métricas ricas (HTTP, segurança, negócio, integrações, backup) para operar o DR, detectar abuso e alertar sem olhar logs. Um ADR anterior (**"Segregação de exposição na borda, Opção A"**, 2026-10-24) descartou **dois listeners no mesmo processo** — mas *para segregar atores* (portal × app/admin).

@@ -89,8 +89,8 @@ func TestHTTPMetrics_Familias(t *testing.T) {
 	}
 }
 
-func TestObs_App_EhNopNaFase7(t *testing.T) {
-	// A porta de negócio existe e é segura de chamar (famílias na Fase 8).
+func TestObs_App_PortaDeNegocioSegura(t *testing.T) {
+	// A porta de negócio é o recorder real e é segura de chamar.
 	m := newObs(false).App()
 	m.Patient(app.PatientRegistered)
 	m.CipherOp(app.CipherSeal, app.ResultOK)

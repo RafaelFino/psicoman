@@ -392,8 +392,9 @@ Observabilidade (fora da auth, para probes):
   log (`falha ao espelhar backup no Drive`, campo `etapa`).
 - `/v1/health` — smoke simples no envelope.
 
-O timing por rota é logado (não há endpoint de métricas dedicado nesta versão —
-decisão registrada em [`decisions.md`](./decisions.md)).
+O timing por rota é logado e, opcionalmente, exposto como métricas Prometheus em um
+listener dedicado e interno (`metrics.addr`; ver "Métricas (Prometheus)" na seção 3 e
+[`decisions.md`](./decisions.md)).
 
 ### Métricas (Prometheus)
 
@@ -416,6 +417,47 @@ metrics:
   próximo passo é mTLS no listener (fora de escopo).
 - Os rótulos usam só valores de conjuntos fechados (ator, rota-padrão, método, status,
   motivo): **nenhum dado de paciente, id, e-mail ou identidade** aparece nas séries.
+
+**Famílias expostas (prefixo `psicoman_`):**
+
+| Família | O que mede |
+|---------|------------|
+| `http_requisicoes_total`, `http_duracao_segundos`, `http_em_andamento`, `http_resposta_bytes` | tráfego HTTP por ator/rota/método/status |
+| `seguranca_negados_total{motivo}`, `rate_limit_rejeicoes_total{escopo}`, `identidade_dev_ativa` | 401/403, 429 e modo dev ativo |
+| `pacientes_eventos_total`, `sessoes_eventos_total`, `agendamentos_eventos_total` | ciclo de vida de paciente/sessão/pedido |
+| `debitos_gerados_total`, `pagamentos_registrados_total`, `pdfs_gerados_total` | financeiro |
+| `fila_pacientes_pendentes`, `fila_agendamentos_pendentes` | filas de aprovação/agendamento |
+| `calendar_chamadas_total`, `calendar_duracao_segundos`, `calendar_degradado_total` | Google Calendar (freebusy/evento; agendamento sem credencial) |
+| `gemini_chamadas_total`, `gemini_duracao_segundos`, `gemini_ligada` | IA |
+| `google_oauth_ok`, `cifra_operacoes_total` | estado do OAuth, cifra de campo |
+| `audit_log_total{acao}`, `audit_log_falhas_total{acao}` | trilha de auditoria |
+| `backup_total`, `backup_duracao_segundos`, `backup_tamanho_bytes`, `backup_ultimo_sucesso_timestamp_segundos{destino}` | backup local e Drive |
+| `drive_espelhamento_total`, `drive_dr_pronto`, `drive_snapshots_mantidos`, `drive_retencao_falhas_total{etapa}` | DR no Drive e retenção |
+| `metrics_coleta_erros_total{fonte}`, `go_*`, `process_*`, `build_info`, `uptime_segundos` | saúde da coleta e runtime |
+
+**Como coletar:** aponte um Prometheus na mesma rede interna para `psicoman:9091/metrics`
+(scrape a cada 30–60 s). A porta não é publicada; o firewall libera só o IP do coletor.
+
+**Alertas sugeridos:**
+
+```
+# Backup do Drive velho (mais de 2 dias sem sucesso)
+time() - psicoman_backup_ultimo_sucesso_timestamp_segundos{destino="drive"} > 2*86400
+# OAuth do Google degradado (reautorizar)
+psicoman_google_oauth_ok == 0
+# Modo dev de identidade ligado em produção
+psicoman_identidade_dev_ativa == 1
+# Erros 5xx
+rate(psicoman_http_requisicoes_total{status=~"5.."}[5m]) > 0
+# Retenção do Drive acumulando (lixeira não esvaziada?)
+psicoman_drive_snapshots_mantidos > 17
+# Falha ao gravar a trilha de auditoria
+increase(psicoman_audit_log_falhas_total[1h]) > 0
+# Erros de cifra
+increase(psicoman_cifra_operacoes_total{resultado="erro"}[5m]) > 0
+# Pico de rate limit (possível saturação do limitador)
+increase(psicoman_rate_limit_rejeicoes_total[10m]) > 100
+```
 
 ### Backup no Drive: snapshot inteiro e restauração
 
@@ -445,9 +487,27 @@ parado.
 
 ---
 
+## 9.1 Segurança: rotação de segredos (operacional)
+
+Checklist **operacional** (sem valores; nunca cole segredos em log, PR ou ticket). É
+responsabilidade do operador — o sistema não rotaciona nada sozinho.
+
+- [ ] **OAuth do Google:** rotacione `google.client_secret` no Google Cloud Console e
+  **refaça o refresh token** autorizando de novo em `GET /v1/admin/google/authorize`
+  (o novo token é persistido cifrado em `google_token`). Revogue o consentimento antigo.
+- [ ] **Gemini:** rotacione `llm.gemini.api_key` no Google AI Studio e atualize o config/env.
+- [ ] **Chave de cifra:** `crypto.keys` suporta várias chaves por id — ao rotacionar,
+  gere uma nova (`openssl rand -base64 32`), aponte `crypto.key_id` para ela e **mantenha
+  as antigas** no mapa para decifrar o que foi gravado antes. Guarde todas num cofre fora da VM.
+- [ ] Confirme que o config com segredos segue git-ignored: `git check-ignore config.dev.yaml`
+  (e `config.yaml` em produção) deve imprimir o caminho.
+- [ ] Testes **nunca** leem nem copiam `config.dev.yaml`: usam a chave de cifra fixa de teste por env.
+- [ ] Após rotacionar, confira `/v1/readyz` (`google: ok`) e um backup com espelhamento ok.
+
 ## 10. Checklist final
 
 - [ ] VM provisionada, Go 1.27+, relógio sincronizado.
+- [ ] Segredos rotacionados conforme §9.1 ao fim de testes que os expuseram.
 - [ ] `config.yaml` com a chave de cifra (nunca versionada) — cópia da chave num cofre fora da VM.
 - [ ] Projeto Google: Calendar + Drive habilitados; consentimento com escopos mínimos; Client ID/Secret no config; redirect `/v1/admin/google/callback` cadastrado.
 - [ ] Pangolin: upstream `127.0.0.1:8090`, identidade injetada em `/v1/app` e `/v1/admin`, DNS apontado.

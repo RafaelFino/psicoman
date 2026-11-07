@@ -94,23 +94,41 @@ func buildServices(a core.App) (*service.Services, error) {
 	if err != nil {
 		return nil, err
 	}
-	cipher := crypto.New(kp)
+
+	// Observabilidade Prometheus (R8): registry próprio, criado SEMPRE e ANTES da
+	// cifra (que é decorada para contar seal/open). O listener só sobe com
+	// metrics.addr (api.go). DevIdentity alimenta identidade_dev_ativa (alerta:
+	// deve ser 0 em produção); AIEnabled alimenta gemini_ligada; GoogleOK usa o
+	// MESMO critério do /readyz (late-binding: googleAuth é criado logo abaixo).
+	devActive, aiEnabled := false, false
+	if c, _, cerr := configLoader(); cerr == nil {
+		devActive = strings.TrimSpace(c.Pangolin.DevIdentity) != ""
+		aiEnabled = c.Gemini.Enabled()
+	}
+	var googleAuth *app.GoogleAuthService
+	obs := metrics.New(metrics.Config{
+		Build:       buildInfo(),
+		DevIdentity: devActive,
+		AIEnabled:   aiEnabled,
+		Queues:      pb.NewQueueStats(a),
+		GoogleOK: func() bool {
+			if googleAuth == nil {
+				return false
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			state, _ := googleAuth.Status(ctx)
+			return state == app.GoogleAuthOK
+		},
+	})
+	cipher := metrics.WrapCipher(crypto.New(kp), obs.App())
 
 	// Serviço de autorização OAuth do Google (R2): fonte única do refresh token
 	// (repo cifrado com precedência sobre o env de dev) e do estado de
 	// reautorização exposto em /readyz. Construído cedo para alimentar o wiring
 	// de Calendar/Drive abaixo.
 	googleTokenRepo := pb.NewGoogleTokenRepository(a, cipher)
-	googleAuth := app.NewGoogleAuthService(googleTokenRepo)
-
-	// Observabilidade Prometheus (R8): registry próprio, criado sempre. O
-	// listener só sobe com metrics.addr (api.go). DevIdentity alimenta o gauge
-	// identidade_dev_ativa (alerta: deve ser 0 em produção).
-	devActive := false
-	if c, _, cerr := configLoader(); cerr == nil {
-		devActive = strings.TrimSpace(c.Pangolin.DevIdentity) != ""
-	}
-	obs := metrics.New(metrics.Config{Build: buildInfo(), DevIdentity: devActive})
+	googleAuth = app.NewGoogleAuthService(googleTokenRepo)
 
 	// Repositório da pasta de DR (R3): persiste o id da pasta criada/descoberta
 	// automaticamente (singleton drive_dr). Id em claro (não é segredo).
@@ -145,22 +163,32 @@ func buildServices(a core.App) (*service.Services, error) {
 	// Serviços.
 	audit := app.NewAuditService(auditRepo)
 	audit.SetLogger(a.Logger()) // falha de gravação cai no log do PocketBase (R1)
+	audit.SetMetrics(obs.App())
 	patients := app.NewPatientService(patientsRepo)
+	patients.SetMetrics(obs.App())
 
 	sessions := app.NewSessionService(sessionsRepo, patientsRepo)
 	sessions.SetAudit(audit)
+	sessions.SetMetrics(obs.App())
 	calendarWirer(a, sessions, googleAuth)
+	// Mede freebusy/create_event das integrações JÁ injetadas (se houver Google).
+	sessions.WrapCalendar(
+		func(c app.ConflictChecker) app.ConflictChecker { return metrics.WrapConflictChecker(c, obs.App()) },
+		func(c app.SessionCalendar) app.SessionCalendar { return metrics.WrapSessionCalendar(c, obs.App()) },
+	)
 
 	billing := app.NewBillingService(debtsRepo, plansRepo, audit)
+	billing.SetMetrics(obs.App())
 	sessions.AddFinishedHook(billing)
 
 	costSvc := app.NewCostService(costsRepo, locationsRepo, sessionsRepo)
 	sessions.AddFinishedHook(costSvc)
 
 	payments := app.NewPaymentService(paymentsRepo, debtsRepo, audit)
+	payments.SetMetrics(obs.App())
 	payments.SetGED(gedRepo, pb.NewGEDBlobStore(a)) // comprovante de pagamento (R1.9)
 	reports := app.NewReportService(reportsRepo, originsRepo, costsRepo)
-	metrics := app.NewSessionMetricsService(sessionsRepo, debtsRepo, locationsRepo)
+	sessionMetrics := app.NewSessionMetricsService(sessionsRepo, debtsRepo, locationsRepo)
 	dayfeed := app.NewDayFeedService(sessionsRepo, debtsRepo, paymentsRepo, gedRepo, appointmentsRepo, patientsRepo, audit)
 	history := app.NewHistoryService(patientsRepo, sessionsRepo, prontuarioRepo, debtsRepo, paymentsRepo, gedRepo, audit)
 	prontuario := app.NewProntuarioService(prontuarioRepo, nil)
@@ -179,17 +207,19 @@ func buildServices(a core.App) (*service.Services, error) {
 	// Pedidos de agendamento (R1.8): confirmar cria a sessão agendada (conflito
 	// + evento de Calendar via SessionService).
 	appts := app.NewAppointmentService(appointmentsRepo, patientsRepo, locationsRepo, sessions)
+	appts.SetMetrics(obs.App())
 
 	// PDF de cobrança no GED (file storage do PocketBase, D9b): o blob store
 	// grava os bytes; o gedRepo guarda o metadado (dedup por sha256). O perfil
 	// do terapeuta alimenta o cabeçalho do PDF (R3.3).
 	invoice := app.NewInvoiceService(debtsRepo, patientsRepo, gedRepo, pb.NewGEDBlobStore(a), audit)
+	invoice.SetMetrics(obs.App())
 	invoice.SetTherapist(therapistRepo)
 
 	// IA Gemini (Fase 8): opt-in pela presença de llm.gemini.api_key. Sem chave,
 	// aiSummarizerBuilder devolve nil e o AIService fica desligado (Enabled()
 	// false). Resumo revisável + índice invertido de tags por paciente/ano.
-	ai := app.NewAIService(aiSummarizerBuilder(a), aiSummaryRepo, tagIndexRepo, sessionsRepo, audit)
+	ai := app.NewAIService(metrics.WrapAI(aiSummarizerBuilder(a), obs.App()), aiSummaryRepo, tagIndexRepo, sessionsRepo, audit)
 
 	// Credenciais do app Google para o fluxo de autorização OAuth (rotas admin).
 	// Origem é o internal/config (arquivo); vazio => fluxo indisponível (422).
@@ -205,7 +235,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		Payments:    payments,
 		Costs:       costSvc,
 		Reports:     reports,
-		Metrics:     metrics,
+		Metrics:     sessionMetrics,
 		DayFeed:     dayfeed,
 		History:     history,
 		Audit:       audit,

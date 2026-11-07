@@ -33,18 +33,22 @@ type Handlers struct {
 }
 
 // Mount registra as rotas /v1/portal/* no grupo informado. Cria um limitador
-// em memória por escopo (R7.1); OnReject fica nil nesta fase (ligado ao recorder
-// de métricas na Fase 8).
+// em memória por escopo (R7.1); toda rejeição (429, por estouro ou saturação) é
+// contada em rate_limit_rejeicoes_total{escopo} via o recorder de métricas.
 func Mount(g *router.RouterGroup[*core.RequestEvent], svc *service.Services) {
+	var onReject func(scope string)
+	if svc.Obs != nil { // nil em testes que montam Services à mão
+		onReject = svc.Obs.HTTP().RateLimited
+	}
 	h := &Handlers{
 		svc: svc,
 		registerLimiter: httpx.NewLimiter(httpx.LimiterOptions{
 			Limit: registerLimitPerHour, Window: time.Hour, MaxKeys: maxLimiterKeys,
-			Scope: httpx.ScopeCadastro,
+			Scope: httpx.ScopeCadastro, OnReject: onReject,
 		}),
 		apptLimiter: httpx.NewLimiter(httpx.LimiterOptions{
 			Limit: appointmentLimitPerHour, Window: time.Hour, MaxKeys: maxLimiterKeys,
-			Scope: httpx.ScopeAgendamento,
+			Scope: httpx.ScopeAgendamento, OnReject: onReject,
 		}),
 	}
 	g.GET("/me", h.Me)

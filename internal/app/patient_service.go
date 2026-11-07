@@ -13,13 +13,23 @@ import (
 // aprovação vivem no agregado patient; o serviço coordena I/O e unicidade.
 // Portado de c3ab585:internal/service/patient.go.
 type PatientService struct {
-	repo  PatientRepository
-	clock clock.Clock
+	repo    PatientRepository
+	clock   clock.Clock
+	metrics Metrics
 }
 
 // NewPatientService cria o serviço.
 func NewPatientService(repo PatientRepository) *PatientService {
-	return &PatientService{repo: repo, clock: clock.System{}}
+	return &PatientService{repo: repo, clock: clock.System{}, metrics: NopMetrics{}}
+}
+
+// SetMetrics injeta a porta de observabilidade (default NopMetrics). Os eventos
+// são contados SÓ no caminho de sucesso e nunca bloqueiam a operação.
+func (s *PatientService) SetMetrics(m Metrics) {
+	if m == nil {
+		m = NopMetrics{}
+	}
+	s.metrics = m
 }
 
 // CreateInput são os dados de criação de um paciente (cadastro pelo admin).
@@ -55,6 +65,7 @@ func (s *PatientService) Create(ctx context.Context, in CreateInput) (*patient.P
 	if err := s.repo.Create(ctx, p); err != nil {
 		return nil, s.mapErr(err)
 	}
+	s.metrics.Patient(PatientRegistered)
 	return p, nil
 }
 
@@ -152,6 +163,7 @@ func (s *PatientService) RegisterFromPortal(ctx context.Context, in PortalRegist
 	if err := s.repo.Create(ctx, p); err != nil {
 		return nil, s.mapErr(err)
 	}
+	s.metrics.Patient(PatientRegistered)
 	return p, nil
 }
 
@@ -213,6 +225,13 @@ func (s *PatientService) transitionApproval(ctx context.Context, id, next string
 	p.UpdatedAt = s.clock.Now()
 	if err := s.repo.Update(ctx, p); err != nil {
 		return nil, s.mapErr(err)
+	}
+	// Só a transição REAL conta (o ramo idempotente acima retorna antes).
+	switch next {
+	case patient.PatientApproved:
+		s.metrics.Patient(PatientApproved)
+	case patient.PatientRejected:
+		s.metrics.Patient(PatientRejected)
 	}
 	return p, nil
 }

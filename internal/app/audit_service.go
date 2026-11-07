@@ -13,16 +13,27 @@ import (
 // nunca deve derrubar a operação de negócio (best-effort no ponto de chamada).
 // Portado de c3ab585:internal/service/audit.go.
 type AuditService struct {
-	repo  AuditRepository
-	clock clock.Clock
-	log   *slog.Logger
+	repo    AuditRepository
+	clock   clock.Clock
+	log     *slog.Logger
+	metrics Metrics
 }
 
 // NewAuditService cria o serviço de auditoria. O logger default é
 // slog.Default(); o wiring injeta o logger do PocketBase via SetLogger para que
 // a falha de gravação caia no mesmo destino dos demais logs do app.
 func NewAuditService(repo AuditRepository) *AuditService {
-	return &AuditService{repo: repo, clock: clock.System{}, log: slog.Default()}
+	return &AuditService{repo: repo, clock: clock.System{}, log: slog.Default(), metrics: NopMetrics{}}
+}
+
+// SetMetrics injeta a porta de observabilidade (default NopMetrics): conta as
+// entradas gravadas (audit_log_total{acao}) e as falhas de gravação
+// (audit_log_falhas_total{acao}). `acao` é sempre uma constante domain.AuditAction*.
+func (s *AuditService) SetMetrics(m Metrics) {
+	if m == nil {
+		m = NopMetrics{}
+	}
+	s.metrics = m
 }
 
 // SetLogger injeta o logger usado para registrar falhas de gravação do
@@ -41,8 +52,8 @@ func (s *AuditService) SetLogger(l *slog.Logger) {
 //
 // Best-effort e observável: uma falha de Insert é logada (sem meta, sem ids
 // sensíveis) e NÃO é propagada — a trilha pode ter uma lacuna, mas a operação
-// de negócio nunca é derrubada por um defeito do audit_log. A contagem da
-// métrica audit_log_falhas_total é ligada na Fase 8 (SetMetrics).
+// de negócio nunca é derrubada por um defeito do audit_log. A falha também é
+// contada (audit_log_falhas_total) e o sucesso, em audit_log_total.
 func (s *AuditService) Record(ctx context.Context, actor, action, entity, entityID string, meta map[string]any) error {
 	if actor == "" || actor == domain.ActorSystem {
 		if from := domain.ActorFrom(ctx); from != "" {
@@ -64,8 +75,10 @@ func (s *AuditService) Record(ctx context.Context, actor, action, entity, entity
 	if err := s.repo.Insert(ctx, entry); err != nil {
 		// Sem meta nem conteúdo: só o fato de a trilha ter falhado.
 		s.log.Error("falha ao gravar audit_log", "acao", action, "entidade", entity)
+		s.metrics.AuditFailed(action)
 		return err
 	}
+	s.metrics.AuditRecorded(action)
 	return nil
 }
 

@@ -29,6 +29,7 @@ type InvoiceService struct {
 	audit     *AuditService
 	therapist TherapistRepository // opcional: cabeçalho do terapeuta no PDF (R3.3)
 	clock     clock.Clock
+	metrics   Metrics
 }
 
 // NewInvoiceService cria o serviço de cobrança em PDF. audit é opcional (pode
@@ -41,7 +42,17 @@ func NewInvoiceService(debts DebtRepository, patients PatientRepository, meta GE
 		blobs:    blobs,
 		audit:    audit,
 		clock:    clock.System{},
+		metrics:  NopMetrics{},
 	}
+}
+
+// SetMetrics injeta a porta de observabilidade (default NopMetrics). Os eventos
+// são contados SÓ no caminho de sucesso e nunca bloqueiam a operação.
+func (s *InvoiceService) SetMetrics(m Metrics) {
+	if m == nil {
+		m = NopMetrics{}
+	}
+	s.metrics = m
 }
 
 // SetTherapist injeta a porta do perfil do terapeuta para que o PDF de cobrança
@@ -81,6 +92,7 @@ func (s *InvoiceService) GeneratePDF(ctx context.Context, debtID string) (*domai
 				return nil, err
 			}
 		}
+		s.metrics.InvoicePDFGenerated()
 		return existing, nil
 	} else if err != nil && err != ErrNotFound {
 		return nil, err
@@ -110,6 +122,7 @@ func (s *InvoiceService) GeneratePDF(ctx context.Context, debtID string) (*domai
 		_ = s.audit.Record(ctx, "sistema", domain.AuditActionDebtGenerate, "debt", debt.ID,
 			map[string]any{"ged_file_id": f.ID})
 	}
+	s.metrics.InvoicePDFGenerated()
 	return f, nil
 }
 

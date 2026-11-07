@@ -258,3 +258,39 @@ func TestMetricsFailClosed(t *testing.T) {
 		t.Errorf("API /metrics: quero 404, veio %d", st)
 	}
 }
+
+// TestMetricsBackupLocal (R8.6, item 7 do design): o backup real gera
+// backup_total{destino="local",resultado="ok"}, tamanho e timestamp do último
+// sucesso > 0; sem Google, o espelhamento conta "desativado" e o DR não está
+// pronto. O destino "drive" nunca aparece sem credenciais.
+func TestMetricsBackupLocal(t *testing.T) {
+	base, metricsBase := startServerWithMetrics(t)
+
+	// Antes do 1º backup o timestamp existe e vale 0 (base do alerta).
+	if !strings.Contains(scrapeMetrics(t, metricsBase), `psicoman_backup_ultimo_sucesso_timestamp_segundos{destino="local"} 0`) {
+		t.Error("o timestamp deveria começar em 0")
+	}
+
+	if st, body := postJSON(t, base, "/v1/admin/backup", ``); st != http.StatusAccepted {
+		t.Fatalf("backup: quero 202, veio %d (%s)", st, body)
+	}
+
+	out := scrapeMetrics(t, metricsBase)
+	for _, want := range []string{
+		`psicoman_backup_total{destino="local",resultado="ok"} 1`,
+		`psicoman_backup_ultimo_sucesso_timestamp_segundos{destino="local"} 1.`, // epoch atual > 0
+		`psicoman_drive_espelhamento_total{resultado="desativado"} 1`,
+		"psicoman_drive_dr_pronto 0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("/metrics sem %q", want)
+		}
+	}
+	if strings.Contains(out, `psicoman_backup_tamanho_bytes{destino="local"} 0`) ||
+		!strings.Contains(out, `psicoman_backup_tamanho_bytes{destino="local"}`) {
+		t.Error("o tamanho do backup local deveria ser > 0")
+	}
+	if strings.Contains(out, `psicoman_backup_total{destino="drive"`) {
+		t.Error("sem Google não deve haver backup no destino drive")
+	}
+}

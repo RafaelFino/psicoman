@@ -86,8 +86,9 @@ A configuração vem de um `config.yaml` (ver `config.example.yaml`): cifra, hea
 | [`docs/deploy.md`](./docs/deploy.md) | Instalação e operação (binário único, borda nginx+Pangolin, systemd, OAuth Google) |
 | [`docs/stack-local.md`](./docs/stack-local.md) | Stack local em Docker (nginx de borda + binário) para teste |
 | [`docs/release-notes.md`](./docs/release-notes.md) | Notas de versão por onda |
-| [`.kiro/specs/pocketbase-finish/`](./.kiro/specs/pocketbase-finish/) | Spec da onda atual (requirements/design/tasks) |
-| [`.kiro/specs/pocketbase-core/`](./.kiro/specs/pocketbase-core/) | Spec da onda anterior (base técnica) |
+| [`.kiro/specs/auditoria-profunda/`](./.kiro/specs/auditoria-profunda/) | Spec da onda atual (auditoria: LGPD, DR, lint, rate limit, OAuth, métricas) |
+| [`.kiro/specs/pocketbase-finish/`](./.kiro/specs/pocketbase-finish/) | Spec da onda anterior (fechamento de gaps) |
+| [`.kiro/specs/pocketbase-core/`](./.kiro/specs/pocketbase-core/) | Spec da base técnica |
 
 ## Segurança e privacidade
 
@@ -99,4 +100,6 @@ A configuração vem de um `config.yaml` (ver `config.example.yaml`): cifra, hea
 
 Onda `pocketbase-core` implementada e verde: binário único com PocketBase embarcado, cifra por campo, contrato `/v1` por ator, Calendar síncrono, PDF de cobrança no GED, Drive como DR, Gemini opt-in com índice de tags e portal do paciente com auth própria.
 
-Onda `pocketbase-finish` (fechamento de gaps): perfil do terapeuta (com cabeçalho na cobrança), OAuth 3-legged real com token cifrado, `/v1/readyz` + `/v1/livez`, locais/origens/planos/comprovante, feed/história/métricas/calendário, custos/ROI completo + relatório por local, pedidos de agendamento pelo portal e docs de deploy do binário único. Auditada para produção (contrato Swagger↔rotas, matriz de autorização, fail-closed de cifra, `-race` limpo). **Adiado conscientemente:** verificação de email do portal (⟨R4⟩) e endpoint de métricas Prometheus (⟨R5⟩). `make check` passa (fmt + vet + build + unit + e2e).
+Onda `pocketbase-finish` (fechamento de gaps): perfil do terapeuta (com cabeçalho na cobrança), OAuth 3-legged real com token cifrado, `/v1/readyz` + `/v1/livez`, locais/origens/planos/comprovante, feed/história/métricas/calendário, custos/ROI completo + relatório por local, pedidos de agendamento pelo portal e docs de deploy do binário único. Auditada para produção (contrato Swagger↔rotas, matriz de autorização, fail-closed de cifra, `-race` limpo). **Adiado conscientemente na época:** verificação de email do portal (⟨R4⟩) e endpoint de métricas Prometheus (⟨R5⟩) — este último foi entregue depois, na onda `auditoria-profunda`.
+
+Onda `auditoria-profunda` (correção dos achados da auditoria de 2026-11-05): auditoria LGPD do prontuário com o ator real no `audit_log`; pasta de DR do Drive criada automaticamente (`google.drive_folder` opcional) com retenção de snapshots; `golangci-lint` v2 reativado como gate obrigatório (`make tools`); rate limit por identidade no portal; validação do `state` do OAuth; e métricas Prometheus em listener dedicado e interno (opt-in por `metrics.addr`). `make check` roda `fmt + vet + build + unit + e2e + lint`.
