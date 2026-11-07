@@ -31,6 +31,12 @@ google:
   drive_folder: "" # opcional (R3): vazio = pasta "Psicoman DR" criada automaticamente
   drive_retention: 14 # snapshots mantidos no Drive (excedentes vão à lixeira); 0 = manual
 
+# Métricas Prometheus (R8): listener DEDICADO, separado da API. Sem metrics.addr
+# ele NÃO sobe. Dentro do container use 0.0.0.0:9091 (a porta NÃO é publicada no
+# host; só a rede interna do coletor a alcança). Equivale a PSICOMAN_METRICS_ADDR.
+# metrics:
+#   addr: "0.0.0.0:9091"
+
 llm:
   gemini:
     api_key: ""

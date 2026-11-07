@@ -11,4 +11,7 @@ const (
 	// storePortalPatientID guarda o id do paciente resolvido pelo gate de
 	// aprovação do portal, disponível ao handler (Fase 5; seam Fase 9).
 	storePortalPatientID = "psicoman_portal_patient_id"
+	// storeDenyReason guarda o motivo de um 401/403 (conjunto fechado) para o
+	// middleware de métricas (rótulo seguranca_negados_total{motivo}).
+	storeDenyReason = "psicoman_deny_reason"
 )

@@ -57,6 +57,13 @@ google:
   # excedentes vão para a LIXEIRA (não são apagados de vez). 0 = retenção manual.
   drive_retention: 14
 
+# Métricas Prometheus (R8): listener DEDICADO e interno, separado da API. Vazio
+# (default) = NÃO sobe (fail-closed). Em host/systemd use "127.0.0.1:9091"; dentro
+# do container "0.0.0.0:9091" (porta não publicada). Env: PSICOMAN_METRICS_ADDR.
+# Nunca exponha esta porta na borda (nginx/Pangolin): só o coletor deve alcançá-la.
+metrics:
+  addr: ""
+
 # IA (Gemini) — OPT-IN pela PRESENÇA da chave: com api_key, a IA liga; sem, desliga.
 # Env equivalente: PSICOMAN_GEMINI_API_KEY. Lida da config, NUNCA logada.
 llm:

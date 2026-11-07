@@ -82,3 +82,24 @@ func TestConfigNaoImportaPocketBase(t *testing.T) {
 		}
 	}
 }
+
+// TestDomainAppConfigNaoImportamPrometheus garante que a lib de métricas
+// (client_golang) fica CONFINADA às camadas de borda: domain, app e config só
+// conhecem a porta app.Metrics (interface própria) e nunca a implementação
+// Prometheus. Quem importa a lib é platform/metrics (e o servidor de métricas
+// em internal/api). Trocar a lib de métricas = mexer só nessa borda (R8.11).
+func TestDomainAppConfigNaoImportamPrometheus(t *testing.T) {
+	const prom = "github.com/prometheus/"
+
+	for _, pkg := range []string{
+		modulePath + "/internal/domain/...",
+		modulePath + "/internal/app/...",
+		modulePath + "/internal/config/...",
+	} {
+		for _, dep := range deps(t, pkg) {
+			if strings.HasPrefix(dep, prom) {
+				t.Errorf("%s não pode importar a lib de métricas (dependência proibida encontrada: %q)", pkg, dep)
+			}
+		}
+	}
+}

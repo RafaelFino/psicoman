@@ -6,6 +6,27 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-06 — `auditoria-profunda` Fase 7: métricas Prometheus em listener dedicado e interno (fecha o adiamento de 2026-10-24)
+
+**Contexto.** Em 2026-10-24 o endpoint de métricas (⟨R5⟩) foi **adiado conscientemente** ("`pocketbase-finish`": o produto ainda não tinha observabilidade além de `/livez`/`/readyz`). A auditoria de 2026-11-05 pediu métricas ricas (HTTP, segurança, negócio, integrações, backup) para operar o DR, detectar abuso e alertar sem olhar logs. Um ADR anterior (**"Segregação de exposição na borda, Opção A"**, 2026-10-24) descartou **dois listeners no mesmo processo** — mas *para segregar atores* (portal × app/admin).
+
+**Decisão (do Rafael).**
+1. **Encerra o adiamento** do endpoint de métricas.
+2. **Reconcilia com a Opção A:** o listener de métricas **não segrega atores e não serve a API** — é uma superfície interna de observabilidade, com um único handler (`GET /metrics`). O invariante "um listener de API, três prefixos" e a segregação de exposição **na borda** ficam intactos; a API segue em `127.0.0.1:8090`.
+3. **`client_golang` v1.25.0** (versão exata), **registry próprio** (nunca o `DefaultRegisterer`), coletores Go/process, `build_info`, `uptime_segundos`, `identidade_dev_ativa`. A lib fica **confinada** a `internal/platform/metrics` e `internal/api/metricsserver.go`; `domain`/`app`/`config` só conhecem a porta `app.Metrics` (testado em `archtest`).
+4. **Listener dedicado, fail-closed:** só sobe com `metrics.addr` (env `PSICOMAN_METRICS_ADDR`, env > arquivo). Vazio = nenhum socket extra. Sugestão: `127.0.0.1:9091` em host/systemd; `0.0.0.0:9091` apenas dentro do container, com a porta **só em `expose`** (nunca `ports`). Falha de bind **aborta o boot** (a config foi pedida deliberadamente; um listener silenciosamente ausente esconde a falta de observabilidade). Mux próprio só com `GET /metrics`; sem envelope, sem gate do Pangolin; timeouts de servidor; `Shutdown` em `OnTerminate`; `Warn` se o host é `0.0.0.0`/`::`.
+5. **A API responde 404 a `/metrics` e `/v1/metrics`**; o listener responde 404 a tudo que não é `GET /metrics`.
+6. **Rótulos proibidos (R8.9):** id, e-mail, nome, telefone, CPF, texto clínico, valor do header de identidade, chave/segredo. Só enums fechados: `ator` (app|portal|admin|infra), `rota` = **padrão registrado** (`/v1/app/patients/{id}`; rota inexistente = `nao_encontrada`; nunca o `URL.Path`), `metodo` (7 + `OUTRO`), `status` numérico, `motivo` (sem_identidade|sem_sessao|nao_aprovado|pocketbase|outro).
+7. **Middleware no router raiz** (`Priority -5000`), para medir também o 404 de rota inexistente e as rotas `/api/*`. Falha de métrica **nunca** vira 500 (recover + o middleware jamais altera o `err` de `Next()`). O tamanho da resposta usa um `countingWriter` com `Unwrap()`, que mantém `Status()/Written()/Flush` (SSE) reconhecidos pelo PocketBase (provado em teste).
+
+**Política de rede.** O endpoint **nunca** entra no `portal.conf`, no Pangolin nem em `ports:`. Firewall: TCP 9091 **somente do IP do coletor**. Sem TLS/autenticação no listener nesta onda (o isolamento é de rede); **mTLS** (no listener ou num proxy) é a evolução se a coleta atravessar rede não confiável — **fora de escopo**.
+
+**Spikes (7.1/7.2) reconfirmados.** `Request.Pattern` chega populado (`GET /v1/app/patients/{id}`; catch-all = `/`) já para o 401 de `RequirePangolinIdentity`; `countingWriter` exercitado em runtime (Status/Written/Flush). `go get client_golang@v1.25.0` + `go mod tidy`: o `go.mod` só ganhou linhas (`client_golang` + transitivas `beorn7/perks`, `cespare/xxhash/v2`, `munnerz/goautoneg`, `client_model`, `common`, `procfs`, `protobuf`); nenhuma versão do PocketBase mudou; o `go.sum` só trocou entradas obsoletas de deps de teste. `govulncheck` **não está instalado** neste ambiente (não executado).
+
+**Consequências.** Novos `app.Metrics`/`QueueStats`/`NopMetrics`, `platform/metrics`, `httpx.Instrument`/`RouteLabels`/`SetDenyReason`, `api.StartMetricsServer`, `MetricsConfig`, `Services.Obs`. As famílias de negócio, integrações, auditoria e backup entram na Fase 8; nesta fase o `Obs.App()` e o `Obs.Drive()` são pontos de ligação sem famílias. Docs: `architecture.md §0.24`, `deploy.md`, `stack-local.md`, `config.example.yaml`, `deploy/config.docker.yaml`, `docker-compose.yml`, `Dockerfile`.
+
+---
+
 ## 2026-11-06 — `auditoria-profunda` Fase 6: `state` do OAuth validado
 
 **Contexto.** O `GoogleAuthorize` gerava um `state` (ULID) e o `GoogleCallback` **nunca o conferia**: qualquer navegador autenticado no Pangolin podia concluir um fluxo OAuth forjado (CSRF / login CSRF), gravando um refresh token escolhido por terceiro. Um ULID também tem prefixo temporal previsível.

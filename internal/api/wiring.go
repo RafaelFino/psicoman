@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/integration/google"
 	"github.com/RafaelFino/psicoman/internal/platform/clock"
 	"github.com/RafaelFino/psicoman/internal/platform/crypto"
+	"github.com/RafaelFino/psicoman/internal/platform/metrics"
 	"github.com/RafaelFino/psicoman/internal/platform/pb"
 )
 
@@ -100,6 +103,15 @@ func buildServices(a core.App) (*service.Services, error) {
 	googleTokenRepo := pb.NewGoogleTokenRepository(a, cipher)
 	googleAuth := app.NewGoogleAuthService(googleTokenRepo)
 
+	// Observabilidade Prometheus (R8): registry próprio, criado sempre. O
+	// listener só sobe com metrics.addr (api.go). DevIdentity alimenta o gauge
+	// identidade_dev_ativa (alerta: deve ser 0 em produção).
+	devActive := false
+	if c, _, cerr := configLoader(); cerr == nil {
+		devActive = strings.TrimSpace(c.Pangolin.DevIdentity) != ""
+	}
+	obs := metrics.New(metrics.Config{Build: buildInfo(), DevIdentity: devActive})
+
 	// Repositório da pasta de DR (R3): persiste o id da pasta criada/descoberta
 	// automaticamente (singleton drive_dr). Id em claro (não é segredo).
 	driveFolderRepo := pb.NewDriveFolderRepository(a)
@@ -109,7 +121,7 @@ func buildServices(a core.App) (*service.Services, error) {
 	// credenciais Google — o backup local segue. A pasta é resolvida
 	// automaticamente (R3): drive_folder deixou de ser obrigatório.
 	driveStatus := &drivesync.Status{}
-	driveSyncWirer(a, kp, googleAuth, driveFolderRepo, drivesync.NopObserver{}, driveStatus)
+	driveSyncWirer(a, kp, googleAuth, driveFolderRepo, obs.Drive(), driveStatus)
 
 	// Repositórios (adapter platform/pb).
 	patientsRepo := pb.NewPatientRepository(a)
@@ -209,6 +221,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		PortalAuth:  portalAuth,
 		Cipher:      cipher,
 		DriveStatus: driveStatus,
+		Obs:         obs,
 		OAuthState:  app.NewMemoryOAuthStateStore(oauthStateClock, app.OAuthStateTTL, app.OAuthStateMaxPending),
 		GoogleOAuth: oauthCfg,
 	}, nil
@@ -244,6 +257,15 @@ var calendarWirer = wireCalendar
 // Default liga o Google real (wireDriveSync); os testes em processo o reatribuem
 // para injetar um uploader fake ou desativar, sem tocar a rede (Fase 7).
 var driveSyncWirer = wireDriveSync
+
+// buildInfo lê a versão do módulo e do Go para o gauge build_info.
+func buildInfo() metrics.BuildInfo {
+	bi := metrics.BuildInfo{Version: "desconhecida", GoVersion: runtime.Version()}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		bi.Version = info.Main.Version
+	}
+	return bi
+}
 
 // oauthStateClock é o relógio do store de `state` do OAuth. nil = relógio do
 // sistema. Seam de teste: permite expirar um state sem esperar o TTL.

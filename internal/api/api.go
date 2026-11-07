@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 
 	"github.com/RafaelFino/psicoman/internal/api/admin"
 	apiapp "github.com/RafaelFino/psicoman/internal/api/app"
@@ -63,6 +64,16 @@ func Register(app core.App) {
 				"campo", "pangolin.dev_identity")
 		}
 
+		// Métricas HTTP (R8): middleware no router RAIZ, para medir também o 404
+		// de rota inexistente (catch-all) e as rotas /api/* do PocketBase.
+		// Priority -5000 < -1040 (activity logger do PB): observa inclusive as
+		// respostas curtas dos middlewares padrão. Falha de métrica nunca vira 500.
+		e.Router.Bind(&hook.Handler[*core.RequestEvent]{
+			Id:       "psicoman_http_metrics",
+			Priority: -5000,
+			Func:     httpx.Instrument(svc.Obs.HTTP()),
+		})
+
 		v1 := e.Router.Group("/v1")
 		v1.BindFunc(httpx.Recover, httpx.RequestID, httpx.Timing, httpx.Logging)
 
@@ -85,6 +96,16 @@ func Register(app core.App) {
 		adminGrp := v1.Group("/admin")
 		adminGrp.BindFunc(httpx.RequirePangolinIdentity(pangolinHdr, devIdentity), httpx.PropagateActor)
 		admin.Mount(adminGrp, svc)
+
+		// Listener dedicado de métricas (R8.1): só sobe com metrics.addr. Falha de
+		// bind aborta o boot (config deliberada). A API NÃO serve /metrics.
+		var metricsAddr string
+		if c, _, cerr := configLoader(); cerr == nil {
+			metricsAddr = c.Metrics.Addr
+		}
+		if err := StartMetricsServer(e.App, metricsAddr, svc.Obs.Handler(), e.App.Logger()); err != nil {
+			return err
+		}
 
 		return e.Next()
 	})

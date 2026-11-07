@@ -279,3 +279,49 @@ func TestLoadSemArquivoRetentionDefault(t *testing.T) {
 		t.Errorf("sem arquivo: quero %d, veio %d", DefaultDriveRetention, cfg.Google.DriveRetention)
 	}
 }
+
+// TestLoadMetricsAddr cobre metrics.addr: ausente (listener desligado), válido,
+// inválido (sem porta / porta fora de faixa / não numérica) e env > arquivo.
+func TestLoadMetricsAddr(t *testing.T) {
+	t.Run("ausente => vazio", func(t *testing.T) {
+		t.Setenv(EnvMetricsAddr, "")
+		cfg, _, err := Load(Options{Path: writeFixture(t, "google:\n  client_id: x\n")})
+		if err != nil || cfg.Metrics.Addr != "" {
+			t.Fatalf("quero addr vazio sem erro, veio %q err=%v", cfg.Metrics.Addr, err)
+		}
+	})
+	t.Run("válido do arquivo", func(t *testing.T) {
+		t.Setenv(EnvMetricsAddr, "")
+		cfg, origins, err := Load(Options{Path: writeFixture(t, "metrics:\n  addr: \"127.0.0.1:9091\"\n")})
+		if err != nil || cfg.Metrics.Addr != "127.0.0.1:9091" {
+			t.Fatalf("quero 127.0.0.1:9091, veio %q err=%v", cfg.Metrics.Addr, err)
+		}
+		if got := originOf(origins, "metrics.addr"); got != SourceFile {
+			t.Errorf("origem: quero arquivo, veio %q", got)
+		}
+	})
+	t.Run("env sobrescreve arquivo", func(t *testing.T) {
+		t.Setenv(EnvMetricsAddr, "0.0.0.0:9191")
+		cfg, origins, err := Load(Options{Path: writeFixture(t, "metrics:\n  addr: \"127.0.0.1:9091\"\n")})
+		if err != nil || cfg.Metrics.Addr != "0.0.0.0:9191" {
+			t.Fatalf("env deveria vencer, veio %q err=%v", cfg.Metrics.Addr, err)
+		}
+		if got := originOf(origins, "metrics.addr"); got != SourceEnv {
+			t.Errorf("origem: quero env, veio %q", got)
+		}
+	})
+	t.Run("só porta é válido", func(t *testing.T) {
+		t.Setenv(EnvMetricsAddr, ":9091")
+		if _, _, err := Load(Options{Path: writeFixture(t, "")}); err != nil {
+			t.Errorf(":9091 deveria ser válido: %v", err)
+		}
+	})
+	for _, ruim := range []string{"9091", "localhost", "127.0.0.1:0", "127.0.0.1:70000", "127.0.0.1:abc"} {
+		t.Run("inválido "+ruim, func(t *testing.T) {
+			t.Setenv(EnvMetricsAddr, ruim)
+			if _, _, err := Load(Options{Path: writeFixture(t, "")}); err == nil {
+				t.Errorf("metrics.addr %q deveria ser erro de config", ruim)
+			}
+		})
+	}
+}

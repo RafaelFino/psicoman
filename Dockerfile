@@ -33,6 +33,9 @@ USER psicoman
 VOLUME ["/data"]
 
 EXPOSE 8090
+# 9091: listener dedicado de métricas (só documental; sobe apenas com
+# metrics.addr / PSICOMAN_METRICS_ADDR e NUNCA deve ser publicado na borda).
+EXPOSE 9091
 # serve do PocketBase, escutando em 0.0.0.0 dentro do container (atrás do
 # Pangolin/compose). A config de cifra vem por env (PSICOMAN_CIPHER_*).
 ENTRYPOINT ["psicoman"]

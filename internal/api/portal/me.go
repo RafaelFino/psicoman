@@ -90,6 +90,7 @@ func (h *Handlers) Me(e *core.RequestEvent) error {
 func (h *Handlers) resolvePatient(e *core.RequestEvent, ctx context.Context) (*patient.Patient, error) {
 	authID := httpx.PortalAuthRecordID(e)
 	if authID == "" {
+		httpx.SetDenyReason(e, httpx.DenySemSessao)
 		return nil, httpx.RespondError(e, 401, "nao_autenticado", "Autenticação necessária.", nil)
 	}
 	pid, err := h.svc.PortalAuth.PatientIDByAuthID(ctx, authID)

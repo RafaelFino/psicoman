@@ -34,6 +34,7 @@ func RequireApproved(svc *service.Services) func(*core.RequestEvent) error {
 		// patient_user. Sem sessão válida → 401.
 		authID := httpx.PortalAuthRecordID(e)
 		if authID == "" {
+			httpx.SetDenyReason(e, httpx.DenySemSessao)
 			return httpx.RespondError(e, http.StatusUnauthorized, "nao_autenticado",
 				"Autenticação necessária.", nil)
 		}
@@ -48,6 +49,7 @@ func RequireApproved(svc *service.Services) func(*core.RequestEvent) error {
 			return httpx.Fail(e, err) // ErrNotFound → 404
 		}
 		if p.ApprovalStatus != patient.PatientApproved {
+			httpx.SetDenyReason(e, httpx.DenyNaoAprovado)
 			return httpx.RespondError(e, http.StatusForbidden, "acesso_negado",
 				"Seu cadastro ainda não foi aprovado.", nil)
 		}

@@ -395,6 +395,28 @@ Observabilidade (fora da auth, para probes):
 O timing por rota é logado (não há endpoint de métricas dedicado nesta versão —
 decisão registrada em [`decisions.md`](./decisions.md)).
 
+### Métricas (Prometheus)
+
+O Psicoman expõe métricas no formato Prometheus em um **listener dedicado**, separado
+da API. É **opt-in e fail-closed**: sem `metrics.addr` (ou `PSICOMAN_METRICS_ADDR`)
+**nenhum socket extra é aberto**.
+
+```yaml
+metrics:
+  addr: "127.0.0.1:9091"   # host/systemd; no container: "0.0.0.0:9091"
+```
+
+- A API (`:8090`) **nunca** serve `/metrics` (responde 404); o listener de métricas
+  serve **somente** `GET /metrics` (o resto é 404) e não exige o header do Pangolin —
+  por isso o **isolamento é de rede**. Falha de bind (porta em uso) **aborta o boot**.
+- **Política de rede:** não coloque a porta de métricas no nginx do portal nem no
+  Pangolin e **não a publique** (`ports:`) no compose. Libere TCP 9091 no firewall
+  **somente do IP do coletor** (ou deixe em `127.0.0.1` com agente local/túnel SSH).
+  Sem TLS/autenticação nesta versão; se a coleta atravessar rede não confiável, o
+  próximo passo é mTLS no listener (fora de escopo).
+- Os rótulos usam só valores de conjuntos fechados (ator, rota-padrão, método, status,
+  motivo): **nenhum dado de paciente, id, e-mail ou identidade** aparece nas séries.
+
 ### Backup no Drive: snapshot inteiro e restauração
 
 Cada backup do PocketBase é espelhado no Drive como **snapshot inteiro, cifrado**
