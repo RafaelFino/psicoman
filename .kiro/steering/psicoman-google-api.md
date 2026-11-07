@@ -31,8 +31,9 @@ Decisões de integração em `docs/architecture.md` e `docs/requirements.md`. As
 
 - O Drive **deixa de ser backup síncrono**: vira **fallback/DR**, disparado por um **hook no ciclo de backup do PocketBase** (`internal/drivesync`, podendo rodar como 2º processo). O Drive **não** é fonte da verdade nem está no caminho de request.
 - Escopo `drive.file` restringe a arquivos criados pela própria aplicação — não há acesso ao Drive pessoal do terapeuta além disso.
-- Snapshot de backup do SQLite: sempre cifrado (AES-256-GCM) e compactado antes do upload — nunca subir o `.db` em texto claro.
-- Backup incremental por hash (manifesto no Drive), nunca reenviar o acervo inteiro a cada execução.
+- Snapshot de backup do SQLite: **snapshot inteiro por execução**, sempre cifrado (AES-256-GCM) antes do upload — nunca subir o `.db` em texto claro. O zip gerado pelo PocketBase já é compactado; o código não recompacta. **Não há backup incremental nem manifesto** (decisão do Rafael, 2026-11-05; ver `docs/decisions.md`).
+- **Retenção por contagem** feita pelo `internal/drivesync` após um upload bem-sucedido: mantém os N snapshots mais recentes (`google.drive_retention`, default 14; `0` = retenção manual) e manda os excedentes para a **lixeira** (`trashed`), **nunca** `delete`. Só toca arquivos criados pelo app (`appProperties psicoman_kind=snapshot`, sufixo `.enc`, pasta de DR). Falha de retenção não derruba o backup.
+- **Pasta de DR criada automaticamente**: `google.drive_folder` é opcional. Ordem de resolução: config > id persistido (coleção `drive_dr`) > busca por nome/`appProperties` > criação ("Psicoman DR"). Detalhes em `docs/architecture.md §0.10`.
 
 ## IA (Gemini) — nota de passagem
 

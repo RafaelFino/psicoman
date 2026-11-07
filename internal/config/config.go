@@ -62,7 +62,13 @@ type GoogleConfig struct {
 	ClientSecret string
 	CalendarID   string
 	DriveFolder  string
+	// DriveRetention é quantos snapshots do Drive manter (default 14; 0 = nunca
+	// apagar, retenção manual). Negativo é inválido (erro de config no Load).
+	DriveRetention int
 }
+
+// DefaultDriveRetention é o número de snapshots mantidos quando a chave é omitida.
+const DefaultDriveRetention = 14
 
 // GeminiConfig espelha o bloco `llm.gemini`.
 type GeminiConfig struct {
@@ -126,6 +132,8 @@ type yamlDoc struct {
 		ClientSecret string `yaml:"client_secret"`
 		CalendarID   string `yaml:"calendar_id"`
 		DriveFolder  string `yaml:"drive_folder"`
+		// Ponteiro distingue "ausente" (default 14) de "0" (retenção manual).
+		DriveRetention *int `yaml:"drive_retention"`
 	} `yaml:"google"`
 	LLM struct {
 		Gemini struct {
@@ -182,6 +190,11 @@ func Load(opts Options) (Config, []OriginEvent, error) {
 		return fileVal
 	}
 
+	retention, err := resolveDriveRetention(&origins, doc.Google.DriveRetention, fileLoaded)
+	if err != nil {
+		return Config{}, nil, err
+	}
+
 	cfg := Config{
 		DataDir: resolve("data_dir", "", doc.DataDir), // informativo: --dir do PB vence.
 		Log:     LogConfig{Level: resolve("log.level", "", doc.Log.Level)},
@@ -197,16 +210,32 @@ func Load(opts Options) (Config, []OriginEvent, error) {
 		},
 		Google: GoogleConfig{
 			// google.* sem env por ora (decisão Fase 6): origem é sempre arquivo/default.
-			ClientID:     resolve("google.client_id", "", doc.Google.ClientID),
-			ClientSecret: resolve("google.client_secret", "", doc.Google.ClientSecret),
-			CalendarID:   resolve("google.calendar_id", "", doc.Google.CalendarID),
-			DriveFolder:  resolve("google.drive_folder", "", doc.Google.DriveFolder),
+			ClientID:       resolve("google.client_id", "", doc.Google.ClientID),
+			ClientSecret:   resolve("google.client_secret", "", doc.Google.ClientSecret),
+			CalendarID:     resolve("google.calendar_id", "", doc.Google.CalendarID),
+			DriveFolder:    resolve("google.drive_folder", "", doc.Google.DriveFolder),
+			DriveRetention: retention,
 		},
 		Gemini: GeminiConfig{
 			APIKey: resolve("llm.gemini.api_key", EnvGeminiAPIKey, doc.LLM.Gemini.APIKey),
 		},
 	}
 	return cfg, origins, nil
+}
+
+// resolveDriveRetention resolve google.drive_retention (sem env): ausente =>
+// DefaultDriveRetention (origem default); presente => valor do arquivo. Valor
+// negativo aborta o boot com erro claro.
+func resolveDriveRetention(origins *[]OriginEvent, v *int, fileLoaded bool) (int, error) {
+	if v == nil || !fileLoaded {
+		*origins = append(*origins, OriginEvent{Key: "google.drive_retention", Source: SourceDefault})
+		return DefaultDriveRetention, nil
+	}
+	if *v < 0 {
+		return 0, fmt.Errorf("config: google.drive_retention deve ser >= 0 (veio %d)", *v)
+	}
+	*origins = append(*origins, OriginEvent{Key: "google.drive_retention", Source: SourceFile})
+	return *v, nil
 }
 
 // resolvePath aplica a ordem de descoberta do arquivo e devolve o caminho a

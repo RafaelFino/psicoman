@@ -53,6 +53,9 @@ google:
   # Psicoman cria/descobre automaticamente uma pasta "Psicoman DR" no Drive e
   # persiste o id. Informe um id só se quiser reusar uma pasta específica.
   drive_folder: ""
+  # drive_retention (R2.4): quantos snapshots manter no Drive (default 14). Os
+  # excedentes vão para a LIXEIRA (não são apagados de vez). 0 = retenção manual.
+  drive_retention: 14
 
 # IA (Gemini) — OPT-IN pela PRESENÇA da chave: com api_key, a IA liga; sem, desliga.
 # Env equivalente: PSICOMAN_GEMINI_API_KEY. Lida da config, NUNCA logada.

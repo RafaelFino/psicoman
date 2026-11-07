@@ -109,8 +109,17 @@ Campos (ver [`../config.example.yaml`](../config.example.yaml)):
   sem o header real. **Atenção:** esse ator **não é uma identidade verificada pela
   borda** — é um valor de config. Por isso o `audit_log` em modo dev mostra a
   identidade configurada, não uma autenticação real. Em produção, mantenha vazio.
-- `google.*` — `client_id`/`client_secret`/`calendar_id`/`drive_folder`. Vazios ⇒
-  Calendar/Drive degradam (no-op, sem evento/espelho), sem derrubar o processo.
+- `google.*` — `client_id`/`client_secret`/`calendar_id`/`drive_folder`/`drive_retention`.
+  Sem `client_id`/`client_secret` (ou sem refresh token) o Drive degrada (no-op, sem
+  espelho); sem `calendar_id` o Calendar degrada (sem evento) — nunca derruba o processo.
+  - `drive_folder` é **opcional**: se informado, essa pasta é usada; se vazio, o
+    Psicoman cria (ou reencontra) uma pasta **"Psicoman DR"** no Drive e guarda o id
+    (coleção `drive_dr`). Renomear ou mover a pasta é seguro; **apagá-la** faz o app
+    recriá-la no próximo backup. Uma pasta criada à mão só vale se você informar o id
+    em `drive_folder` (a busca automática só enxerga o que o app criou).
+  - `drive_retention` (default **14**): quantos snapshots manter no Drive. Os excedentes
+    vão para a **lixeira** do Drive (recuperáveis por 30 dias), nunca são apagados
+    de vez. `0` desliga a limpeza (retenção manual). Valor negativo aborta o boot.
 - `llm.gemini.api_key` — opt-in da IA pela **presença** da chave. Vazio ⇒ IA off.
 
 > Alternativa a arquivo: toda chave tem env equivalente e **env sobrescreve o
@@ -362,11 +371,27 @@ Observabilidade (fora da auth, para probes):
 
 - `/v1/livez` — o processo está vivo (200 fixo).
 - `/v1/readyz` — cifra montada + DB acessível + estado do OAuth Google
-  (`google: ok|degraded`). 503 se cifra ou DB falham.
+  (`google: ok|degraded`) + espelhamento de DR (`drive_dr: desativado|ok|degradado`).
+  503 se cifra ou DB falham. `drive_dr: degradado` (último espelhamento falhou) **não**
+  derruba o `ready`: o backup local segue válido, mas o DR precisa de atenção — veja o
+  log (`falha ao espelhar backup no Drive`, campo `etapa`).
 - `/v1/health` — smoke simples no envelope.
 
 O timing por rota é logado (não há endpoint de métricas dedicado nesta versão —
 decisão registrada em [`decisions.md`](./decisions.md)).
+
+### Backup no Drive: snapshot inteiro e restauração
+
+Cada backup do PocketBase é espelhado no Drive como **snapshot inteiro, cifrado**
+(`<backup>.enc`, AES-256-GCM com a chave de `crypto.keys`). Não há backup incremental:
+o espaço usado cresce linearmente com o tamanho do banco × `drive_retention`.
+Snapshots anteriores à onda `auditoria-profunda` (sem a marca do app) ficam **fora**
+da retenção — limpe-os à mão se quiser.
+
+Para restaurar: baixe o `.enc` mais recente do Drive, **decifre** com a mesma chave
+(`BlobSealer`; guarde `crypto.keys` fora da VM — sem ela o snapshot é irrecuperável),
+descompacte o zip resultante e restaure o `data dir` (SQLite + storage) com o serviço
+parado.
 
 ---
 
@@ -376,6 +401,7 @@ decisão registrada em [`decisions.md`](./decisions.md)).
 |--------|----------------|-------------|
 | Boot aborta na partida | cifra ausente/inválida (fail-closed) | Defina `crypto.key_id`+`crypto.keys` no config ou `PSICOMAN_CIPHER_*` |
 | `/v1/readyz` com `google: degraded` | refresh token do Google ausente/expirado | Autorize/reautorize (passo 4.4) |
+| `/v1/readyz` com `drive_dr: degradado` | último espelhamento no Drive falhou (cota, rede, pasta, permissão) | Veja o log `falha ao espelhar backup no Drive` (`etapa`); o backup local continua válido |
 | `/v1/app/*` responde `401` sempre | header de identidade do Pangolin não chega | Confira o `identity_header` e a injeção no Pangolin |
 | Portal responde `401` em `/v1/portal/*` | sessão ausente/expirada | Faça login de novo (auth-with-password) |
 | Sessão não vira evento no Calendar | Google não autorizado ou `calendar_id` vazio | Autorize o Google e preencha `google.calendar_id` |

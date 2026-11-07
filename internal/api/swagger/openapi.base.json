@@ -203,9 +203,9 @@
     "/v1/readyz": {
       "get": {
         "tags": ["admin"],
-        "summary": "Readiness: cifra montada + DB acessível + estado do OAuth Google. 200 pronto (Google degradado não bloqueia); 503 se cifra ou DB falham.",
+        "summary": "Readiness: cifra montada + DB acessível + estado do OAuth Google + espelhamento de DR. 200 pronto (Google e DR degradados não bloqueiam); 503 se cifra ou DB falham.",
         "responses": {
-          "200": { "description": "Pronto (checks no corpo: cipher/db/google)" },
+          "200": { "description": "Pronto (checks no corpo: cipher/db/google/drive_dr; drive_dr = desativado|ok|degradado)" },
           "503": { "description": "Não pronto (cifra ou DB indisponível)" }
         }
       }

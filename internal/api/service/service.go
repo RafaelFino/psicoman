@@ -7,6 +7,7 @@ package service
 import (
 	"github.com/RafaelFino/psicoman/internal/app"
 	"github.com/RafaelFino/psicoman/internal/domain"
+	"github.com/RafaelFino/psicoman/internal/drivesync"
 )
 
 // Services agrega os serviços de aplicação usados pelos handlers /v1/*. É
@@ -37,6 +38,11 @@ type Services struct {
 	// Cipher é a cifra montada no boot, exposta para o readiness check (/readyz)
 	// fazer um round-trip seal/open de verificação. Nunca cifra dado real aqui.
 	Cipher domain.Cipher
+
+	// DriveStatus é o estado do espelhamento de DR no Drive (desativado|ok|
+	// degradado), exposto em /readyz (checks.drive_dr). Nil em testes que montam
+	// Services à mão: o readyz omite a chave nesse caso.
+	DriveStatus *drivesync.Status
 
 	// GoogleOAuth carrega as credenciais do app (client_id/secret) para o fluxo
 	// de autorização 3-legged (rotas admin). Vazio quando não configurado — o

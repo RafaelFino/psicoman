@@ -29,6 +29,7 @@ google:
   client_secret: ""
   calendar_id: ""
   drive_folder: "" # opcional (R3): vazio = pasta "Psicoman DR" criada automaticamente
+  drive_retention: 14 # snapshots mantidos no Drive (excedentes vão à lixeira); 0 = manual
 
 llm:
   gemini:

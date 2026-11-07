@@ -231,3 +231,51 @@ func TestResolvePathDescobreCandidatoNoCwd(t *testing.T) {
 		t.Errorf("deveria ter carregado config.dev.yaml do cwd: %+v", cfg.Crypto)
 	}
 }
+
+// TestLoadDriveRetention cobre google.drive_retention: ausente => 14 (default),
+// "0" => 0 (retenção manual), positivo => valor, negativo => erro de config.
+func TestLoadDriveRetention(t *testing.T) {
+	casos := []struct {
+		nome    string
+		yaml    string
+		want    int
+		origem  string
+		wantErr bool
+	}{
+		{"ausente", "google:\n  client_id: x\n", DefaultDriveRetention, SourceDefault, false},
+		{"zero", "google:\n  drive_retention: 0\n", 0, SourceFile, false},
+		{"positivo", "google:\n  drive_retention: 30\n", 30, SourceFile, false},
+		{"negativo", "google:\n  drive_retention: -1\n", 0, "", true},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			cfg, origins, err := Load(Options{Path: writeFixture(t, c.yaml)})
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("valor negativo deveria ser erro de config")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Google.DriveRetention != c.want {
+				t.Errorf("retention: quero %d, veio %d", c.want, cfg.Google.DriveRetention)
+			}
+			if got := originOf(origins, "google.drive_retention"); got != c.origem {
+				t.Errorf("origem: quero %q, veio %q", c.origem, got)
+			}
+		})
+	}
+}
+
+// TestLoadSemArquivoRetentionDefault: sem arquivo, o default 14 vale.
+func TestLoadSemArquivoRetentionDefault(t *testing.T) {
+	cfg, _, err := Load(Options{Path: filepath.Join(t.TempDir(), "nao-existe.yaml")})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Google.DriveRetention != DefaultDriveRetention {
+		t.Errorf("sem arquivo: quero %d, veio %d", DefaultDriveRetention, cfg.Google.DriveRetention)
+	}
+}

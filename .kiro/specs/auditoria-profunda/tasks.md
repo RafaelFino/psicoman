@@ -33,15 +33,15 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 | 1 — R4: golangci-lint v2 reativado | ✅ concluída | `af66a87` | spike ✅; `.golangci.yml` v2 + exclusões justificadas (misspell PT-BR, revive:error-strings/unused-parameter/exported/unexported-return/context-as-argument, **staticcheck:ST1005** — achado novo); Makefile (`tools`+`lint` obrigatório+`SKIP_LINT=1`) validado nos 4 cenários; CI com `make tools`; ADR R4 + README + deploy |
 | 2 — R4: triagem dos achados do linter | ✅ concluída | `66ca737` (bugs), `af66a87` (estilo/docs) | 195→36 (pós-exclusões) → **0 issues**. Bugs reais corrigidos (errcheck, QF, S1017, SA1019, SA9005 nolint, builtins sombreados); estilo de baixo valor desligado por regra justificada. `make check` verde com o **linter real** (v2.15.0, 0 issues) |
 | 3 — R7.4 + R1 + R5: ator real e auditoria clínica | ✅ concluída | `5a37ddb`, `de33df6` (E2E) | `domain.WithActor`/`ActorFrom`; `AuditService` resolve ator + `SetLogger`; `httpx.PropagateActor` nos grupos app/admin; `ProntuarioService.SetAudit` (ler/criar/atualizar, sem texto no meta); unit (domain, Record, PropagateActor, prontuario) + E2E real da trilha (ator real, não-vazamento, 401 não audita, session.cancel). `make check` verde (lint 0). TODO Fase 5 removido. ADR + §0.22 arch + aviso dev no deploy |
-| 4 — R3: pasta de DR criada automaticamente | ✅ concluída (spike 4.1 pendente do Rafael) | `<fase4>` | DriveClient estendido (List/Trash/Find/Create/GetFolder/AppProps/ErrDriveNotFound); migration `0050_drive_dr` + repo; `FolderResolver` (config>persistido>busca>criação, não importa google/app); `wireDriveSync` sem exigir `drive_folder`; teste em processo do fluxo de backup. **Spike 4.1 (credencial Google) pendente**: implementei assumindo o pré-verificado, fallback registrado |
-| 5 — R2: snapshot inteiro, retenção e degradação observável | ⬜ pendente | — | ADR, steering do Drive, `Syncer` novo, `/readyz` |
+| 4 — R3: pasta de DR criada automaticamente | ✅ concluída (spike 4.1 pendente do Rafael) | `a59c98e` | DriveClient estendido (List/Trash/Find/Create/GetFolder/AppProps/ErrDriveNotFound); migration `0050_drive_dr` + repo; `FolderResolver` (config>persistido>busca>criação, não importa google/app); `wireDriveSync` sem exigir `drive_folder`; teste em processo do fluxo de backup. **Spike 4.1 (credencial Google) pendente**: implementei assumindo o pré-verificado, fallback registrado |
+| 5 — R2: snapshot inteiro, retenção e degradação observável | ✅ concluída | `<fase5>` | ADR + steering do Drive; `drive_retention`; `Syncer` novo (retenção por lixeira, Observer, Status); adapter `List/Trash`; `/readyz` `checks.drive_dr`; 404 persistente sem laço. Retenção em runtime depende do spike 4.1 |
 | 6 — R7.1 + R7.2: rate limit e `state` do OAuth | ⬜ pendente | — | limitador em memória; store + cookie |
 | 7 — R8 base: dependência, registry, middleware e listener | ⬜ pendente | — | spikes pré-verificados (Pattern em runtime, `client_golang` v1.25.0 sem conflito no tidy); ADR do listener (R8.12) |
 | 8 — R8 famílias: negócio, integrações, auditoria, backup | ⬜ pendente | — | depende das Fases 3, 4, 5 e 6 |
 | 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ⬜ pendente | — | Gmail fora do steering; checklist de segredos |
 | 10 — Fechamento (release notes + checklist + push) | ⬜ pendente | — | push só com OK do Rafael |
 
-**Agora:** Fases 0–4 concluídas (spike manual 4.1 pendente de credencial do Rafael, fase implementada sobre o pré-verificado). Gate real verde. Próxima ação: Fase 5 — snapshot inteiro, retenção N=14, degradação observável, `/readyz` com `checks.drive_dr`.
+**Agora:** Fases 0–5 concluídas (spike manual 4.1 pendente de credencial do Rafael; Fases 4 e 5 implementadas sobre o pré-verificado). Gate real verde. Próxima ação: Fase 6 — rate limit em memória (R7.1) e validação do `state` do OAuth (R7.2).
 
 ---
 
@@ -206,7 +206,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
   - Arquivos: `internal/api/drive_dr_test.go` (novo), `docs/decisions.md`.
   - **Pronto quando:** `go test ./internal/api/ -run DriveDR` e `go test ./test/e2e/ -run Backup` passam.
   - **Refs:** R3.1, R3.4 · design §3.2.
-- [x] **Fechamento Fase 4:** `make check` verde; ADR da pasta de DR atualizado; commit `<fase4>` `auditoria-profunda Fase 4: cria e reutiliza a pasta de DR do Drive automaticamente`. **Ressalva:** spike manual 4.1 (`drive.file` em runtime, pai na lixeira) pendente de credencial real do Rafael — fase implementada sobre o pré-verificado, fallback documentado.
+- [x] **Fechamento Fase 4:** `make check` verde; ADR da pasta de DR atualizado; commit `a59c98e` `auditoria-profunda Fase 4: cria e reutiliza a pasta de DR do Drive automaticamente`. **Ressalva:** spike manual 4.1 (`drive.file` em runtime, pai na lixeira) pendente de credencial real do Rafael — fase implementada sobre o pré-verificado, fallback documentado.
 
 ---
 
@@ -214,41 +214,41 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 > Dep. de fase: Fase 4 (cliente Drive, resolver e wiring). Entrega a decisão R2.3 (ADR + steering), a retenção R2.4, o `Syncer` novo, a degradação R3.3 e o `/readyz`.
 
-- [ ] **5.1 ADR do snapshot inteiro e da política de retenção (R2.3, R2.4)** (dep: —)
+- [x] **5.1 ADR do snapshot inteiro e da política de retenção (R2.3, R2.4)** (dep: —) — ADR "Fase 5" em `docs/decisions.md`: snapshot inteiro (consequências: crescimento linear, banda, restauração em um arquivo), retenção N=14 por lixeira, degradação observável e o fallback do spike 4.1.
   - Duas entradas (ou uma com duas decisões) em `docs/decisions.md`: backup é snapshot inteiro cifrado (consequências: crescimento linear, banda proporcional, restauração em um arquivo) e retenção N=14 por lixeira (`google.drive_retention`, `0` = manual), com o fallback "retenção manual" se o spike 4.1 negou `list`/`update`.
   - Arquivo: `docs/decisions.md`.
   - **Pronto quando:** as decisões estão registradas no formato data/contexto/decisão/consequências e citam o spike.
   - **Refs:** R2.3, R2.4 · design §2.
-- [ ] **5.2 Atualizar o steering `psicoman-google-api.md`: Drive em snapshot inteiro (R2.3)** (dep: 5.1)
+- [x] **5.2 Atualizar o steering `psicoman-google-api.md`: Drive em snapshot inteiro (R2.3)** (dep: 5.1) — removidas as linhas de incremental/manifesto; seção Drive agora descreve snapshot inteiro cifrado, retenção por lixeira e pasta automática. (O Gmail segue para a 9.1.)
   - Trocar "Backup incremental por hash (manifesto no Drive)..." por "Snapshot inteiro por execução, cifrado (AES-256-GCM) antes do upload; o zip do PocketBase já é compactado; retenção por contagem feita pelo `drivesync`"; acrescentar a criação automática da pasta. Sem incremental e sem manifesto. **A remoção do Gmail neste arquivo fica na task 9.1** (mesmo arquivo, mudança de motivo diferente).
   - Arquivo: `.kiro/steering/psicoman-google-api.md`.
   - **Pronto quando:** `grep -in "incremental\|manifesto" .kiro/steering/psicoman-google-api.md` não encontra a exigência antiga e a seção Drive descreve snapshot inteiro e retenção.
   - **Refs:** R2.3 · design §2 e §9.
-- [ ] **5.3 Config `google.drive_retention`** (dep: —)
+- [x] **5.3 Config `google.drive_retention`** (dep: —) — `*int` no YAML (ausente=14 `default`, `0`=manual, positivo=`arquivo`, negativo=erro de config no `Load`); sem env. `config_test`: 4 casos + sem arquivo. `archtest` verde.
   - `yamlDoc.Google.DriveRetention *int` (ponteiro distingue ausente de `0`), `GoogleConfig.DriveRetention int` default 14, origem registrada (`arquivo|default`), sem env. Valor negativo → erro de config claro (`google.drive_retention deve ser >= 0`), boot aborta.
   - Arquivos: `internal/config/config.go`, `internal/config/config_test.go`.
   - **Pronto quando:** `go test ./internal/config/...` cobre ausente (14), `0`, positivo e negativo (erro). `internal/archtest` continua verde (`config` sem PocketBase).
   - **Refs:** R2.4 · design §2.
-- [ ] **5.4 `drivesync`: `SnapshotStore`, `Observer`, `Status`, `selectToTrash` e `New` novo** (dep: 4.4, 5.3)
+- [x] **5.4 `drivesync`: `SnapshotStore`, `Observer`, `Status`, `selectToTrash` e `New` novo** (dep: 4.4, 5.3) — `store.go` (File/SnapshotStore/Observer/NopObserver/Status nil-safe), `retention.go` (`selectToTrash` garante o recém-enviado, ignora sem `.enc`), `Syncer` reescrito (mede local via `Attributes().Size` e drive pelo blob cifrado; retenção só após upload ok e `retention>0`; nunca propaga falha de List/Trash; log com `etapa`). Hook testado com `tests.NewTestApp` (backup local real, Drive fake): retenção, Trash/List com erro, retention=0, falha de upload=degradado, sem store=desativado. 25 testes verdes.
   - `internal/drivesync/store.go` com `File`, `SnapshotStore`, `Observer`, `NopObserver`, `Status` (`SetConfigured`, `Set`, `State`, tabela do design §3.1; valor zero = `desativado`); `internal/drivesync/retention.go` com `selectToTrash(files, keep, justUploadedID)` aplicando `strings.HasSuffix(Name, ".enc")` e garantindo o recém-enviado; `New(store, sealer, retention, obs, st)` chama `st.SetConfigured(store != nil)`. O hook mede o backup local (`destino="local"`, tamanho via `Attributes(fileKey) (*blob.Attributes, error)` do `filesystem.System` do PocketBase v0.40.6, campo `.Size int64`: **verificado em 2026-11-05**; plano B: contar os bytes lidos pelo `mirror`), o espelhamento (`destino="drive"`, tamanho do blob cifrado), roda a retenção só após upload ok e `retention > 0`, e nunca propaga falha de `List`/`Trash`. Atualizar o `doc.go` do pacote se descrever o contrato antigo.
   - Arquivos: `internal/drivesync/drivesync.go`, `internal/drivesync/store.go` (novo), `internal/drivesync/retention.go` (novo), `internal/drivesync/drivesync_test.go`, `internal/drivesync/retention_test.go` (novo), `internal/drivesync/doc.go`.
   - **Pronto quando:** `go test ./internal/drivesync/...` cobre: tabela de `selectToTrash` (menos que N, exatamente N, mais que N, recém-enviado fora da listagem, arquivos sem prop/sem `.enc`); upload ok + retenção apaga os excedentes; `Trash` com erro não falha o backup; `retention=0` não lista; tabela de `State()` (zero value, configurado sem tentativa, `erro`, `ok`, `ok` depois de `erro`); `recordingObserver` recebe `Backup`, `Mirror`, `Retention`, `RetentionFailure` nos caminhos certos; pasta obsoleta recria uma vez e segunda falha não faz laço.
   - **Refs:** R2.4, R3.3 · design §2 e §3.1.
-- [ ] **5.5 Adapter do wiring satisfaz `SnapshotStore`; `Status` único em `Services`; `/readyz` com `checks.drive_dr`** (dep: 5.4)
+- [x] **5.5 Adapter do wiring satisfaz `SnapshotStore`; `Status` único em `Services`; `/readyz` com `checks.drive_dr`** (dep: 5.4) — `driveUploaderAdapter` ganhou `List` (pasta resolvida + `psicoman_kind=snapshot`, converte `google.DriveFile`→`drivesync.File`) e `Trash`; `buildServices` cria um `*drivesync.Status` passado ao seam (`driveSyncWirer` ganhou `obs` e `st`) e a `Services.DriveStatus`; `readyz` ganhou `checks.drive_dr` sem alterar `ready` e omite a chave com `DriveStatus==nil`. Testes `health_drive_test.go` (nil + 3 estados). Observer = `NopObserver` até a Fase 8.
   - `driveUploaderAdapter` passa a implementar `SnapshotStore` e `FolderClient` (`List` com `FolderID` resolvido e `AppProps{"psicoman_kind":"snapshot"}`, converte `google.DriveFile` em `drivesync.File`; `Trash` delega; `Upload` grava `AppProps`). `buildServices` cria um único `*drivesync.Status`, passa a `wireDriveSync` e a `Services.DriveStatus`. `readyz` ganha `checks.drive_dr` (`desativado|ok|degradado`) **sem** alterar `ready`; com `DriveStatus == nil` omite a chave sem panicar. Log `Error` com `backup`, `etapa` (`resolver_pasta`, `upload`, `retencao`) e `erro` sem segredo.
   - Arquivos: `internal/api/wiring.go`, `internal/api/service/service.go`, `internal/api/health.go`, `internal/api/health_test.go`.
   - **Pronto quando:** `go test ./internal/api/...` verde, com `checks.drive_dr` nos três estados e ausência quando `DriveStatus == nil`; `go test ./test/e2e/ -run Health` verde.
   - **Refs:** R3.3, R2.4 · design §3 e §3.1.
-- [ ] **5.6 Teste em processo da retenção e do `/readyz` do DR** (dep: 5.5)
+- [x] **5.6 Teste em processo da retenção e do `/readyz` do DR** (dep: 5.5) — `drive_dr_test.go`: retenção (lixeira `[b c]`, arquivo sem `.enc` intocado) + `/readyz` ok→degradado (upload falha)→ok (recupera); desativado sem credenciais; 404 persistente não faz laço (exatamente 2 uploads, DR degradado, backup 202).
   - Em `internal/api/drive_dr_test.go` (criado na 4.6): vários backups seguidos com `FakeDriveClient`, `google.drive_retention` pequeno, conferindo `Trashed` e o `checks.drive_dr` (`ok`, depois `degradado` com `UploadErr`/falha forçada).
   - **Pronto quando:** `go test ./internal/api/ -run DriveDR` passa.
   - **Refs:** R2.4, R3.3 · design §3.2.
-- [ ] **5.7 Docs do Drive DR (R6.2) e `config.example.yaml`** (dep: 5.5)
+- [x] **5.7 Docs do Drive DR (R6.2) e `config.example.yaml`** (dep: 5.5) — `architecture.md §0.10` reescrita (snapshot inteiro, ordem de resolução, `drive_dr`, retenção, degradação) + nota em §0.15; `deploy.md` (`drive_folder` opcional, `drive_retention`, nome "Psicoman DR", restauração, `drive_dr` no readyz e no troubleshooting); `config.example.yaml` e `deploy/config.docker.yaml` com `drive_retention`; Swagger do `/readyz` cita `drive_dr` (`go test ./internal/api/swagger/` verde).
   - `docs/architecture.md §0.10` (snapshot inteiro, ordem de resolução da pasta, `drive_dr`, retenção N=14 por lixeira, degradação observável) e a nota da §0.21; `docs/deploy.md`: `google.drive_folder` opcional, `google.drive_retention`, criação automática, nome "Psicoman DR" (renomear/mover é seguro, apagar recria), restauração (baixar `.enc`, decifrar com o `BlobSealer`/chave, descompactar), snapshots anteriores sem `appProperties` fora da retenção. `config.example.yaml` e `deploy/config.docker.yaml` com `drive_retention`. Swagger: `checks.drive_dr` no `/readyz` em `internal/api/swagger/openapi.base.json` (a spec é o JSON embutido; `swagger.go` só a serve), conferindo `contract_test.go`.
   - Arquivos: `docs/architecture.md`, `docs/deploy.md`, `config.example.yaml`, `deploy/config.docker.yaml`, `internal/api/swagger/openapi.base.json`.
   - **Pronto quando:** `go test ./internal/api/swagger/...` verde; os docs descrevem o comportamento real (snapshot inteiro, pasta automática, retenção).
   - **Refs:** R6.2, R2.3, R3.3 · design §2, §3 e §9.
-- [ ] **Fechamento Fase 5:** `make check` verde; ADRs, steering e docs atualizados; commit `auditoria-profunda Fase 5: oficializa o snapshot inteiro com retenção e degradação observável`.
+- [x] **Fechamento Fase 5:** `make check` verde; ADRs, steering e docs atualizados; commit `<fase5>` `auditoria-profunda Fase 5: oficializa o snapshot inteiro com retenção e degradação observável`. **Ressalva:** a retenção em runtime depende do spike 4.1 (`list`/`update` sob `drive.file`), pendente de credencial do Rafael; fallback documentado.
 
 ---
 

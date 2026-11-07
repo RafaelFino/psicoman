@@ -107,7 +107,8 @@ func buildServices(a core.App) (*service.Services, error) {
 	// Drive (fallback/DR, fora do caminho de request). Degrada para no-op sem
 	// credenciais Google — o backup local segue. A pasta é resolvida
 	// automaticamente (R3): drive_folder deixou de ser obrigatório.
-	driveSyncWirer(a, kp, googleAuth, driveFolderRepo)
+	driveStatus := &drivesync.Status{}
+	driveSyncWirer(a, kp, googleAuth, driveFolderRepo, drivesync.NopObserver{}, driveStatus)
 
 	// Repositórios (adapter platform/pb).
 	patientsRepo := pb.NewPatientRepository(a)
@@ -206,6 +207,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		Appts:       appts,
 		PortalAuth:  portalAuth,
 		Cipher:      cipher,
+		DriveStatus: driveStatus,
 		GoogleOAuth: oauthCfg,
 	}, nil
 }
@@ -281,6 +283,32 @@ func (a *driveUploaderAdapter) Upload(ctx context.Context, name string, content 
 		return "", rerr
 	}
 	return a.uploadTo(ctx, id2, name, content)
+}
+
+var _ drivesync.SnapshotStore = (*driveUploaderAdapter)(nil)
+
+// List devolve só os snapshots do app (appProperties psicoman_kind=snapshot) na
+// pasta de DR resolvida, mais recentes primeiro. A conversão
+// google.DriveFile -> drivesync.File mora aqui (o drivesync não importa google).
+func (a *driveUploaderAdapter) List(ctx context.Context) ([]drivesync.File, error) {
+	id, err := a.resolver.ID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	files, err := a.client.List(ctx, google.DriveListInput{FolderID: id, AppProps: snapshotAppProps})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]drivesync.File, 0, len(files))
+	for _, f := range files {
+		out = append(out, drivesync.File{ID: f.ID, Name: f.Name, Created: f.CreatedTime})
+	}
+	return out, nil
+}
+
+// Trash move o snapshot para a lixeira (reversível). Delega ao cliente.
+func (a *driveUploaderAdapter) Trash(ctx context.Context, fileID string) error {
+	return a.client.Trash(ctx, fileID)
 }
 
 // uploadTo faz o upload na pasta folderID e traduz google.ErrDriveNotFound em
@@ -395,12 +423,12 @@ func buildAISummarizer(a core.App) app.AISummarizer {
 // Syncer com uploader nil — o hook roda como no-op observável (backup local
 // segue, sem 500, com aviso logado). O snapshot é cifrado com o BlobSealer
 // (mesmas chaves da cifra de campo) antes do upload (drive.file, D9).
-func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.GoogleAuthService, folders app.DriveFolderRepository) {
+func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.GoogleAuthService, folders app.DriveFolderRepository, obs drivesync.Observer, st *drivesync.Status) {
 	sealer := crypto.NewBlobSealer(kp)
 	cfg, _, err := configLoader()
 	if err != nil {
 		a.Logger().Warn("Drive DR desativado: falha ao ler config", "erro", err.Error())
-		drivesync.New(nil, sealer).Register(a)
+		drivesync.New(nil, sealer, 0, obs, st).Register(a)
 		return
 	}
 	g := cfg.Google
@@ -410,7 +438,7 @@ func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.Google
 	if strings.TrimSpace(g.ClientID) == "" ||
 		strings.TrimSpace(g.ClientSecret) == "" {
 		a.Logger().Warn("Drive DR desativado: credenciais ausentes (client_id/client_secret) — backup não espelhado")
-		drivesync.New(nil, sealer).Register(a)
+		drivesync.New(nil, sealer, 0, obs, st).Register(a)
 		return
 	}
 	// Refresh token com precedência do repo (⟨R2⟩); env é fallback de dev.
@@ -419,7 +447,7 @@ func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.Google
 	if !ok || !creds.Valid() {
 		googleAuth.FlagReauthorization("Sem refresh token OAuth do Google (reautorização necessária).")
 		a.Logger().Warn("Drive DR desativado: sem refresh token OAuth (reautorização necessária) — backup não espelhado")
-		drivesync.New(nil, sealer).Register(a)
+		drivesync.New(nil, sealer, 0, obs, st).Register(a)
 		return
 	}
 	httpClient := google.NewOAuthHTTPClientWithScopes(context.Background(), creds, google.DriveScope)
@@ -430,8 +458,10 @@ func wireDriveSync(a core.App, kp *crypto.MapKeyProvider, googleAuth *app.Google
 		&driveFolderStoreAdapter{repo: folders},
 	)
 	uploader := &driveUploaderAdapter{client: client, resolver: resolver}
-	drivesync.New(uploader, sealer).Register(a)
-	a.Logger().Info("Drive DR ativado (hook de backup)", "drive_folder_configurado", strings.TrimSpace(g.DriveFolder) != "")
+	drivesync.New(uploader, sealer, g.DriveRetention, obs, st).Register(a)
+	a.Logger().Info("Drive DR ativado (hook de backup)",
+		"drive_folder_configurado", strings.TrimSpace(g.DriveFolder) != "",
+		"retencao", g.DriveRetention)
 }
 
 // wireCalendar liga o Google Calendar síncrono ao SessionService a partir do

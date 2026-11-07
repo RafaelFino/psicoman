@@ -6,6 +6,21 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-06 — `auditoria-profunda` Fase 5: backup ao Drive é snapshot inteiro, com retenção por contagem e degradação observável
+
+**Contexto.** O steering do Drive prometia "backup incremental por hash (manifesto no Drive)", mas o código sempre subiu o snapshot inteiro a cada backup; o acervo no Drive crescia sem limite e não havia sinal quando o espelhamento falhava (o `Syncer` só logava).
+
+**Decisão (do Rafael).**
+1. **Snapshot inteiro, sem incremental** (R2.3). Cada backup sobe o zip do PocketBase inteiro, cifrado (AES-256-GCM) como `<backup>.enc`; o código não recompacta. O steering foi corrigido para dizer isso. *Consequências:* crescimento linear do acervo, banda proporcional ao tamanho do banco, restauração em um único arquivo (baixar `.enc`, decifrar com o `BlobSealer`/chave, descompactar). Incremental/manifesto fica descartado (complexidade sem ganho para o porte atual).
+2. **Retenção por contagem** (R2.4): `google.drive_retention` (default **14**; `0` = nunca apagar, retenção manual; negativo = erro de config no boot). Roda no mesmo hook, **só após upload ok**, e mantém os N mais recentes **garantindo que o recém-enviado esteja entre eles** (a listagem do Drive é eventualmente consistente). Os excedentes vão para a **lixeira** (`trashed`, reversível por 30 dias), nunca `delete`. Contagem (não idade) protege contra o caso "backup parou e a limpeza apaga tudo". Travas: o `List` do adapter só devolve arquivos na pasta de DR com `appProperties psicoman_kind=snapshot`, e `selectToTrash` só considera nomes `.enc`. Snapshots anteriores a esta onda (sem `appProperties`) ficam **fora** da retenção (limpeza manual).
+3. **Degradação observável** (R3.3): falha de espelhamento/retenção deixa de ser silenciosa — log `Error` com `etapa` (cifra/upload/retencao), `Observer` para métricas (R8) e `drivesync.Status`, exposto em `/readyz` como `checks.drive_dr` (`desativado|ok|degradado`). Informativo: **não** altera `ready` (a app opera sem DR), como o `google`.
+
+**Spike `drive.file` (4.1) em aberto.** A retenção depende de `files.list`/`files.update` sob `drive.file`, confirmados pela documentação oficial mas **não em runtime** (credencial real do Rafael). Fallback: se o Drive negar a listagem, a retenção não roda, o erro é contado (`RetentionFailure("listar")`) e logado; o upload segue funcionando; a limpeza vira manual (equivalente a `drive_retention: 0`).
+
+**Consequências.** `drivesync.New(store, sealer, retention, obs, status)`; novos `SnapshotStore`, `Observer`, `Status`, `selectToTrash`; `Services.DriveStatus`; `/readyz` com `checks.drive_dr`. Docs: `architecture.md §0.10`, `deploy.md`, `config.example.yaml`. As métricas (Observer ligado ao Prometheus) entram na Fase 8.
+
+---
+
 ## 2026-11-06 — `auditoria-profunda` Fase 4: pasta de DR do Drive criada automaticamente
 
 **Contexto.** O espelho de DR no Drive dependia de `google.drive_folder` configurado à mão; vazio, o DR ficava desativado em silêncio mesmo com credenciais válidas. Além disso, perder o estado local (instância nova restaurada de um snapshot) deixava o app sem saber qual pasta usar, arriscando duplicar pastas.
