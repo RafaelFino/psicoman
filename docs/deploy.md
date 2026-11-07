@@ -182,6 +182,15 @@ consentimento do Google e volta no callback):
    `curl https://psicoman.seudominio.com.br/v1/admin/google/status`
    → `{"state":"ok"}` quando autorizado; `degraded` se pendente.
 
+**Proteção do fluxo (`state`).** O authorize emite um `state` de uso único (validade
+de 10 min) e grava o cookie `psicoman_oauth_state` (`HttpOnly`, `SameSite=Lax`). O
+callback exige os dois e responde `400 state_invalido` se faltar, divergir, expirar
+ou for reutilizado — **conclua o consentimento no MESMO navegador** em que abriu o
+authorize, dentro de 10 minutos. Se o fluxo ficou aberto durante um deploy/restart,
+basta repetir o passo 1. O cookie só leva o atributo `Secure` quando o request chega
+como HTTPS: **configure o Pangolin/proxy para repassar `X-Forwarded-Proto`** (sem
+isso o fluxo funciona igual, só sem o endurecimento).
+
 A partir daí o access token é renovado automaticamente. Se a renovação falhar no
 futuro, `/v1/readyz` passa a reportar `google: degraded` (reautorização
 necessária) — basta repetir este passo. O refresh token nunca aparece em resposta
@@ -202,7 +211,13 @@ mais (`/v1/app`, `/v1/admin`, `/api/`, `/_/`, `/v1/swagger`). A config de
 referência está em [`../deploy/nginx/portal.conf`](../deploy/nginx/portal.conf)
 e é a mesma usada na stack local (`docker-compose.yml`). Ela aplica:
 
-- **rate limit** por IP nas rotas do portal (ex.: 30 req/min, burst 20 → 429);
+- **rate limit** por IP nas rotas do portal (ex.: 30 req/min, burst 20 → 429) —
+  é a **1ª camada**. O app soma uma **2ª camada, por identidade**, em memória:
+  `POST /v1/portal/register` limita **5 cadastros/h por e-mail** e
+  `POST /v1/portal/appointment-requests` limita **10 pedidos/h por paciente**
+  (resposta `429 limite_excedido` com `Retry-After`). Os contadores vivem na memória do
+  processo: um restart zera as janelas. Não há configuração para esses valores nesta
+  versão;
 - **limite de corpo** (2 MB) e **timeouts curtos** (mitiga slowloris);
 - **limite de conexões** por IP;
 - limpeza do header de identidade do Pangolin vindo de fora (anti-spoofing);

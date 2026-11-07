@@ -89,6 +89,7 @@ func newClient(t *testing.T, app *tests.TestApp) *apiClient {
 type apiResp struct {
 	status int
 	body   string
+	header http.Header
 }
 
 func (c *apiClient) do(method, url, body string, headers map[string]string) apiResp {
@@ -104,7 +105,7 @@ func (c *apiClient) do(method, url, body string, headers map[string]string) apiR
 	}
 	rec := httptest.NewRecorder()
 	c.mux.ServeHTTP(rec, req)
-	return apiResp{status: rec.Code, body: rec.Body.String()}
+	return apiResp{status: rec.Code, body: rec.Body.String(), header: rec.Header().Clone()}
 }
 
 // extractID lê um id "01..." do corpo (data.id ou patient.id). Simplista: busca

@@ -44,6 +44,10 @@ type Services struct {
 	// Services à mão: o readyz omite a chave nesse caso.
 	DriveStatus *drivesync.Status
 
+	// OAuthState emite/consome o `state` do fluxo OAuth do Google (R7.2): uso
+	// único, TTL de 10 min, em memória.
+	OAuthState app.OAuthStateStore
+
 	// GoogleOAuth carrega as credenciais do app (client_id/secret) para o fluxo
 	// de autorização 3-legged (rotas admin). Vazio quando não configurado — o
 	// handler responde 422 nesse caso. NUNCA logar/serializar o secret.

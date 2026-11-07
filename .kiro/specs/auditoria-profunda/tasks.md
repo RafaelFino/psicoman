@@ -34,14 +34,14 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 | 2 — R4: triagem dos achados do linter | ✅ concluída | `66ca737` (bugs), `af66a87` (estilo/docs) | 195→36 (pós-exclusões) → **0 issues**. Bugs reais corrigidos (errcheck, QF, S1017, SA1019, SA9005 nolint, builtins sombreados); estilo de baixo valor desligado por regra justificada. `make check` verde com o **linter real** (v2.15.0, 0 issues) |
 | 3 — R7.4 + R1 + R5: ator real e auditoria clínica | ✅ concluída | `5a37ddb`, `de33df6` (E2E) | `domain.WithActor`/`ActorFrom`; `AuditService` resolve ator + `SetLogger`; `httpx.PropagateActor` nos grupos app/admin; `ProntuarioService.SetAudit` (ler/criar/atualizar, sem texto no meta); unit (domain, Record, PropagateActor, prontuario) + E2E real da trilha (ator real, não-vazamento, 401 não audita, session.cancel). `make check` verde (lint 0). TODO Fase 5 removido. ADR + §0.22 arch + aviso dev no deploy |
 | 4 — R3: pasta de DR criada automaticamente | ✅ concluída (spike 4.1 pendente do Rafael) | `a59c98e` | DriveClient estendido (List/Trash/Find/Create/GetFolder/AppProps/ErrDriveNotFound); migration `0050_drive_dr` + repo; `FolderResolver` (config>persistido>busca>criação, não importa google/app); `wireDriveSync` sem exigir `drive_folder`; teste em processo do fluxo de backup. **Spike 4.1 (credencial Google) pendente**: implementei assumindo o pré-verificado, fallback registrado |
-| 5 — R2: snapshot inteiro, retenção e degradação observável | ✅ concluída | `<fase5>` | ADR + steering do Drive; `drive_retention`; `Syncer` novo (retenção por lixeira, Observer, Status); adapter `List/Trash`; `/readyz` `checks.drive_dr`; 404 persistente sem laço. Retenção em runtime depende do spike 4.1 |
-| 6 — R7.1 + R7.2: rate limit e `state` do OAuth | ⬜ pendente | — | limitador em memória; store + cookie |
+| 5 — R2: snapshot inteiro, retenção e degradação observável | ✅ concluída | `604a82a` | ADR + steering do Drive; `drive_retention`; `Syncer` novo (retenção por lixeira, Observer, Status); adapter `List/Trash`; `/readyz` `checks.drive_dr`; 404 persistente sem laço. Retenção em runtime depende do spike 4.1 |
+| 6 — R7.1 + R7.2: rate limit e `state` do OAuth | ✅ concluída | `<fase6>` | `httpx.Limiter` (5/h e-mail, 10/h paciente, 429+Retry-After); `OAuthStateStore` + cookie; `400 state_invalido`; testes unit/em processo/E2E; ADRs + deploy + arch §0.23 |
 | 7 — R8 base: dependência, registry, middleware e listener | ⬜ pendente | — | spikes pré-verificados (Pattern em runtime, `client_golang` v1.25.0 sem conflito no tidy); ADR do listener (R8.12) |
 | 8 — R8 famílias: negócio, integrações, auditoria, backup | ⬜ pendente | — | depende das Fases 3, 4, 5 e 6 |
 | 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ⬜ pendente | — | Gmail fora do steering; checklist de segredos |
 | 10 — Fechamento (release notes + checklist + push) | ⬜ pendente | — | push só com OK do Rafael |
 
-**Agora:** Fases 0–5 concluídas (spike manual 4.1 pendente de credencial do Rafael; Fases 4 e 5 implementadas sobre o pré-verificado). Gate real verde. Próxima ação: Fase 6 — rate limit em memória (R7.1) e validação do `state` do OAuth (R7.2).
+**Agora:** Fases 0–6 concluídas (spike manual 4.1 pendente de credencial do Rafael). Gate real verde. Próxima ação: Fase 7 — R8 base (client_golang v1.25.0, registry, middleware HTTP, listener dedicado de métricas).
 
 ---
 
@@ -248,7 +248,7 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
   - Arquivos: `docs/architecture.md`, `docs/deploy.md`, `config.example.yaml`, `deploy/config.docker.yaml`, `internal/api/swagger/openapi.base.json`.
   - **Pronto quando:** `go test ./internal/api/swagger/...` verde; os docs descrevem o comportamento real (snapshot inteiro, pasta automática, retenção).
   - **Refs:** R6.2, R2.3, R3.3 · design §2, §3 e §9.
-- [x] **Fechamento Fase 5:** `make check` verde; ADRs, steering e docs atualizados; commit `<fase5>` `auditoria-profunda Fase 5: oficializa o snapshot inteiro com retenção e degradação observável`. **Ressalva:** a retenção em runtime depende do spike 4.1 (`list`/`update` sob `drive.file`), pendente de credencial do Rafael; fallback documentado.
+- [x] **Fechamento Fase 5:** `make check` verde; ADRs, steering e docs atualizados; commit `604a82a` `auditoria-profunda Fase 5: oficializa o snapshot inteiro com retenção e degradação observável`. **Ressalva:** a retenção em runtime depende do spike 4.1 (`list`/`update` sob `drive.file`), pendente de credencial do Rafael; fallback documentado.
 
 ---
 
@@ -256,40 +256,40 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 
 > Dep. de fase: Fase 3 (padrão de testes e ator). As duas partes são independentes entre si.
 
-- [ ] **6.1 `httpx.Limiter` (janela fixa, em memória) e `EmailKey`** (dep: —)
+- [x] **6.1 `httpx.Limiter` (janela fixa, em memória) e `EmailKey`** (dep: —) — `internal/api/httpx/ratelimit.go` (stdlib, sem goroutine; `Allow` recusa por estouro e por saturação chamando `OnReject(scope)`; `Warn` ≤1/min só com a contagem; `EmailKey` = sha256 hex normalizado). 8 testes: limite/estouro, expiração, limpeza, saturação (nova recusada, existente atendida, volta após a janela), `OnReject` 1x por 429 e 0 em ok, Warn 1/min sem vazar a chave, EmailKey.
   - `LimiterOptions{Limit, Window, MaxKeys, Scope, Log, OnReject, Clock}`, `ScopeCadastro`/`ScopeAgendamento`, `Allow` (recusa por estouro **e** por saturação, chamando `OnReject(scope)`; `ok` nunca chama), limpeza sem goroutine, `Warn` de saturação no máximo 1/min com a contagem de chaves, `EmailKey(scope, email)` = sha256 em hex do e-mail normalizado. `OnReject` nulo é no-op (a ligação ao recorder é feita na Fase 8, task 8.6).
   - Arquivos: `internal/api/httpx/ratelimit.go` (novo), `internal/api/httpx/ratelimit_test.go` (novo).
   - **Pronto quando:** `go test ./internal/api/httpx/ -run Limiter` cobre: dentro do limite, estouro, expiração da janela, limpeza, saturação com `maxKeys` pequeno (chave nova → recusada; chave existente dentro do limite → atendida; expirada a janela, a nova volta a ser aceita), `Warn` uma vez por minuto (logger fake), `OnReject` exatamente uma vez por 429 com o `Scope` certo e nenhuma vez em `ok`.
   - **Refs:** R7.1 · design §7.
-- [ ] **6.2 Aplicar o limite em `register` e em `appointment-requests`** (dep: 6.1)
+- [x] **6.2 Aplicar o limite em `register` e em `appointment-requests`** (dep: 6.1) — `portal.Mount` cria um limitador por escopo (`maxLimiterKeys=10000`, `registerLimitPerHour=5`, `appointmentLimitPerHour=10`); register: após `BindBody` e antes da validação de senha (e-mail vazio segue p/ 422); appointment: após `resolvePatient`, chave = hash do `patient_id`; `429 limite_excedido` + `Retry-After`; log só com 8 hex do hash. Swagger declara `429` nas duas rotas (`go test ./internal/api/swagger/` verde).
   - `portal.Mount` cria um limitador por escopo (`maxLimiterKeys = 10000`, `registerLimitPerHour = 5`, `appointmentLimitPerHour = 10` como constantes nomeadas). `POST /v1/portal/register`: logo após `BindBody` e **antes** da validação de senha, chave `EmailKey(ScopeCadastro, body.Email)`; e-mail vazio segue para a validação normal (422); o 429 é decidido antes de qualquer consulta ao banco. `POST /v1/portal/appointment-requests`: após `resolvePatient`, chave `EmailKey(ScopeAgendamento, patientID)`. Resposta `httpx.RespondError(e, 429, "limite_excedido", "Muitas tentativas. Tente novamente mais tarde.", nil)` com `Retry-After`. Nunca guardar nem logar o e-mail (só hash truncado de 8 hex no `Warn` de bloqueio).
   - Arquivos: `internal/api/portal/me.go`, `internal/api/portal/appointments.go`, `internal/api/swagger/openapi.base.json` (declarar `"429"` em `responses` das duas rotas do portal). **Verificado em 2026-11-05:** o `contract_test.go` compara só método+caminho e exige `responses` não vazio; não compara códigos, então basta editar o JSON.
   - **Pronto quando:** `go build ./...` ok; `go test ./internal/api/swagger/...` verde.
   - **Refs:** R7.1 · design §7.
-- [ ] **6.3 Testes E2E do rate limit (permitido e negado)** (dep: 6.2)
+- [x] **6.3 Testes E2E do rate limit (permitido e negado)** (dep: 6.2) — E2E `TestPortalRegisterRateLimit429` (5 variações de caixa/espaço, 6º=429 com `Retry-After` numérico e envelope, corpo sem o e-mail, outro e-mail=201); em processo `TestPortalAgendamentoRateLimit429` (10 ok, 11º=429, outro paciente livre, sem sessão=401).
   - Em `test/e2e/portal_test.go`: 5 cadastros com o mesmo e-mail (variando caixa e espaços), o 6º recebe `429` com envelope e `Retry-After`; outro e-mail segue normal (2xx/4xx); o corpo do 429 não contém o e-mail. Agendamento: teste em processo com paciente aprovado em `internal/api/portal_gate_test.go` (ou novo arquivo na mesma pasta), conferindo 429 após o limite e que outro paciente não é afetado.
   - **Pronto quando:** `go test ./test/e2e/ -run Portal` e `go test ./internal/api/ -run Portal` passam.
   - **Refs:** R7.1 · design §7.
-- [ ] **6.4 `OAuthStateStore` em memória** (dep: —)
+- [x] **6.4 `OAuthStateStore` em memória** (dep: —) — `internal/app/oauth_state.go` (128 bits `crypto/rand` base64url, uso único, TTL 10 min, teto 100: descarta expirados, cheio remove o mais antigo, mutex, relógio injetável); `Services.OAuthState` criado em `buildServices` com seam `oauthStateClock`. 7 testes. `archtest` verde.
   - `Issue()` (16 bytes de `crypto/rand` em base64url), `Consume(state)` uso único com TTL de 10 min, `maxPending = 100` (descarta expirados; se cheio, remove o mais antigo), mutex, relógio injetável. Campo `OAuthState app.OAuthStateStore` em `Services`, criado em `buildServices`.
   - Arquivos: `internal/app/oauth_state.go` (novo), `internal/app/oauth_state_test.go` (novo), `internal/api/service/service.go`, `internal/api/wiring.go`.
   - **Pronto quando:** `go test ./internal/app/ -run OAuthState` cobre emite/consome uma vez, expira, cheio, reuso falha.
   - **Refs:** R7.2 · design §8.
-- [ ] **6.5 `GoogleAuthorize`/`GoogleCallback` com cookie e validação** (dep: 6.4)
+- [x] **6.5 `GoogleAuthorize`/`GoogleCallback` com cookie e validação** (dep: 6.4) — authorize emite state + cookie (`HttpOnly`, `SameSite=Lax`, `Path=/v1/admin/google`, `MaxAge=600`, `Secure` sob TLS/`X-Forwarded-Proto`); callback: lê e expira o cookie em todos os caminhos → `error` do Google (422) → state query==cookie (`subtle.ConstantTimeCompare`) → `Consume` → code → Configured → troca; falha = `400 state_invalido` (mesma mensagem). Swagger documenta o `400 state_invalido`.
   - `GoogleAuthorize` emite o `state` e grava o cookie `psicoman_oauth_state` (`HttpOnly`, `SameSite=Lax`, `Path=/v1/admin/google`, `MaxAge=600`, `Secure` quando `X-Forwarded-Proto=https` ou TLS). `GoogleCallback`, nesta ordem: `error` do Google (422, limpa o cookie) → `state` da query vs cookie (`subtle.ConstantTimeCompare`; ausente ou diferente → `400 state_invalido`) → `Consume` falso → `400 state_invalido` (mesma mensagem) → `code`, `Configured()` e troca. Cookie expirado (`MaxAge=-1`) em todos os caminhos. Mensagem: "Estado da autorização inválido ou expirado. Inicie a autorização novamente." Documentar `400 state_invalido` no Swagger (`openapi.base.json`).
   - Arquivos: `internal/api/admin/google_oauth.go`, `internal/api/swagger/openapi.base.json`.
   - **Pronto quando:** `go build ./...` ok; testes da 6.6 passam.
   - **Refs:** R7.2 · design §8.
-- [ ] **6.6 Atualizar e ampliar os testes do callback** (dep: 6.5)
+- [x] **6.6 Atualizar e ampliar os testes do callback** (dep: 6.5) — `apiResp` ganhou `header`; `google_oauth_test.go` e `health_test.go` passam pelo fluxo authorize→cookie→callback (`autorizarGoogle`); novos: atributos do cookie (+Secure via proxy), negados (sem cookie, divergente, sem state, reuso, expirado via `oauthStateClock`) com 400 e cookie expirado, `error` do Google expira o cookie. E2E real `oauth_state_test.go` (config temporário com client_id fictício via `PSICOMAN_CONFIG`; authorize 302+cookie; callbacks inválidos=400 antes da troca). Sem `t.Skip`.
   - Os testes existentes `internal/api/google_oauth_test.go` (~l.80, `state=abc`) e `internal/api/health_test.go` (~l.60, `state=s`) chamam o callback sem passar pelo authorize e **quebram**: ajustá-los para o fluxo authorize → `Set-Cookie` e `state` da `Location` → callback com `Cookie`. Novos casos: sem cookie, state diferente, state reusado (2º callback → 400), state expirado (relógio do store). E2E real em `test/e2e/` (ex.: novo `test/e2e/oauth_state_test.go`): authorize (302 + cookie), callback sem state → `400` (falha antes da troca; o Google real não é tocado).
   - **Pronto quando:** `go test ./internal/api/... ./test/e2e/...` passam; sem `t.Skip`.
   - **Refs:** R7.2 · design §8.
-- [ ] **6.7 Docs e ADR da fase** (dep: 6.3, 6.6)
+- [x] **6.7 Docs e ADR da fase** (dep: 6.3, 6.6) — 2 ADRs em `docs/decisions.md` (state do OAuth; rate limit em duas camadas, com saturação por botnet como risco aceito e 409/login nativo como backlog); `deploy.md` (duas camadas, mesmo navegador, `X-Forwarded-Proto`); `architecture.md §0.23`. Steering de segurança não muda.
   - ADR "state do OAuth validado" e ADR do rate limit em duas camadas (nginx por IP, app por e-mail/paciente; saturação por botnet como risco aceito; enumeração por `409` e login nativo sem limite como achados de backlog) em `docs/decisions.md`. `docs/deploy.md`: duas camadas, callback no mesmo navegador do authorize, o proxy/Pangolin deve repassar `X-Forwarded-Proto`. `docs/architecture.md`. Steering `psicoman-seguranca-lgpd.md` **não muda** (já pede as duas camadas).
   - Arquivos: `docs/decisions.md`, `docs/deploy.md`, `docs/architecture.md`.
   - **Pronto quando:** os três documentos descrevem as duas camadas e o fluxo do `state`.
   - **Refs:** R7.1, R7.2 · design §7 e §8.
-- [ ] **Fechamento Fase 6:** `make check` verde; Swagger e docs atualizados; commit `auditoria-profunda Fase 6: limita tentativas por e-mail e valida o state do OAuth`.
+- [x] **Fechamento Fase 6:** `make check` verde; Swagger e docs atualizados; commit `<fase6>` `auditoria-profunda Fase 6: limita tentativas por e-mail e valida o state do OAuth`.
 
 ---
 

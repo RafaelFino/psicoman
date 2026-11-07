@@ -17,6 +17,7 @@ import (
 	"github.com/RafaelFino/psicoman/internal/drivesync"
 	"github.com/RafaelFino/psicoman/internal/integration/gemini"
 	"github.com/RafaelFino/psicoman/internal/integration/google"
+	"github.com/RafaelFino/psicoman/internal/platform/clock"
 	"github.com/RafaelFino/psicoman/internal/platform/crypto"
 	"github.com/RafaelFino/psicoman/internal/platform/pb"
 )
@@ -208,6 +209,7 @@ func buildServices(a core.App) (*service.Services, error) {
 		PortalAuth:  portalAuth,
 		Cipher:      cipher,
 		DriveStatus: driveStatus,
+		OAuthState:  app.NewMemoryOAuthStateStore(oauthStateClock, app.OAuthStateTTL, app.OAuthStateMaxPending),
 		GoogleOAuth: oauthCfg,
 	}, nil
 }
@@ -242,6 +244,10 @@ var calendarWirer = wireCalendar
 // Default liga o Google real (wireDriveSync); os testes em processo o reatribuem
 // para injetar um uploader fake ou desativar, sem tocar a rede (Fase 7).
 var driveSyncWirer = wireDriveSync
+
+// oauthStateClock é o relógio do store de `state` do OAuth. nil = relógio do
+// sistema. Seam de teste: permite expirar um state sem esperar o TTL.
+var oauthStateClock clock.Clock
 
 // snapshotAppProps marca os snapshots de DR no Drive (usado no upload e como
 // filtro da listagem de retenção).

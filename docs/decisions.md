@@ -6,6 +6,47 @@ Ordem: mais recente no topo.
 
 ---
 
+## 2026-11-06 — `auditoria-profunda` Fase 6: `state` do OAuth validado
+
+**Contexto.** O `GoogleAuthorize` gerava um `state` (ULID) e o `GoogleCallback` **nunca o conferia**: qualquer navegador autenticado no Pangolin podia concluir um fluxo OAuth forjado (CSRF / login CSRF), gravando um refresh token escolhido por terceiro. Um ULID também tem prefixo temporal previsível.
+
+**Decisão (do Rafael).** Dois mecanismos combinados, ambos obrigatórios:
+1. **Store em memória** (`app.OAuthStateStore`): `state` de **128 bits de `crypto/rand`** (base64url, não ULID), **uso único**, **TTL de 10 min**, teto de 100 pendentes (descarta expirados; cheio, remove o mais antigo). O processo é único, então memória basta; um restart no meio do consentimento só obriga a repetir o fluxo.
+2. **Cookie** `psicoman_oauth_state` com o mesmo valor — `HttpOnly`, `SameSite=Lax` (o callback é navegação top-level GET vinda do Google), `Path=/v1/admin/google`, `MaxAge=600`, `Secure` quando TLS/`X-Forwarded-Proto=https`. Amarra o fluxo ao **navegador** que iniciou; o store sozinho só prova "este state foi emitido".
+
+Ordem no callback: `error` do Google (422) → `state` da query vs cookie (`subtle.ConstantTimeCompare`; ausente ou diferente) → `Consume` (expirado/reusado) → `code` → `Configured()` → troca. Falha de state = **`400 state_invalido`**, mesma mensagem para todos os motivos ("Estado da autorização inválido ou expirado. Inicie a autorização novamente."). O cookie é expirado em **todos** os caminhos. A validação roda **antes** da troca: o Google real nunca é tocado com state inválido.
+
+**Alternativas descartadas.** Coleção PocketBase efêmera (migration e adapter para algo que vive 10 minutos num processo só); só cookie (sem uso único, reapresentável); só store (sem amarra ao navegador).
+
+**Consequências.**
+- O `Secure` do cookie é **só endurecimento**: a proteção real vem do uso único e do `SameSite`. Se o proxy não repassar `X-Forwarded-Proto`, o cookie sai sem `Secure` e o fluxo funciona igual — `docs/deploy.md` pede que o Pangolin repasse o header.
+- **Quem tinha um fluxo aberto antes do deploy reinicia o authorize.** O callback exige o MESMO navegador do authorize.
+- Os testes que chamavam o callback sem authorize (`state=abc`, `state=s`) foram atualizados para o fluxo authorize → `Set-Cookie`/`state` → callback com `Cookie`.
+- Swagger documenta `400 state_invalido` no callback.
+
+---
+
+## 2026-11-06 — `auditoria-profunda` Fase 6: rate limit em duas camadas (nginx por IP + app por identidade)
+
+**Contexto.** O portal só tinha o limite **por IP** do nginx (30 r/min). Um atacante com muitos IPs, ou um cliente atrás de NAT, escapa/atrapalha o limite por IP; faltava um limite **por identidade** (e-mail no cadastro, paciente no pedido de agendamento).
+
+**Decisão (do Rafael).** Manter o nginx por IP (inalterado) e somar um limitador **em memória, de janela fixa por chave**, em stdlib (sem `golang.org/x/time/rate` nem dependência nova): `httpx.Limiter`.
+- `POST /v1/portal/register`: **5 por hora por e-mail normalizado** (trim + minúsculas), decidido logo após o `BindBody` e **antes** da validação de senha e de qualquer consulta ao banco.
+- `POST /v1/portal/appointment-requests`: **10 por hora por paciente da sessão** (chave = hash do `patient_id`; nunca algo vindo do corpo).
+- Resposta `429 limite_excedido` no envelope PT-BR com `Retry-After`, idêntica para qualquer chave.
+- **Anti-enumeração e privacidade:** a chave é `sha256(escopo:valor)`; **toda tentativa conta**, exista ou não o e-mail; o valor original nunca é guardado nem logado (só 8 hex do hash no log de bloqueio).
+- **Memória limitada:** `maxKeys = 10000` por escopo (~1 MB). Com a tabela cheia, **chave nova é recusada com 429** (fail-closed de memória) e chave existente dentro do limite segue atendida. Limpeza sem goroutine (a cada 256 chamadas ou acima de metade da tabela). `Warn` de saturação no máximo 1/min, só com a contagem.
+
+**Riscos aceitos.**
+- **Saturação por botnet:** com o nginx a 30 r/min por IP, um IP gera no máximo 1800 chaves/h; é preciso sustentar mais de 5 IPs distintos por uma hora para encher a tabela, o que **nega cadastros novos por até 1 h** (sem perda de dados, sem afetar pacientes já cadastrados nem o agendamento, que usa outra tabela). Mitigação: o `Warn` e a métrica `rate_limit_rejeicoes_total{escopo}` (Fase 8) evidenciam o pico.
+- Limite em memória some num restart (janela recomeça): aceitável para abuso de baixa intensidade; o nginx segue de pé.
+
+**Achados registrados como backlog (não corrigidos aqui).** (1) **Enumeração por `409`** no `register` quando o e-mail já existe: o limite reduz a taxa de sondagem mas não fecha o canal; fechar exige decisão de produto (resposta uniforme `201`). (2) O **login nativo** do paciente (`/api/collections/patient_user/auth-with-password`) não passa por este limitador (e o `portal.conf` bloqueia `/api/` na borda pública).
+
+**Consequências.** `portal.Mount` cria um limitador por escopo (constantes nomeadas); Swagger declara `429` nas duas rotas; `OnReject` fica nulo até a Fase 8 ligá-lo ao recorder de métricas. Cobertura: unit do `Limiter` (limite, expiração, limpeza, saturação, `Warn` 1/min, `OnReject`), E2E do cadastro (5 + 429 com `Retry-After`, outro e-mail passa, corpo sem e-mail) e em processo do agendamento (11º = 429, outro paciente livre, sem sessão = 401).
+
+---
+
 ## 2026-11-06 — `auditoria-profunda` Fase 5: backup ao Drive é snapshot inteiro, com retenção por contagem e degradação observável
 
 **Contexto.** O steering do Drive prometia "backup incremental por hash (manifesto no Drive)", mas o código sempre subiu o snapshot inteiro a cada backup; o acervo no Drive crescia sem limite e não havia sinal quando o espelhamento falhava (o `Syncer` só logava).
