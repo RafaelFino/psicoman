@@ -4,6 +4,36 @@ O que muda a cada onda de trabalho, em linguagem para quem usa o sistema. Detalh
 
 ---
 
+## 2026-11-06 — Mais segurança, backup confiável e visão operacional (onda `auditoria-profunda`)
+
+Correção dos achados de uma auditoria profunda do sistema. O foco é proteger o dado do paciente, deixar o backup no Google Drive à prova de descuido e dar ao operador uma visão clara de como o sistema está indo. Detalhe técnico em [`decisions.md`](./decisions.md).
+
+**Novidades**
+- **Registro de quem acessou o prontuário.** Toda leitura e alteração de anamnese e notas passa a ficar registrada na trilha de auditoria, com a identidade de quem fez — nunca o conteúdo clínico. É rastreabilidade exigida pela LGPD.
+- **Pasta de backup no Drive criada sozinha.** Você não precisa mais apontar uma pasta à mão: o sistema cria (ou reencontra) a pasta "Psicoman DR" e guarda a referência. Se apagarem a pasta, ele recria no próximo backup.
+- **Backups antigos limpos automaticamente.** O sistema mantém os 14 backups mais recentes no Drive e manda os mais velhos para a **lixeira** (recuperáveis), em vez de deixar tudo acumular. Dá para ajustar quantos manter.
+- **Proteção contra abuso no cadastro e no agendamento.** Além do limite da borda, o próprio sistema limita tentativas repetidas de cadastro por e-mail e de pedidos de agendamento por paciente, respondendo com "tente de novo mais tarde".
+- **Autorização do Google mais segura.** O fluxo de conectar o Google passou a validar que o retorno veio do mesmo navegador que iniciou, fechando uma brecha de segurança.
+- **Painel de métricas para quem opera.** Um endereço interno e opcional expõe números de uso e saúde (requisições, filas, backups, integrações) para ferramentas de monitoramento — sem jamais expor dado de paciente.
+
+**Melhorias**
+- **Identidade real na trilha de auditoria.** O `audit_log` deixa de registrar "sistema" e passa a registrar quem de fato fez a operação quando ela vem de um acesso autenticado.
+- **Verificador de qualidade de código religado.** O `golangci-lint` voltou a rodar de verdade a cada verificação (local e na integração contínua), pegando problemas antes de chegarem à produção.
+- **Saúde do backup à vista.** O "estou pronto" do sistema agora também mostra se o espelhamento no Drive está ok ou precisa de atenção.
+
+**Correções**
+- **Documentação alinhada ao sistema.** O Gmail (que não é usado) saiu dos guias internos, e a documentação do backup, da pasta de DR e das métricas foi acertada.
+
+**Notas de migração/operação**
+- **Pasta do Drive agora é opcional.** Quem tinha o backup no Drive desligado só por não ter configurado a pasta passa a tê-lo **ligado automaticamente** (com credenciais do Google válidas). Se você usa uma pasta específica criada à mão, informe o id dela em `google.drive_folder`.
+- **Retenção padrão de 14 backups.** Ajuste em `google.drive_retention` (0 = manter tudo, limpeza manual). Backups antigos anteriores a esta versão ficam fora da limpeza automática.
+- **Reconectar o Google precisa do mesmo navegador.** Se você tinha a autorização do Google em andamento, reinicie o fluxo pela rota de administração.
+- **Métricas são opcionais e desligadas por padrão.** Para ligar, defina `metrics.addr`; a porta nunca deve ser publicada na internet (só para o coletor interno). Ver `docs/deploy.md`.
+- **Instalação exige `make tools` uma vez** (instala o verificador de código). Ver `README.md`/`docs/deploy.md`.
+- **Rotação de segredos** (chave de cifra, segredo do Google, chave do Gemini): checklist operacional em `docs/deploy.md` (§9.1).
+
+---
+
 ## 2026-11-05 — Rodar a API localmente para testes e para conectar o Google (modo dev de identidade)
 
 Um ajuste para quem desenvolve e testa o Psicoman fora do ambiente de produção. Detalhe técnico em [`decisions.md`](./decisions.md).

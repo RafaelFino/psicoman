@@ -38,10 +38,10 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
 | 6 — R7.1 + R7.2: rate limit e `state` do OAuth | ✅ concluída | `dea5247` | `httpx.Limiter` (5/h e-mail, 10/h paciente, 429+Retry-After); `OAuthStateStore` + cookie; `400 state_invalido`; testes unit/em processo/E2E; ADRs + deploy + arch §0.23 |
 | 7 — R8 base: dependência, registry, middleware e listener | ✅ concluída | `b2cab83` | `client_golang` v1.25.0 (tidy só acrescenta); `app.Metrics`; `platform/metrics` (registry próprio); `httpx.Instrument` (raiz, prio -5000); listener fail-closed `metrics.addr`; ADR R8.12; E2E de isolamento/HTTP/401-403/vazamento/fail-closed |
 | 8 — R8 famílias: negócio, integrações, auditoria, backup | ✅ concluída | `e6d8e89` | negócio por `SetMetrics`; filas (coletor c/ cache); decoradores Calendar/Gemini/cifra; auditoria; backup/DR; rate limit; `google_oauth_ok`; docs + ADR (fecha OBS-1 e R5.2) |
-| 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ✅ concluída | `<fase9>` | steering sem Gmail + regras de E2E de métricas/429; coerência README/docs; tabela da `pocketbase-finish` consolidada (PR #4); checklist de rotação de segredos |
-| 10 — Fechamento (release notes + checklist + push) | ⬜ pendente | — | push só com OK do Rafael |
+| 9 — R6 + R7.3: docs, steering e tabela da pocketbase-finish | ✅ concluída | `ef2a99f` | steering sem Gmail + regras de E2E de métricas/429; coerência README/docs; tabela da `pocketbase-finish` consolidada (PR #4); checklist de rotação de segredos |
+| 10 — Fechamento (release notes + checklist + push) | 🔄 aguardando OK do Rafael | — | release notes + verificação final (check+race verdes) prontos; **push e PR pendentes do OK explícito (task 10.4)** |
 
-**Agora:** Fases 0–9 concluídas (spike manual 4.1 pendente de credencial do Rafael). Gate real verde. Próxima ação: Fase 10 — fechamento (release notes, verificação final com `-race`, checklist) e então **PARAR e pedir o OK do Rafael antes do push** (task 10.4).
+**Agora:** Fases 0–9 concluídas e Fase 10 pronta (release notes + `make check` e `-race` verdes). **PARADO na task 10.4 aguardando o OK explícito do Rafael para `git push -u origin auditoria-profunda` e abrir o PR.** Pendências para o Rafael: spike manual 4.1 (`drive.file` em runtime) e o checklist de fechamento 10.3 (rotação de segredos, firewall das métricas, `X-Forwarded-Proto`).
 
 ---
 
@@ -423,18 +423,18 @@ Tasks de **spike** (suposições do `design.md` §11.5) vêm antes de qualquer t
   - Arquivo: `docs/deploy.md`.
   - **Pronto quando:** a seção existe e a task 10.3 a repete como item de fechamento marcável pelo Rafael.
   - **Refs:** R7.3 · design §9.
-- [x] **Fechamento Fase 9:** `make check` verde (docs-only: sem mudança de código); steering e docs coerentes; commit `<fase9>` `auditoria-profunda Fase 9: alinha steering e docs ao código e fecha pendências documentais`.
+- [x] **Fechamento Fase 9:** `make check` verde (docs-only: sem mudança de código); steering e docs coerentes; commit `ef2a99f` `auditoria-profunda Fase 9: alinha steering e docs ao código e fecha pendências documentais`.
 
 ---
 
 ## Fase 10 — Fechamento da onda
 
-- [ ] **10.1 Release notes visuais** (dep: Fases 1 a 9)
+- [x] **10.1 Release notes visuais** (dep: Fases 1 a 9) — entrada `auditoria-profunda` no topo de `docs/release-notes.md` (2026-11-06), linguagem orientada à terapeuta, com Novidades (auditoria do prontuário, pasta de DR automática, retenção, limite de tentativas, state do OAuth, métricas), Melhorias (ator real, linter no gate, `/readyz` drive_dr), Correções (steering sem Gmail, tabela da Fase 10) e Notas de migração/operação (drive_folder opcional, drive_retention=14, metrics.addr opt-in, callback no mesmo navegador, make tools, rotação de segredos).
   - Entrada `auditoria-profunda` no topo de `docs/release-notes.md`: título, data, resumo em uma frase e listas **Novidades** (auditoria do prontuário, pasta de DR automática, retenção de snapshots, limite de tentativas, `state` do OAuth, métricas Prometheus em listener interno), **Melhorias** (ator real no `audit_log`, linter ativo no gate e no CI, `/readyz` com `checks.drive_dr`), **Correções** (steering sem Gmail, tabela da Fase 10) e **Notas de migração/operação** (`drive_folder` opcional: instâncias que tinham o DR desativado por falta dele passam a ativá-lo; `drive_retention` default 14; `metrics.addr` ausente = sem listener; o callback do OAuth exige o cookie do authorize, quem tinha o fluxo aberto reinicia; snapshots antigos sem `appProperties` ficam fora da retenção; rotação de segredos). Linguagem orientada ao usuário/terapeuta, sem valores de segredo.
   - Arquivo: `docs/release-notes.md`.
   - **Pronto quando:** a entrada existe, com todas as seções, no topo do arquivo.
   - **Refs:** R10 · `psicoman-processo-entrega.md` (Release notes).
-- [ ] **10.2 Verificação final da branch** (dep: 10.1)
+- [x] **10.2 Verificação final da branch** (dep: 10.1) — `make check` = `exit=0` (`/tmp/check-final.log`, lint real 0 issues) e `go test -race ./internal/...` = `exit=0` (`/tmp/race-final.log`, `internal/api` 344s, sem DATA RACE). `git status` limpo (só bookkeeping); `git log --oneline main..HEAD` com um commit por fase (0–9; Fase 3 em 2 commits); nenhum segredo/`config.dev.yaml`/`client_secret_dev.json` versionado (`git check-ignore` confirma); matriz de cobertura abaixo revisada.
   - `make check > /tmp/check-final.log 2>&1; echo "exit=$?"` e `go test -race ./internal/... > /tmp/race-final.log 2>&1; echo "exit=$?"`, ambos `exit=0`, com o lint real. Conferir `git status` limpo, `git log --oneline main..HEAD` com um commit por fase, nenhum segredo/`config.dev.yaml`/artefato temporário versionado, e a matriz de cobertura abaixo toda marcada.
   - **Pronto quando:** os dois comandos terminam com `exit=0` e o log de commits bate com a tabela de status.
 - [ ] **10.3 Checklist de fechamento (para o Rafael)** (dep: 10.2)
